@@ -61,7 +61,7 @@ earlier ones (a step's *needs* are noted).
 | 1 | build the OSM POI table | `python -m src.pois` | — | ✅ |
 | 2 | (download videos — already present) | `python -m src.download_videos` | — | ✅ |
 | 3 | extract frames (quality-filtered) | `python -m src.extract_frames` | step 2 | ✅ |
-| 4 | POI scan — Gemini Flash → OSM match | `python -m src.poi_scan --limit 5` then full | steps 1, 3 | ✅ |
+| 4 | POI scan — Gemini Flash → OSM match | `python -m src.poi_scan --limit 5` then `--every-n 10` | steps 1, 3 | ✅ |
 | 5 | Street View — bbox / scan / download | `python -m src.streetview --bbox` · `--scan` · `--download` | — | ✅ |
 | 6 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | steps 3, 5 | ⏳ |
 | 7 | OSM + HMM road-snapping | `python -m src.road_snap` | step 6 | ⏳ |
@@ -236,8 +236,21 @@ must be honest about provenance.
   This *is* the POI provenance — it shows exactly which POIs (and tiers)
   the dataset can anchor and route to.
 
-**Run:** `python -m src.poi_scan --limit 5` (5-frame trial first) →
-`python -m src.poi_scan`. Cost: Gemini Flash, cheap.
+**Run:**
+```bash
+python -m src.poi_scan --limit 5      # 5-frame trial first
+python -m src.poi_scan                # full run
+python -m src.poi_scan --every-n 5    # denser (every 5th frame)
+```
+
+**`--every-n` (default 10)** is the temporal-stride control: the scan
+processes every Nth of the 26,034 kept frames. The kept frames are
+*already* pHash-deduped at extraction, so even `--every-n 1` has no
+near-duplicates; `--every-n` simply trades coverage for cost —
+- `10` (default) → ~2,600 frames scanned — wide gap, cheap;
+- `5`  → ~5,200 frames — denser POI coverage;
+- `1`  → all 26,034 — fullest, most Gemini-Flash calls.
+`--limit N` caps the total (for trial runs). Cost: Gemini Flash, cheap.
 
 The `src/poi.py` 27-candidate list is now only the **iconic-POI
 reference / map** (`--map`) — it is no longer the scan input.
