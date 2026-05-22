@@ -508,16 +508,16 @@ first-segment bearing).
 
 **Procedure.** Feed photo + GPS (+ heading for `*-given`) + nearby POIs
 + route; the model emits `<thinking>` + `<answer>`; the answer is scored
-by **4 gates**. Each gate (except the pure form check) compares the
+on **four named metrics**. Each (except the form check) compares the
 model's output against ground truth.
 
-**Gate 1 — well-formed** *(model output only, no GT)*. Merges the old
-format + sentence-count checks: both `<thinking>` and `<answer>` blocks
-present, the answer is 2–4 sentences, and it contains no compass words,
-numbers, or raw GPS. A hygiene check on the output's shape.
+**(a) Format compliance** *(model output only, no GT)*. Both
+`<thinking>` and `<answer>` blocks present, the answer is 2–4 sentences,
+and it contains no compass words, numbers, or raw GPS. Standard
+instruction-following / output-validity check.
 
-**Gate 2 — closed-loop angle** *(model's verb vs GT geometry)* — the
-core correctness gate. Step by step:
+**(b) Directional accuracy** *(model's verb vs GT geometry)* — the core
+task-correctness metric, a "closed-loop" angular check:
 - *GT:* the frame's heading `h` and the route's first-segment bearing
   `B`, both known from Phase A and the route planner.
 - *Test output:* parse the action verb the model wrote ("turn left",
@@ -525,36 +525,42 @@ core correctness gate. Step by step:
 - *Close the loop:* if the user faces `h` and performs that verb, their
   new facing is `h + ACTION_DELTA[verb]`, where
   `ACTION_DELTA = {ahead 0, left −90, right +90, around 180}`.
-- For the instruction to be **correct**, that new facing must equal the
+- For the instruction to be **correct**, that new facing must match the
   direction they actually need to go (`B`):
   `δ = | angle_diff( h + ACTION_DELTA[verb], B ) |`.
-- **Pass if δ < 30°.** A model that says "turn left" when the route is
-  to the right gets δ ≈ 180° → fails.
+- **Correct if δ < 30°.** Saying "turn left" when the route is to the
+  right gives δ ≈ 180° → wrong.
 
-**Gate 3 — checkpoint validity** *(model's checkpoint vs GT route)*. A
-long route (>3 turns) ends with "when you reach <X>, send me another
-photo". Gate 3 checks `<X>` is (a) a real street/landmark **on the
-planned route** — a membership test against the route's streets/POIs —
-and (b) a *permanent* feature, not a movable object ("the red car"
-fails). Single-turn answers skip this gate.
+**(c) Checkpoint validity** *(model's checkpoint vs GT route)* — a route
+grounding check. A long route (>3 turns) ends with "when you reach <X>,
+send me another photo". `<X>` must be (a) a real street/landmark **on
+the planned route** — a membership test against the route's
+streets/POIs — and (b) a *permanent* feature, not a movable object
+("the red car" fails). Single-turn answers skip it.
 
-**Gate 4 — anchor grounded** *(model's anchor vs the photo)*. The answer
-anchors the action to a visible object — "turn left **at the tram
-tracks**". Gate 4 extracts that anchor phrase and asks a VLM (Gemini)
-"is <anchor> visible in this image? yes/no" — GT here is the photo
-itself. Catches hallucinated anchors.
+**(d) Anchor faithfulness — the hallucination metric** *(model's anchor
+vs the photo)*. The answer anchors the action to a visible object —
+"turn left **at the tram tracks**". This extracts the anchor phrase and
+asks a VLM (Gemini) "is <anchor> visible in this image? yes/no". GT is
+the photo itself. This is exactly an **object-hallucination check** — it
+catches the model inventing a landmark that isn't in the frame
+(the well-known VLM visual-hallucination failure mode).
 
 **Scoring — PASS_strict, not a weighted sum.** The headline metric is
-**`PASS_strict = Gate1 ∧ Gate2 ∧ Gate3 ∧ Gate4`** — a hard AND. A
-weighted sum is **deliberately not used**: a well-formed, nicely
-anchored answer that points the wrong way (Gate 2 fails) is *useless* —
-averaging would let format points mask a wrong direction. The gates are
-not interchangeable, so they are AND-ed.
+**`PASS_strict`** = an answer must satisfy **all four**
+(format compliance ∧ directional accuracy ∧ checkpoint validity ∧ anchor
+faithfulness). A weighted sum is **deliberately not used**: a
+well-formed, nicely anchored answer that points the wrong way is
+*useless* — averaging would let format points mask a wrong direction.
+The metrics are not interchangeable, so they are AND-ed.
 
-For diagnosis we also report, separately and un-weighted:
-- **per-gate pass rate** — which gate fails most,
-- **closed-loop pass rate** — Gate 2 alone (the most-watched number),
-- **median heading error δ** — continuous, for the `*-infer` conditions.
+Reported separately, un-weighted, for diagnosis:
+- **per-metric pass rate** — which metric fails most,
+- **directional accuracy** alone — the closed-loop rate, the number
+  watched most closely,
+- **hallucination rate** — how often anchor faithfulness fails,
+- **median heading error δ** — continuous, for the `*-implicit` /
+  `*-explicit` (compass-free) conditions.
 
 **Where it runs.** Zero-shot baselines (`B-given`, `B-infer`) run
 **locally** on the RTX 3060 — inference only, no training. The LoRA

@@ -99,7 +99,9 @@ def main():
     ap = argparse.ArgumentParser(description="candidate POIs — list / map")
     ap.add_argument("--list", action="store_true", help="print the 27 POIs")
     ap.add_argument("--map", action="store_true", help="write the HTML map")
-    args = ap.parse_args()
+    # parse_known_args so a stray '/' separator (from copy-pasting
+    # `--list / --map`) is ignored rather than erroring out
+    args, _ = ap.parse_known_args()
     if args.map:
         write_map()
     if args.list or not args.map:
