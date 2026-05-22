@@ -55,12 +55,15 @@ Then run these one by one. Only ✅ steps exist yet; ⏳ land as built (§7).
 |---|------|---------|--------|
 | 0 | sanity-check config + paths | `python config.py` | ✅ |
 | 1 | run the unit tests | `python -m pytest tests/ -q` | ✅ |
-| 2 | the 27 candidate POIs — table / map | `python -m src.poi --list` / `--map` | ✅ |
+| 2 | print the 27 candidate POIs | `python -m src.poi --list` | ✅ |
+| 2b| write the POI icon map | `python -m src.poi --map` | ✅ |
 | 3 | list source videos found | `python -m src.extract_frames --list` | ✅ |
 | 4 | extract frames — all videos | `python -m src.extract_frames` | ✅ |
 | 4b| extract one video only | `python -m src.extract_frames --only hidden_streets` | ✅ |
 | – | download a missing video | `python -m src.download_videos --only <name>` | ✅ (videos present) |
-| 5 | Street View bbox / scan / crawl | `python -m src.streetview --bbox` · `--scan` · `--download` | ✅ built |
+| 5 | Street View — derived crawl bbox | `python -m src.streetview --bbox` | ✅ |
+| 5b| Street View — free metadata scan | `python -m src.streetview --scan` | ✅ |
+| 5c| Street View — Static API download | `python -m src.streetview --download` | ✅ (costs $) |
 | 6 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | ⏳ module coming |
 | 7 | OSM + HMM road-snapping | `python -m src.road_snap` | ⏳ module coming |
 | – | LoRA training on Modal | `modal run train_modal.py` | ✅ built |
@@ -477,29 +480,59 @@ only in whether the user message includes the heading.
 **Test set** = the held-out split of whichever ablation is running — the
 `saturday_morning` video, or the held-out destination POIs (§3).
 
-**Procedure.** For each test frame: feed photo + GPS (+ heading for the
-`*-given` conditions) + nearby POIs + planned route; the model emits
-`<thinking>` + `<answer>`; the answer is scored by 5 gates.
+Every test frame carries **ground truth** from Phase A: its verified GPS
+and heading, plus the OSM-planned route to each destination (the route's
+first-segment bearing).
 
-**The 5 gates** — a sample passes only if all 5 pass:
-1. **Format** — both `<thinking>` and `<answer>` present; the answer
-   contains no compass words, numbers, or raw GPS.
-2. **Sentence count** — the answer is 2–4 sentences.
-3. **Closed-loop angle** — the core correctness gate. Parse the action
-   verb; compute `δ = |heading_gt + ACTION_DELTA[verb] − route_bearing|`;
-   pass if **δ < 30°** (§2.7 Q5). Checks the direction actually sends
-   the user the right way.
-4. **Checkpoint** — a multi-turn answer ("when you reach X…") names a
-   real street / landmark that is on the route.
-5. **Anchor grounded** — the visible object the answer anchors to
-   ("turn left at the tram tracks") is actually in the photo — a VLM
-   yes/no check.
+**Procedure.** Feed photo + GPS (+ heading for `*-given`) + nearby POIs
++ route; the model emits `<thinking>` + `<answer>`; the answer is scored
+by **4 gates**. Each gate (except the pure form check) compares the
+model's output against ground truth.
 
-**Metrics:**
-- **PASS_strict** — % of test samples passing all 5 gates (headline).
-- **Closed-loop pass rate** — gate 3 alone (directional correctness).
-- **Median heading error δ** — for the `*-infer` conditions, how far the
-  model's implied heading is from ground truth.
+**Gate 1 — well-formed** *(model output only, no GT)*. Merges the old
+format + sentence-count checks: both `<thinking>` and `<answer>` blocks
+present, the answer is 2–4 sentences, and it contains no compass words,
+numbers, or raw GPS. A hygiene check on the output's shape.
+
+**Gate 2 — closed-loop angle** *(model's verb vs GT geometry)* — the
+core correctness gate. Step by step:
+- *GT:* the frame's heading `h` and the route's first-segment bearing
+  `B`, both known from Phase A and the route planner.
+- *Test output:* parse the action verb the model wrote ("turn left",
+  "continue ahead", …) out of `<answer>`.
+- *Close the loop:* if the user faces `h` and performs that verb, their
+  new facing is `h + ACTION_DELTA[verb]`, where
+  `ACTION_DELTA = {ahead 0, left −90, right +90, around 180}`.
+- For the instruction to be **correct**, that new facing must equal the
+  direction they actually need to go (`B`):
+  `δ = | angle_diff( h + ACTION_DELTA[verb], B ) |`.
+- **Pass if δ < 30°.** A model that says "turn left" when the route is
+  to the right gets δ ≈ 180° → fails.
+
+**Gate 3 — checkpoint validity** *(model's checkpoint vs GT route)*. A
+long route (>3 turns) ends with "when you reach <X>, send me another
+photo". Gate 3 checks `<X>` is (a) a real street/landmark **on the
+planned route** — a membership test against the route's streets/POIs —
+and (b) a *permanent* feature, not a movable object ("the red car"
+fails). Single-turn answers skip this gate.
+
+**Gate 4 — anchor grounded** *(model's anchor vs the photo)*. The answer
+anchors the action to a visible object — "turn left **at the tram
+tracks**". Gate 4 extracts that anchor phrase and asks a VLM (Gemini)
+"is <anchor> visible in this image? yes/no" — GT here is the photo
+itself. Catches hallucinated anchors.
+
+**Scoring — PASS_strict, not a weighted sum.** The headline metric is
+**`PASS_strict = Gate1 ∧ Gate2 ∧ Gate3 ∧ Gate4`** — a hard AND. A
+weighted sum is **deliberately not used**: a well-formed, nicely
+anchored answer that points the wrong way (Gate 2 fails) is *useless* —
+averaging would let format points mask a wrong direction. The gates are
+not interchangeable, so they are AND-ed.
+
+For diagnosis we also report, separately and un-weighted:
+- **per-gate pass rate** — which gate fails most,
+- **closed-loop pass rate** — Gate 2 alone (the most-watched number),
+- **median heading error δ** — continuous, for the `*-infer` conditions.
 
 **Where it runs.** Zero-shot baselines (`B-given`, `B-infer`) run
 **locally** on the RTX 3060 — inference only, no training. The LoRA
