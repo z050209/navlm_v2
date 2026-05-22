@@ -111,6 +111,7 @@ RECONCILE_TAU = 0.5       # accept a frame when combined score >= tau
 
 # ── models ───────────────────────────────────────────────────────────
 DINOV2_MODEL = "facebook/dinov2-base"
+GEMINI_SCAN = "gemini-2.5-flash"       # POI scan — "gemini fast"
 GEMINI_GEOCHECK = "gemini-2.5-pro"     # VLM geo-localization (Q6: Pro)
 GEMINI_ANNOTATE = "gemini-2.5-pro"     # instruction annotation
 DEST_PER_FRAME = 3                     # annotation destinations / frame (Q6)
