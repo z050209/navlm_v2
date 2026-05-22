@@ -137,6 +137,49 @@ A POI is a named place with coordinates. v2 uses **one POI table**:
 > `scenery_pois.py` (13 entries with hand-set radii). v2 has **one POI
 > table, fully OSM-extracted** — points + way/area features above.
 
+**Purpose of the way / area features.** Walking instructions constantly
+reference them — "walk *along Bahnhofstrasse*", "*cross Münsterbrücke*",
+"follow *the Limmat*". A point landmark (a single dot) cannot represent
+a street or a river, so these are kept with line/polygon geometry;
+"near a street" is then a true **point-to-line distance**, not a
+hand-set radius. They serve as **destinations**, as in-route
+**anchors/checkpoints**, and their `kind_label` ("the main shopping
+street") gives the spoken answer its natural wording.
+
+**Code to derive the table — `src/pois.py`** (osmnx Overpass over the
+project bbox):
+
+```python
+import osmnx as ox
+# point landmarks
+pts  = ox.features_from_bbox(bbox, tags={
+    "tourism": True, "historic": True, "railway": "station",
+    "amenity": ["theatre", "museum", "place_of_worship", "townhall"]})
+# way / area features — kept WITH geometry
+ways = ox.features_from_bbox(bbox, tags={
+    "highway": ["primary", "secondary", "residential",
+                "pedestrian", "living_street"],   # named streets
+    "waterway": "river", "natural": "water",       # the Limmat, the lake
+    "man_made": "bridge"})                         # bridges
+```
+
+Each row → `{name, kind, kind_label, geometry}`; point POIs keep a
+lat/lon, ways/areas keep the polyline/polygon. Output:
+`data/cities/zurich/pois.json`. Run: `python -m src.pois`.
+
+**How the POI table is used** downstream:
+1. **Destination sampling** (§2.7) — annotation draws each frame's 3
+   destinations from it, distance-banded.
+2. **Nearby-POI list** — the VLM prompt lists POIs within range with
+   coordinates, so the model can triangulate its heading against them.
+3. **Place-name resolution** (§2.5) — the geo-check VLM names a place;
+   it is resolved to GPS through this table.
+4. **Route anchors / checkpoints** — streets and bridges named in
+   multi-turn directions ("when you reach Bahnhofstrasse…").
+5. **Routing targets** (§2.6) — the route planner routes to a POI.
+6. **POI-region split** (§3) — the POI set is partitioned for the
+   POI-generalization ablation.
+
 **POI scan of the video frames** — `scan_video_pois_multi.py` had a VLM
 (Gemma) look at frames and list visible POIs from a fixed **27-candidate
 list** (`CANDIDATE_POIS`). The existing scan output
