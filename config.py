@@ -111,9 +111,16 @@ RECONCILE_TAU = 0.5       # accept a frame when combined score >= tau
 
 # ── models ───────────────────────────────────────────────────────────
 DINOV2_MODEL = "facebook/dinov2-base"
-GEMINI_SCAN = "gemini-2.5-flash"       # POI scan — "gemini fast"
+GEMINI_SCAN = "gemini-2.5-pro"         # POI scan
 GEMINI_GEOCHECK = "gemini-2.5-pro"     # VLM geo-localization (Q6: Pro)
 GEMINI_ANNOTATE = "gemini-2.5-pro"     # instruction annotation
+
+# Gemini backend — "vertex": Vertex AI, OAuth via gcloud, billed to the
+# GCP project (the Education credit applies and Pro is reachable).
+# "aistudio": the GEMINI_API_KEY endpoint (free tier — Flash only).
+GEMINI_BACKEND = "vertex"
+GCP_PROJECT = "cs231n-navlm-2026"
+VERTEX_LOCATION = "global"             # "global" or a region, e.g. us-central1
 DEST_PER_FRAME = 3                     # annotation destinations / frame (Q6)
 POI_SCAN_MAX_PX = 1024                 # downscale frames before the POI scan
 

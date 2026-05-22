@@ -1,18 +1,23 @@
-"""POI scan — name the places visible in video frames (Gemini Flash),
-then match the names against the OSM POI table.
+"""POI scan — work out *where* each video frame was taken, then match
+the place names against the OSM POI table.
 
-Replaces the v1 closed 27-candidate Gemma scan. This is **open-set**: the
-VLM freely names whatever landmarks / squares / churches / streets /
-bridges it sees; we record the raw names and resolve each against the
-OSM POI table (`src/pois.py` output) via `resolve_poi()`. Each match is
-tagged with its tier — L1 (iconic) / L2 (mid) / L3 (other) — so the
-dataset can be filtered to **L1 + L2**.
+Replaces the v1 closed 27-candidate Gemma scan. This is **open-set and
+inference-based**: the VLM is asked to *reason* about the location from
+every clue (shop names, architecture, trams, churches, the lake) — it
+does not need a visible street sign. It returns, as JSON:
+  - `visible` — places it can directly see / read,
+  - `guess`   — its single best inference of the street / square / area,
+  - `confidence` (high/medium/low) + one-sentence `reasoning`.
+`visible` and `guess` names are resolved against the OSM POI table
+(`src/pois.py` output) via `resolve_poi()`; each match is tiered
+L1 (iconic) / L2 (mid) / L3 (other).
 
     python -m src.poi_scan --limit 5       # 5-frame trial first
     python -m src.poi_scan --every-n 10    # every 10th extracted frame
     python -m src.poi_scan                 # all extracted frames
 
-Needs GEMINI_API_KEY (.env). Model: `gemini-2.5-flash` ("gemini fast").
+Needs GEMINI_API_KEY (.env). Model: `config.GEMINI_SCAN` (Gemini 2.5
+Pro, paid API tier). Every API call is logged to logs/gemini_api.jsonl.
 Output: data/cities/zurich/poi_scan.jsonl
 
 Tiering is OSM-tag based (poi_tier, below) — edit the TIER_BY_* maps.
@@ -20,14 +25,16 @@ Tiering is OSM-tag based (poi_tier, below) — edit the TIER_BY_* maps.
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import config                       # noqa: E402
-from src.pois import resolve_poi    # noqa: E402
+import config                          # noqa: E402
+from src.pois import resolve_poi       # noqa: E402
+from src.gemini_api import call_gemini  # noqa: E402
 
 # ── tiers, by OSM tag — derived from OpenStreetMap's own categories.
 #    Edit these maps to re-tier. A specific 'key=value' wins over the
@@ -53,19 +60,28 @@ TIER_BY_KEY = {"tourism": 2, "historic": 2, "man_made": 2, "waterway": 2,
                "highway": 2, "amenity": 3, "leisure": 3, "natural": 3,
                "railway": 3, "place": 3}
 
-GEMINI_SYS = "You name visible places in street-level photos of Zurich."
+GEMINI_SYS = ("You are a Zurich local. You work out where street-level "
+              "photos were taken by reasoning from visible clues.")
 GEMINI_PROMPT = (
-    "This is a street-level photo taken in central Zurich, Switzerland. "
-    "List every named place clearly visible — landmarks, churches, "
-    "squares, streets, bridges, the river, the lake, notable buildings.\n"
-    "Name each place as it appears on a map / OpenStreetMap — prefer the "
-    "official local German name (e.g. 'Hauptbahnhof', 'Zürichsee', "
-    "'Grossmünster'). If the place is also widely known by a different "
-    "English or common name, add that after a ' | '.\n"
-    "One place per line, for example:\n"
-    "  Hauptbahnhof | Zurich Main Station\n"
-    "  Limmat\n"
-    "If nothing nameable is visible, reply with the single word: none"
+    "This is a frame from a walking-tour video in central Zurich, "
+    "Switzerland. Work out WHERE it was taken.\n"
+    "Reason from every clue: shop / hotel / restaurant names, signs and "
+    "street plates, architecture, churches and towers, trams and tram "
+    "stops, the river or the lake, cobblestones, how wide the street "
+    "is. You do NOT need a visible street sign — make your best "
+    "inference from your knowledge of Zurich, even if you are unsure.\n"
+    "Reply with ONLY a JSON object, nothing else:\n"
+    "{\n"
+    '  "visible": ["..."],   place names you can directly see or read '
+    "(a sign, an unmistakable landmark); [] if none\n"
+    '  "guess": "...",       your single best guess of the street, '
+    'square or area this photo is in; "" only if you truly cannot tell\n'
+    '  "confidence": "high | medium | low",\n'
+    '  "reasoning": "one sentence — the clues that led to your guess"\n'
+    "}\n"
+    "Use official local German names (Bahnhofstrasse, Hauptbahnhof, "
+    "Zürichsee, Grossmünster, Münsterhof). If a place is also widely "
+    "known by an English name, write it as 'German | English'."
 )
 
 
@@ -80,48 +96,68 @@ def poi_tier(osm_kind):
     return TIER_BY_KEY.get(osm_kind.split("=", 1)[0], 3)
 
 
-def parse_names(text):
-    """Parse the VLM reply — one place per line, name variants split on
-    '|'. Returns a list of variant-lists, e.g.
-    `[['Hauptbahnhof', 'Zurich Main Station'], ['Limmat']]`. Pure."""
-    out = []
-    for line in (text or "").splitlines():
-        line = line.strip().lstrip("-*•").strip()
-        if not line or line.lower() == "none":
-            continue
-        variants = [v.strip() for v in line.split("|") if v.strip()]
-        if variants:
-            out.append(variants)
-    return out
+def _variants(s):
+    """'German | English' -> ['German', 'English']. Pure."""
+    return [v.strip() for v in str(s).split("|") if v.strip()]
 
 
-def match_names(places, osm_pois):
-    """Resolve each place against the OSM POI table.
+EMPTY_SCAN = {"visible": [], "guess": [], "confidence": "", "reasoning": ""}
 
-    `places`: a list of variant-lists (from `parse_names`). For each
-    place the first variant that resolves wins — so a miss on Gemini's
-    English name can still hit on the German one. Returns
-    (matched, unmatched): matched is `[{variants, matched_name,
-    osm_name, osm_kind, kind_label, tier}]`, unmatched is
-    `[variants, ...]`. Pure — unit-tested.
-    """
-    matched, unmatched = [], []
-    for variants in places:
-        hit = used = None
-        for v in variants:
-            hit = resolve_poi(v, osm_pois)
-            if hit:
-                used = v
-                break
+
+def parse_scan(text):
+    """Parse the VLM JSON reply into a dict
+    `{visible: [[variants],...], guess: [variants], confidence, reasoning}`.
+    Robust to ```json fences and stray prose around the object — the
+    first balanced-looking `{...}` is taken. Pure — unit-tested."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return dict(EMPTY_SCAN)
+    try:
+        d = json.loads(m.group(0))
+    except (json.JSONDecodeError, TypeError):
+        return dict(EMPTY_SCAN)
+    if not isinstance(d, dict):
+        return dict(EMPTY_SCAN)
+    visible = [_variants(x) for x in (d.get("visible") or [])]
+    return {
+        "visible": [v for v in visible if v],
+        "guess": _variants(d.get("guess") or ""),
+        "confidence": str(d.get("confidence", "")).strip().lower(),
+        "reasoning": str(d.get("reasoning", "")).strip(),
+    }
+
+
+def _resolve(variants, osm_pois, source):
+    """Resolve one variant-list against the OSM table. Returns a match
+    dict — carrying `source` ('visible' | 'guess') — or None. The first
+    variant that resolves wins, so a miss on the English name can still
+    hit on the German one. Pure."""
+    for v in variants:
+        hit = resolve_poi(v, osm_pois)
         if hit:
             kind = hit.get("osm_kind", "")
-            matched.append({
-                "variants": variants, "matched_name": used,
-                "osm_name": hit["name"],
-                "osm_kind": kind,
+            return {
+                "variants": variants, "matched_name": v, "source": source,
+                "osm_name": hit["name"], "osm_kind": kind,
                 "kind_label": hit.get("kind_label", ""),
                 "tier": poi_tier(kind),
-            })
+            }
+    return None
+
+
+def match_scan(parsed, osm_pois):
+    """Resolve a parsed scan's `visible` places and its `guess` against
+    the OSM POI table. Returns (matched, unmatched): matched is
+    `[{variants, matched_name, source, osm_name, osm_kind, kind_label,
+    tier}]`, unmatched is `[variants, ...]`. Pure — unit-tested."""
+    matched, unmatched = [], []
+    items = [(v, "visible") for v in parsed.get("visible", [])]
+    if parsed.get("guess"):
+        items.append((parsed["guess"], "guess"))
+    for variants, source in items:
+        hit = _resolve(variants, osm_pois, source)
+        if hit:
+            matched.append(hit)
         else:
             unmatched.append(variants)
     return matched, unmatched
@@ -150,31 +186,23 @@ def _downscaled(image_path, max_px=config.POI_SCAN_MAX_PX):
     return tmp.name
 
 
-def scan_frame(image_path, retries=3):
-    """One Gemini-Flash open-set naming call → variant-lists. The frame
-    is downscaled first (cost). Retries with backoff on transient API
-    errors (e.g. 503/429)."""
+def scan_frame(image_path):
+    """One open-set Gemini location-inference call → parsed scan dict
+    (see `parse_scan`). The frame is downscaled first (cost). The call,
+    its 429-aware retries and the API log (`logs/gemini_api.jsonl`) all
+    live in `src.gemini_api`."""
     import os
-    import time
-    sys.path.insert(0, str(config.REPO_ROOT / "reference" / "toolbox"))
-    from synth.backends import call_gemini
     small = _downscaled(image_path)
     try:
-        for attempt in range(retries):
-            try:
-                resp = call_gemini(small, GEMINI_SYS, GEMINI_PROMPT,
-                                   model=config.GEMINI_SCAN)
-                return parse_names(resp)
-            except Exception:
-                if attempt == retries - 1:
-                    raise
-                time.sleep(3 * (attempt + 1))    # 3 s, 6 s backoff
+        resp = call_gemini(small, GEMINI_SYS, GEMINI_PROMPT,
+                           model=config.GEMINI_SCAN, max_tokens=4096,
+                           label=Path(image_path).stem)
+        return parse_scan(resp)
     finally:
         try:
             os.unlink(small)
         except OSError:
             pass
-    return []
 
 
 def discover_frames(every_n=1):
@@ -191,7 +219,8 @@ def discover_frames(every_n=1):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="POI scan — Gemini Flash")
+    ap = argparse.ArgumentParser(
+        description="POI scan — Gemini location inference")
     ap.add_argument("--every-n", type=int, default=10,
                     help="scan every Nth extracted frame")
     ap.add_argument("--limit", type=int, default=0,
@@ -215,16 +244,22 @@ def main():
         for video, frame_id, path in tqdm(frames, desc="[poi_scan]",
                                           unit="frame"):
             try:
-                raw = scan_frame(path)
+                parsed = scan_frame(path)
             except Exception as e:
-                raw = []
+                parsed = dict(EMPTY_SCAN)
                 tqdm.write(f"  {frame_id}: {type(e).__name__}: {e}")
-            matched, unmatched = match_names(raw, osm_pois)
+            matched, unmatched = match_scan(parsed, osm_pois)
             n_l12 += sum(1 for m in matched if m["tier"] in (1, 2))
             fout.write(json.dumps({
                 "video": video, "frame_id": frame_id,
-                "places": raw, "matched": matched, "unmatched": unmatched,
+                "guess": " | ".join(parsed["guess"]),
+                "confidence": parsed["confidence"],
+                "reasoning": parsed["reasoning"],
+                "visible": parsed["visible"],
+                "matched": matched, "unmatched": unmatched,
             }, ensure_ascii=False) + "\n")
+            fout.flush()    # write each frame to disk now — crash-safe,
+                            # and the file shows live progress
     print(f"[poi_scan] done — {n_l12} L1/L2 POI sightings recorded.")
 
 

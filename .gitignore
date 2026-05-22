@@ -45,4 +45,5 @@ results/
 costs/
 preview/
 *.log
+logs/gemini_api.jsonl
 .DS_Store

@@ -15,7 +15,7 @@ This manual describes the method directly. `reference/` holds the old
 ## 1. Pipeline overview
 
 ```
-videos ─▶ frames ─▶ quality filter ─▶ POI scan (Gemini Flash)
+videos ─▶ frames ─▶ quality filter ─▶ POI scan (Gemini Pro · Vertex AI)
                                           │
    Street View reference grid ◀───────────┘
         │
@@ -246,15 +246,23 @@ POIs that appear in the videos shape what the instruction tuning can
 cover — i.e. what a user can ask the model to navigate to**, so the scan
 must be honest about provenance.
 
-- **Open-set, not a closed list.** Each frame goes to **Gemini Flash**
-  (`gemini-2.5-flash`, "gemini fast") which *freely names* every place
-  it sees — no fixed candidate menu. (This replaces the v1 closed
-  27-candidate Gemma scan.)
-- **Matched to OSM.** Every raw name the VLM returns is resolved against
-  the OSM POI table with the alias-aware, diacritic-folded `resolve_poi()`
-  (Gemini also returns a German + English variant so at least one form
-  matches). Names that match nothing are recorded as `unmatched` — that
-  surfaces real places missing from the OSM table.
+- **Inference-based, open-set.** Each frame goes to **Gemini 2.5 Pro**
+  (`config.GEMINI_SCAN`, via Vertex AI — see *API backend* below), asked
+  to *reason about where the photo was taken* — from shop names,
+  architecture, trams, churches,
+  the lake — with **no** need for a visible street sign. It replies as
+  JSON: `visible` (places directly seen / read), `guess` (its best
+  inference of the street / square / area), `confidence`
+  (high/medium/low) and a one-sentence `reasoning`. (This replaces both
+  the v1 closed 27-candidate Gemma scan and an earlier strict "name only
+  what is clearly visible" prompt that returned "none" for generic
+  streetscapes.)
+- **Matched to OSM.** Each `visible` name and the `guess` are resolved
+  against the OSM POI table with the alias-aware, diacritic-folded
+  `resolve_poi()` (Gemini gives a German + English variant so at least
+  one form matches). A match keeps a `source` field (`visible` /
+  `guess`); names matching nothing go to `unmatched` — surfacing real
+  places missing from the OSM table.
 - **Tiered by OSM tag.** Each matched POI is tagged **L1 / L2 / L3** by
   `poi_tier()` in `src/poi_scan.py`, classifying on the POI's **OSM tag**
   — not hand keywords. `src/pois.py:osm_kind()` records each POI's
@@ -270,25 +278,40 @@ must be honest about provenance.
   > `highway` in `TIER_BY_KEY`, or rank prominence by a separate signal
   > (e.g. POI-scan appearance frequency).
 - **Output** `data/cities/zurich/poi_scan.jsonl`, per frame:
-  `{video, frame_id, places[], matched[{variants, osm_name, osm_kind, kind_label, tier}], unmatched[]}`.
-  This *is* the POI provenance — it shows exactly which POIs (and tiers)
-  the dataset can anchor and route to.
+  `{video, frame_id, guess, confidence, reasoning, visible[],
+  matched[{variants, matched_name, source, osm_name, osm_kind,
+  kind_label, tier}], unmatched[]}`. This *is* the POI provenance — it
+  shows where each frame is, and which POIs (and tiers) the dataset can
+  anchor and route to.
+- **Every API call is logged.** `src/gemini_api.py` owns the Gemini call
+  and appends one line per call to `logs/gemini_api.jsonl` — input /
+  output token counts, USD cost, `finishReason` and the **full response
+  text** (the inspectable conversation log). It retries 429s and
+  refreshes the Vertex OAuth token on 401.
+
+**API backend (`config.GEMINI_BACKEND`).** Gemini 2.5 **Pro is not on
+the Gemini-API free tier** (`limit: 0`), and an *Education* / free-trial
+GCP billing account does **not** unlock the API-key paid tier. So the
+scan reaches Pro through **Vertex AI** (`GEMINI_BACKEND = "vertex"`) —
+OAuth via `gcloud`, billed to project `cs231n-navlm-2026`, which the
+Education credit covers. `GEMINI_BACKEND = "aistudio"` uses the
+`GEMINI_API_KEY` endpoint instead (free tier — Flash only).
 
 **Run:**
 ```bash
-python -m src.poi_scan --limit 5      # 5-frame trial first
-python -m src.poi_scan                # full run
-python -m src.poi_scan --every-n 5    # denser (every 5th frame)
+python -m src.poi_scan --limit 3       # 3-frame trial first
+python -m src.poi_scan --every-n 30    # the full run used here
+python -m src.poi_scan                 # every 10th frame (default)
 ```
 
 **`--every-n` (default 10)** is the temporal-stride control: the scan
 processes every Nth of the 26,034 kept frames. The kept frames are
 *already* pHash-deduped at extraction, so even `--every-n 1` has no
 near-duplicates; `--every-n` simply trades coverage for cost —
-- `10` (default) → ~2,600 frames scanned — wide gap, cheap;
-- `5`  → ~5,200 frames — denser POI coverage;
-- `1`  → all 26,034 — fullest, most Gemini-Flash calls.
-`--limit N` caps the total (for trial runs). Cost: Gemini Flash, cheap.
+- `10` (default) → ~2,600 frames;
+- `30` → ~870 frames — the setting used (~3.5 h, ~$12 on Pro via Vertex);
+- `1`  → all 26,034 — fullest, most API calls.
+`--limit N` caps the total (for trial runs).
 
 The `src/poi.py` 27-candidate list is now only the **iconic-POI
 reference / map** (`--map`) — it is no longer the scan input.
@@ -484,20 +507,23 @@ both a deliverable and a sanity check on GPS recovery.
 ### 2.9 Gemini API budget (Q6)
 
 Per 1M tokens: Gemini 2.5 **Pro** $1.25 in / $10 out · **Flash**
-$0.30 in / $2.50 out. The POI scan (§2.3) runs on Flash with downscaled
-frames; the geo-check and annotation VLM stages run on Pro (Q6).
+$0.30 in / $2.50 out. All three VLM stages run on **Pro**, called
+through **Vertex AI** (§2.3 *API backend*) — billed to project
+`cs231n-navlm-2026`, so the Education credit applies. Vertex Pro pricing
+matches the table above; **token usage and cost are logged per call to
+`logs/gemini_api.jsonl`** (≈ $0.014/frame measured on the POI scan).
 
 | Workload | Calls | Model | Est. cost |
 |----------|------:|-------|----------:|
-| POI scan — `--every-n 30`, 1024 px frames | ~870 | Flash | ~$0.50 |
-| VLM geo-check — candidate frames | ~5,000 | Pro | ~$18 |
-| Instruction annotation — 3 dest/frame | ~6,600 | Pro | ~$76 |
+| POI scan — `--every-n 30`, 1024 px frames | ~870 | Pro / Vertex | ~$12 |
+| VLM geo-check — candidate frames | ~5,000 | Pro / Vertex | ~$18 |
+| Instruction annotation — 3 dest/frame | ~6,600 | Pro / Vertex | ~$76 |
 | Street View Static crawl | ~2k–8k imgs | — | ~$15–55 |
 
-Total ≈ **$110–150**, against a **$50 GCP credit** — over budget.
-Mitigate by trimming the Street View crawl to the video routes and
-capping annotation samples. Flagged for the budget owner; tracked live
-with `reference/track_spend.py`.
+Total ≈ **$120–160**, against the **$50 Education credit** — over
+budget. Mitigate by trimming the Street View crawl to the video routes
+and capping annotation samples. Flagged for the budget owner; live spend
+is in `logs/gemini_api.jsonl` (Gemini) and `reference/track_spend.py`.
 
 ---
 
@@ -705,15 +731,16 @@ navlm_v2/
 
 ## 7. Roadmap
 
-1. ✅ Scaffold — `config.py`, `src/`, `tests/` (~62 pytest tests).
+1. ✅ Scaffold — `config.py`, `src/`, `tests/` (73 pytest tests).
 2. ✅ All Phase A / B modules coded + unit-tested: `download_videos`,
-   `extract_frames`, `pois`, `poi_scan`, `streetview`, `gps_recovery`,
-   `reconcile`, `routing`, `road_snap`; plus `poi`, `annotate`, `viz`,
-   `train_modal`.
+   `extract_frames`, `pois`, `poi_scan`, `gemini_api`, `streetview`,
+   `gps_recovery`, `reconcile`, `routing`, `road_snap`; plus `poi`,
+   `annotate`, `viz`, `train_modal`.
 3. ✅ Run so far: OSM POI table (`pois.json`, 1,289 POIs); frame
-   extraction (26,034 kept frames).
-4. ▶ POI scan — full run, Gemini Flash `--every-n 30` (in progress) →
-   derives the Street View crawl bbox.
+   extraction (26,034 kept frames); POI-scan trial verified on Vertex
+   Pro (inference prompt — names + reasoned location guess).
+4. ▶ POI scan — full run, Gemini 2.5 Pro via Vertex AI `--every-n 30`
+   (in progress) → derives the Street View crawl bbox.
 5. Street View crawl — `--scan` (free) → `--download` (Static API).
 6. GPS recovery: DINOv2 embed/match + VLM place-naming → `reconcile.py`
    weighted score + heading; then HMM road-snapping → trusted
