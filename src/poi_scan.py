@@ -49,8 +49,14 @@ GEMINI_SYS = "You name visible places in street-level photos of Zurich."
 GEMINI_PROMPT = (
     "This is a street-level photo taken in central Zurich, Switzerland. "
     "List every named place clearly visible — landmarks, churches, "
-    "squares, streets, bridges, the river, the lake, notable buildings. "
-    "One name per line, just the name (no description). "
+    "squares, streets, bridges, the river, the lake, notable buildings.\n"
+    "Name each place as it appears on a map / OpenStreetMap — prefer the "
+    "official local German name (e.g. 'Hauptbahnhof', 'Zürichsee', "
+    "'Grossmünster'). If the place is also widely known by a different "
+    "English or common name, add that after a ' | '.\n"
+    "One place per line, for example:\n"
+    "  Hauptbahnhof | Zurich Main Station\n"
+    "  Limmat\n"
     "If nothing nameable is visible, reply with the single word: none"
 )
 
@@ -66,31 +72,46 @@ def poi_tier(name, kind_label=""):
 
 
 def parse_names(text):
-    """Pull place names from the VLM's one-name-per-line reply. Pure."""
+    """Parse the VLM reply — one place per line, name variants split on
+    '|'. Returns a list of variant-lists, e.g.
+    `[['Hauptbahnhof', 'Zurich Main Station'], ['Limmat']]`. Pure."""
     out = []
     for line in (text or "").splitlines():
-        n = line.strip().lstrip("-*•").strip()
-        if n and n.lower() != "none":
-            out.append(n)
+        line = line.strip().lstrip("-*•").strip()
+        if not line or line.lower() == "none":
+            continue
+        variants = [v.strip() for v in line.split("|") if v.strip()]
+        if variants:
+            out.append(variants)
     return out
 
 
-def match_names(raw_names, osm_pois):
-    """Resolve each raw VLM name against the OSM POI table.
+def match_names(places, osm_pois):
+    """Resolve each place against the OSM POI table.
 
-    Returns (matched, unmatched). matched: [{raw, osm_name, tier}];
-    unmatched: [raw, ...]. Pure — unit-tested.
+    `places`: a list of variant-lists (from `parse_names`). For each
+    place the first variant that resolves wins — so a miss on Gemini's
+    English name can still hit on the German one. Returns
+    (matched, unmatched): matched is
+    `[{variants, matched_name, osm_name, tier}]`, unmatched is
+    `[variants, ...]`. Pure — unit-tested.
     """
     matched, unmatched = [], []
-    for raw in raw_names:
-        hit = resolve_poi(raw, osm_pois)
+    for variants in places:
+        hit = used = None
+        for v in variants:
+            hit = resolve_poi(v, osm_pois)
+            if hit:
+                used = v
+                break
         if hit:
             matched.append({
-                "raw": raw, "osm_name": hit["name"],
+                "variants": variants, "matched_name": used,
+                "osm_name": hit["name"],
                 "tier": poi_tier(hit["name"], hit.get("kind_label", "")),
             })
         else:
-            unmatched.append(raw)
+            unmatched.append(variants)
     return matched, unmatched
 
 
@@ -158,7 +179,7 @@ def main():
             n_l12 += sum(1 for m in matched if m["tier"] in (1, 2))
             fout.write(json.dumps({
                 "video": video, "frame_id": frame_id,
-                "raw_names": raw, "matched": matched, "unmatched": unmatched,
+                "places": raw, "matched": matched, "unmatched": unmatched,
             }, ensure_ascii=False) + "\n")
     print(f"[poi_scan] done — {n_l12} L1/L2 POI sightings recorded.")
 

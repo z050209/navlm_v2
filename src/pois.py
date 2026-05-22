@@ -12,6 +12,7 @@ Overpass over the project bbox.
 
 import json
 import sys
+import unicodedata
 from pathlib import Path
 
 from tqdm import tqdm
@@ -75,24 +76,31 @@ def collect_aliases(name, tags):
     return out
 
 
+def fold(s):
+    """Lowercase + strip diacritics — for lenient name matching, so
+    'Grossmunster' matches 'Grossmünster'. Pure."""
+    s = unicodedata.normalize("NFKD", str(s or "").lower())
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
 def resolve_poi(query, pois):
     """Resolve a place name to a POI via its name + aliases.
 
     `pois`: list of dicts, each with 'name' and (optional) 'aliases'.
-    Match order: exact (case-insensitive) on name/alias, then substring
+    Match order: exact (diacritic-folded) on name/alias, then substring
     either direction. Returns the POI dict or None. Pure — unit-tested.
     """
-    q = " ".join((query or "").split()).lower()
+    q = fold(" ".join((query or "").split()))
     if not q:
         return None
-    for p in pois:                              # exact
+    for p in pois:                              # exact (diacritic-folded)
         for n in [p["name"]] + list(p.get("aliases", [])):
-            if q == n.lower():
+            if q == fold(n):
                 return p
     for p in pois:                              # substring, either direction
         for n in [p["name"]] + list(p.get("aliases", [])):
-            nl = n.lower()
-            if q in nl or nl in q:
+            nf = fold(n)
+            if q in nf or nf in q:
                 return p
     return None
 

@@ -49,3 +49,14 @@ def test_resolve_poi_substring_and_miss():
     assert pois.resolve_poi("bahnhofstrasse street", pp)["name"] == "Bahnhofstrasse"
     assert pois.resolve_poi("Nowhere at all", pp) is None
     assert pois.resolve_poi("", pp) is None
+
+
+def test_resolve_poi_diacritic_fold():
+    pp = [{"name": "Grossmünster", "aliases": []}]
+    assert pois.resolve_poi("Grossmunster", pp)["name"] == "Grossmünster"
+    assert pois.resolve_poi("GROSSMUNSTER", pp)["name"] == "Grossmünster"
+
+
+def test_fold_strips_diacritics():
+    assert pois.fold("Grossmünster") == "grossmunster"
+    assert pois.fold("Zürichsee") == "zurichsee"
