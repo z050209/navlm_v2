@@ -46,6 +46,19 @@ def test_match_names_variant_fallback():
     assert unmatched == [["Nowhere"]]
 
 
+def test_downscaled_resizes(tmp_path):
+    import os
+    from PIL import Image
+    big = tmp_path / "big.jpg"
+    Image.new("RGB", (2400, 1600), "white").save(big)
+    small = ps._downscaled(big, max_px=1024)
+    try:
+        w, h = Image.open(small).size
+        assert max(w, h) <= 1024
+    finally:
+        os.unlink(small)
+
+
 def test_match_names_diacritic():
     osm = [{"name": "Grossmünster", "aliases": [],
             "osm_kind": "amenity=place_of_worship", "kind_label": "a church"}]

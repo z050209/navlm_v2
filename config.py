@@ -115,6 +115,7 @@ GEMINI_SCAN = "gemini-2.5-flash"       # POI scan — "gemini fast"
 GEMINI_GEOCHECK = "gemini-2.5-pro"     # VLM geo-localization (Q6: Pro)
 GEMINI_ANNOTATE = "gemini-2.5-pro"     # instruction annotation
 DEST_PER_FRAME = 3                     # annotation destinations / frame (Q6)
+POI_SCAN_MAX_PX = 1024                 # downscale frames before the POI scan
 
 
 # ── tools ────────────────────────────────────────────────────────────

@@ -136,21 +136,44 @@ def load_osm_pois():
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def _downscaled(image_path, max_px=config.POI_SCAN_MAX_PX):
+    """Write a downscaled (<= max_px) JPEG copy of the frame to a temp
+    file; return its path. The scan only needs recognition, not 4K
+    detail — this roughly halves the Gemini image-token cost."""
+    import tempfile
+    from PIL import Image
+    img = Image.open(image_path).convert("RGB")
+    img.thumbnail((max_px, max_px))
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    tmp.close()
+    img.save(tmp.name, "JPEG", quality=85)
+    return tmp.name
+
+
 def scan_frame(image_path, retries=3):
-    """One Gemini-Flash open-set naming call → variant-lists.
-    Retries with backoff on transient API errors (e.g. 503/429)."""
+    """One Gemini-Flash open-set naming call → variant-lists. The frame
+    is downscaled first (cost). Retries with backoff on transient API
+    errors (e.g. 503/429)."""
+    import os
     import time
     sys.path.insert(0, str(config.REPO_ROOT / "reference" / "toolbox"))
     from synth.backends import call_gemini
-    for attempt in range(retries):
+    small = _downscaled(image_path)
+    try:
+        for attempt in range(retries):
+            try:
+                resp = call_gemini(small, GEMINI_SYS, GEMINI_PROMPT,
+                                   model=config.GEMINI_SCAN)
+                return parse_names(resp)
+            except Exception:
+                if attempt == retries - 1:
+                    raise
+                time.sleep(3 * (attempt + 1))    # 3 s, 6 s backoff
+    finally:
         try:
-            resp = call_gemini(str(image_path), GEMINI_SYS, GEMINI_PROMPT,
-                               model=config.GEMINI_SCAN)
-            return parse_names(resp)
-        except Exception:
-            if attempt == retries - 1:
-                raise
-            time.sleep(3 * (attempt + 1))      # 3 s, 6 s backoff
+            os.unlink(small)
+        except OSError:
+            pass
     return []
 
 
