@@ -17,7 +17,7 @@ DATA_ROOT = Path(os.environ.get("NAVLM_DATA", REPO_ROOT / "data"))
 
 CITY = "zurich"
 CITY_DIR = DATA_ROOT / "cities" / CITY
-VIDEOS_DIR = CITY_DIR / "videos"
+VIDEOS_DIR = REPO_ROOT / "videos"        # source videos (already present)
 FRAMES_DIR = CITY_DIR / "frames"
 STREETVIEW_DIR = DATA_ROOT / "cities" / "streetview" / CITY
 VIZ_DIR = REPO_ROOT / "viz"
@@ -42,6 +42,32 @@ VIDEOS = {
 }
 HOLDOUT_VIDEO = "saturday_morning"
 
+# Source video files are named by their YouTube title (not id). Map a
+# distinctive lowercase filename substring -> dataset name. Checked in
+# order; the generic "4k 60fps" fallback (the plain "ZURICH … 4K 60fps"
+# video) is last so the more specific titles match first.
+VIDEO_KEYWORDS = [
+    ("hidden streets",   "hidden_streets"),
+    ("bahnhofstrasse",   "bahnhofstrasse"),
+    ("most famous",      "most_famous"),
+    ("saturday morning", "saturday_morning"),
+    ("too perfect",      "looks_perfect"),
+    ("old town",         "old_town_limmat"),
+    ("most elegant",     "most_elegant"),
+    ("4k 60fps",         "zurich_main"),
+]
+
+
+def dataset_name(filename: str) -> str:
+    """Map a source video filename to its dataset name (see VIDEO_KEYWORDS).
+    Falls back to a sanitized stem when nothing matches."""
+    low = filename.lower()
+    for keyword, name in VIDEO_KEYWORDS:
+        if keyword in low:
+            return name
+    stem = Path(filename).stem
+    return "".join(c if c.isalnum() else "_" for c in stem).strip("_").lower()[:40]
+
 # ── frame extraction ─────────────────────────────────────────────────
 DENSE_FPS = 1.0           # ffmpeg dense sampling rate
 PHASH_THRESHOLD = 10      # perceptual-hash dedup distance (bits)
@@ -51,8 +77,9 @@ EXPOSURE_BRIGHT = 230     # mean luma above this = blown out
 
 # ── models ───────────────────────────────────────────────────────────
 DINOV2_MODEL = "facebook/dinov2-base"
-GEMINI_GEOCHECK = "gemini-2.5-flash"   # cheap — VLM geo-localization
-GEMINI_ANNOTATE = "gemini-2.5-pro"     # quality — instruction annotation
+GEMINI_GEOCHECK = "gemini-2.5-pro"     # VLM geo-localization (Q6: Pro)
+GEMINI_ANNOTATE = "gemini-2.5-pro"     # instruction annotation
+DEST_PER_FRAME = 3                     # annotation destinations / frame (Q6)
 
 
 # ── tools ────────────────────────────────────────────────────────────

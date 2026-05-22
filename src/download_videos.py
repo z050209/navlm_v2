@@ -32,8 +32,11 @@ def download_one(video_id: str, name: str) -> bool:
         return False
     url = f"https://www.youtube.com/watch?v={video_id}"
     print(f"  fetch {name:18s} <- {url}")
+    # call yt-dlp as a module — robust whether or not the venv Scripts
+    # dir is on PATH
     subprocess.run(
-        ["yt-dlp", "-f", FORMAT, "--merge-output-format", "mp4",
+        [sys.executable, "-m", "yt_dlp", "-f", FORMAT,
+         "--merge-output-format", "mp4",
          "--ffmpeg-location", config.FFMPEG_DIR,
          "-o", str(dest), url],
         check=True,
