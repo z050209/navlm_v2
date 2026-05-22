@@ -36,6 +36,12 @@ def test_collect_aliases_dedupes_and_splits_semicolons():
     assert len(lows) == len(set(lows))             # case-insensitive unique
 
 
+def test_collect_aliases_skips_nan_and_nonstring():
+    al = pois.collect_aliases("Polybahn", {"alt_name": float("nan"),
+                                           "short_name": None})
+    assert al == ["Polybahn"]                      # no 'nan', no None
+
+
 def test_resolve_poi_exact_and_alias():
     pp = [{"name": "Polyterrasse", "aliases": ["ETH", "ETH Zürich"]},
           {"name": "Grossmünster", "aliases": []}]

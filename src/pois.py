@@ -78,8 +78,8 @@ def collect_aliases(name, tags):
     cands = [name]
     for t in ALIAS_TAGS:
         v = tags.get(t)
-        if v:
-            cands += [s.strip() for s in str(v).split(";")]
+        if isinstance(v, str) and v.strip():     # skip NaN / missing tags
+            cands += [s.strip() for s in v.split(";")]
     seen, out = set(), []
     for c in cands:
         c = " ".join((c or "").split())
