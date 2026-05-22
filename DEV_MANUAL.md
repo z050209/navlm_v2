@@ -209,9 +209,13 @@ ways = ox.features_from_bbox(bbox, tags={
     "man_made": "bridge"})                         # bridges
 ```
 
-Each row → `{name, aliases, kind_group, lat, lon, geometry}`; point POIs
-keep a lat/lon, ways/areas keep the polyline/polygon. Output:
-`data/cities/zurich/pois.json`. Run: `python -m src.pois`.
+Each row → `{name, aliases, kind_group, osm_kind, kind_label,
+description, lat, lon, geometry}` — `osm_kind` is the raw OSM tag
+(`amenity=theatre`), `kind_label` a human descriptor derived from it
+("a theatre", always present), `description` the OSM `description` tag
+where it exists (≈ 3 % of POIs). Point POIs keep a lat/lon, ways/areas
+keep the polyline/polygon. Output: `data/cities/zurich/pois.json` (1,289
+POIs). Run: `python -m src.pois`.
 
 **Aliases & name resolution.** One place has many names — "ETH" /
 "ETH Zürich" / "Eidgenössische Technische Hochschule". `src/pois.py`
