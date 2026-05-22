@@ -37,7 +37,7 @@ def dense_sample(video: Path, dense_dir: Path) -> list:
         return existing
     dense_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(video),
+        [config.FFMPEG, "-hide_banner", "-loglevel", "error", "-i", str(video),
          "-vf", f"fps={config.DENSE_FPS}", "-q:v", "3",
          str(dense_dir / "dense_%06d.jpg")],
         check=True,

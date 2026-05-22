@@ -5,6 +5,7 @@ in `src/`. Override the data location with the NAVLM_DATA env var.
 """
 
 import os
+import shutil
 from pathlib import Path
 
 # ── paths ────────────────────────────────────────────────────────────
@@ -54,6 +55,28 @@ GEMINI_GEOCHECK = "gemini-2.5-flash"   # cheap — VLM geo-localization
 GEMINI_ANNOTATE = "gemini-2.5-pro"     # quality — instruction annotation
 
 
+# ── tools ────────────────────────────────────────────────────────────
+def _find_ffmpeg() -> str:
+    """Locate ffmpeg: $FFMPEG env > PATH > winget install dir > 'ffmpeg'.
+
+    winget installs update PATH only for new shells, so we also probe the
+    Gyan.FFmpeg install directory directly.
+    """
+    env = os.environ.get("FFMPEG")
+    if env and Path(env).exists():
+        return env
+    on_path = shutil.which("ffmpeg")
+    if on_path:
+        return on_path
+    base = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/WinGet/Packages"
+    for exe in base.glob("Gyan.FFmpeg*/ffmpeg-*/bin/ffmpeg.exe"):
+        return str(exe)
+    return "ffmpeg"   # last resort — assume it is on PATH
+
+FFMPEG = _find_ffmpeg()
+FFMPEG_DIR = str(Path(FFMPEG).parent)
+
+
 def summary():
     """Print the resolved config — handy sanity check."""
     print(f"REPO_ROOT  = {REPO_ROOT}")
@@ -63,6 +86,7 @@ def summary():
     print(f"POI_BBOX   = {POI_BBOX}")
     print(f"SV_BBOX    = {SV_BBOX}")
     print(f"videos     = {len(VIDEOS)}  (hold-out: {HOLDOUT_VIDEO})")
+    print(f"ffmpeg     = {FFMPEG}")
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ def download_one(video_id: str, name: str) -> bool:
     print(f"  fetch {name:18s} <- {url}")
     subprocess.run(
         ["yt-dlp", "-f", FORMAT, "--merge-output-format", "mp4",
+         "--ffmpeg-location", config.FFMPEG_DIR,
          "-o", str(dest), url],
         check=True,
     )
