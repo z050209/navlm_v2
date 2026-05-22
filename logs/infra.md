@@ -14,7 +14,7 @@ API pricing, and where to check spend.
 |---------|--------|---------|
 | GitHub | ✅ logged in | `z050209` |
 | gcloud | ✅ logged in | `z050209@gmail.com`, project `cs231n-navlm-2026` |
-| Modal | ⚠️ CLI installed, not authenticated | workspace `z050209` — run `modal setup` |
+| Modal | ✅ installed & authenticated | workspace `z050209` (token in `~/.modal.toml`) |
 | Hugging Face | ❌ not set up | needed for dataset/checkpoint hosting |
 
 ---
@@ -120,7 +120,7 @@ API pricing, and where to check spend.
 | git, gh, gcloud | ✅ installed |
 | Python venv (`navlm_ss/.venv`) | ✅ torch 2.5.1+cu124, transformers, torchvision, requests |
 | ffmpeg | ❌ not installed (needed for frame extraction) |
-| Modal CLI | ✅ installed (v1.4.3) · ⚠️ run `modal setup` to authenticate |
+| Modal CLI | ✅ installed (v1.4.3) & authenticated (workspace `z050209`) |
 | Hugging Face CLI (`hf`) | ❌ not installed |
 | `imagehash`, `yt-dlp`, `osmnx`, `opencv` | ❌ not in venv (needed for v2) |
 
@@ -139,6 +139,11 @@ provisions the GPU, runs, and tears down.
 modal setup                                          # browser auth → ~/.modal.toml
 modal secret create huggingface HF_TOKEN=hf_xxxxx    # so jobs can pull/push HF
 ```
+
+> Already done: `modal setup` authenticated the `z050209` workspace.
+> Windows note: `modal` isn't on PATH — call it via the venv
+> (`navlm_ss/.venv/Scripts/modal.exe`) and set `PYTHONUTF8=1` to avoid a
+> `charmap` console-encoding crash.
 
 ### Core concepts
 
@@ -273,3 +278,62 @@ git -C "C:/Users/z0502/Desktop/cs231n/navlm_v2" add -A
 > A secret scan was run before the first push (`grep` for `AIza…` /
 > `MLY|…` patterns) — confirmed no API keys are committed. Keys stay in a
 > gitignored `.env`; only key *names* appear in this file.
+
+---
+
+## 12. Machine setup steps (reproducible)
+
+Steps taken to ready this machine (Windows 10, RTX 3060 12 GB). The venv
+from `navlm_ss/.venv` (Python 3.10) is reused — `VPY` below =
+`G:/My Drive/cs231n/project/cs231n/cs231n/navlm_ss/.venv/Scripts/python.exe`.
+
+### Python packages
+
+```bash
+# PyTorch with CUDA 12.4 (RTX 3060)
+"$VPY" -m pip install "torch>=2.4.0" torchvision \
+    --index-url https://download.pytorch.org/whl/cu124
+# rest from PyPI
+"$VPY" -m pip install "transformers>=4.47.0" requests modal
+```
+
+Still to install for the v2 pipeline:
+- **ffmpeg** — system install, add to PATH (frame extraction)
+- `"$VPY" -m pip install imagehash yt-dlp osmnx opencv-python huggingface_hub`
+
+### CLIs — authentication
+
+| Tool | Command | Account |
+|------|---------|---------|
+| gcloud | `gcloud auth login` | `z050209@gmail.com`, project `cs231n-navlm-2026` |
+| GitHub | `gh auth login` | `z050209` |
+| Modal | `pip install modal` → `modal setup` | workspace `z050209` |
+| Hugging Face | `hf auth login` | ❌ not done yet |
+
+> Windows: call `modal` via `…/.venv/Scripts/modal.exe` with
+> `PYTHONUTF8=1` set (avoids a `charmap` console-encoding crash).
+
+### GCP one-time setup (already done)
+
+```bash
+# enable APIs
+gcloud services enable generativelanguage.googleapis.com --project=cs231n-navlm-2026
+gcloud services enable billingbudgets.googleapis.com    --project=cs231n-navlm-2026
+
+# Gemini API key
+gcloud services api-keys create --display-name="gemini-navlm" \
+    --project=cs231n-navlm-2026
+
+# $50 budget with email alerts at 50/75/90/100%
+gcloud billing budgets create --billing-account=010F4B-3C316F-B7FE47 \
+    --display-name="navlm-50usd" --budget-amount=50USD \
+    --filter-projects="projects/cs231n-navlm-2026" \
+    --threshold-rule=percent=0.5  --threshold-rule=percent=0.75 \
+    --threshold-rule=percent=0.9  --threshold-rule=percent=1.0
+```
+
+### Secrets
+
+Keep API keys in a gitignored `.env` (not in source). Needed:
+`GOOGLE_MAPS_API_KEY`, `GEMINI_API_KEY`, `MAPILLARY_TOKEN`, `HF_TOKEN`.
+Key strings are in the GCP console (§3) — never commit them.
