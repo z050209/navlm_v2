@@ -38,11 +38,15 @@ Phase A (video → trusted GPS+heading frames) is built first.
 
 ## ▶ How to run — commands, in order
 
-Once per terminal, activate the shared venv and cd into the repo:
+Once per terminal, `cd` into the repo and point `python` at the shared
+venv. **Do not** use the venv's `Activate.ps1` — it lives on Google
+Drive, so PowerShell's execution policy blocks it as untrusted. Calling
+the venv `python.exe` directly has no such issue:
 
 ```powershell
-& "G:\My Drive\cs231n\project\cs231n\cs231n\navlm_ss\.venv\Scripts\Activate.ps1"
 cd C:\Users\z0502\Desktop\cs231n\navlm_v2
+# alias `python` to the project venv for this terminal — no Activate.ps1
+function python { & "G:\My Drive\cs231n\project\cs231n\cs231n\navlm_ss\.venv\Scripts\python.exe" @args }
 ```
 
 Then run these one by one. Only ✅ steps exist yet; ⏳ land as built (§7).
@@ -163,9 +167,20 @@ ways = ox.features_from_bbox(bbox, tags={
     "man_made": "bridge"})                         # bridges
 ```
 
-Each row → `{name, kind, kind_label, geometry}`; point POIs keep a
-lat/lon, ways/areas keep the polyline/polygon. Output:
+Each row → `{name, aliases, kind_group, lat, lon, geometry}`; point POIs
+keep a lat/lon, ways/areas keep the polyline/polygon. Output:
 `data/cities/zurich/pois.json`. Run: `python -m src.pois`.
+
+**Aliases & name resolution.** One place has many names — "ETH" /
+"ETH Zürich" / "Eidgenössische Technische Hochschule". `src/pois.py`
+collects the OSM alternative-name tags (`alt_name`, `short_name`,
+`official_name`, `loc_name`, `name:en`, `name:de` — English/German only,
+**no Chinese**) into a per-POI `aliases` list. `resolve_poi(name)`
+matches a query against the name **and** its aliases — exact first, then
+substring — so "how do I get to ETH?" resolves even when the table's
+canonical name differs. A modern VLM already *knows* "ETH" is the
+university; the alias list is what lets the deterministic POI lookup
+agree. A name that still misses can be canonicalised by the geo-check VLM.
 
 **How the POI table is used** downstream:
 1. **Destination sampling** (§2.7) — annotation draws each frame's 3
@@ -420,16 +435,80 @@ fell into.
 
 ---
 
-## 4. Experiments & training
+## 4. Experiments, training & evaluation
 
-Prior result for reference: 6 conditions (3 prompt variants × {base,
-LoRA}); the compass-free explicit-CoT LoRA reached 52.9 % PASS / median
-heading error 20.8° (vs base 99°); the with-compass ceiling was 100 %.
+### 4.1 The question
 
-This round: zero-shot baselines run **locally** (RTX 3060); LoRA training
-on **Modal** A100 (`logs/infra.md §10`); evaluate under both ablations
-(§3). LoRA config: Qwen2.5-VL-7B, r=16, α=32, 4-bit NF4 base, 2 epochs,
-lr 2e-4.
+Can a VLM give *correct* walking directions from a phone photo + GPS
+**without a compass** — by inferring its camera heading from the photo?
+
+### 4.2 Conditions
+
+Four conditions, run for **each** ablation split (§3):
+
+| ID | model | camera heading in the prompt? |
+|----|-------|-------------------------------|
+| **B-given** | base Qwen2.5-VL-7B, zero-shot | yes |
+| **B-infer** | base, zero-shot | no — must infer from the photo |
+| **L-given** | + NavLM LoRA | yes |
+| **L-infer** | + NavLM LoRA | no — must infer |
+
+Headline comparisons: **L-infer vs B-infer** (does fine-tuning teach
+heading inference?) and **L-infer vs L-given** (the accuracy cost of
+dropping the compass). The `*-given` rows are upper-bound references.
+
+### 4.3 Training
+
+| | |
+|--|--|
+| Base model | Qwen2.5-VL-7B-Instruct |
+| Method | LoRA SFT — r=16, α=32, dropout 0.05, target `q/k/v/o_proj` |
+| Quantization | 4-bit NF4 base, BF16 adapters (~0.5 % params trainable) |
+| Data | synth set (§2.7) — frame + system prompt + user msg + assistant `<thinking>`+`<answer>` |
+| Schedule | 2 epochs · lr 2e-4 · cosine · 3 % warmup |
+| Batch | 1 × grad-accum 8 (effective 8); images capped 448² px |
+| Compute | Modal A100-80GB via `train_modal.py` — ~3–6 h, ~$22 / run |
+
+`L-given` and `L-infer` are two LoRA runs on the same frames, differing
+only in whether the user message includes the heading.
+
+### 4.4 Evaluation
+
+**Test set** = the held-out split of whichever ablation is running — the
+`saturday_morning` video, or the held-out destination POIs (§3).
+
+**Procedure.** For each test frame: feed photo + GPS (+ heading for the
+`*-given` conditions) + nearby POIs + planned route; the model emits
+`<thinking>` + `<answer>`; the answer is scored by 5 gates.
+
+**The 5 gates** — a sample passes only if all 5 pass:
+1. **Format** — both `<thinking>` and `<answer>` present; the answer
+   contains no compass words, numbers, or raw GPS.
+2. **Sentence count** — the answer is 2–4 sentences.
+3. **Closed-loop angle** — the core correctness gate. Parse the action
+   verb; compute `δ = |heading_gt + ACTION_DELTA[verb] − route_bearing|`;
+   pass if **δ < 30°** (§2.7 Q5). Checks the direction actually sends
+   the user the right way.
+4. **Checkpoint** — a multi-turn answer ("when you reach X…") names a
+   real street / landmark that is on the route.
+5. **Anchor grounded** — the visible object the answer anchors to
+   ("turn left at the tram tracks") is actually in the photo — a VLM
+   yes/no check.
+
+**Metrics:**
+- **PASS_strict** — % of test samples passing all 5 gates (headline).
+- **Closed-loop pass rate** — gate 3 alone (directional correctness).
+- **Median heading error δ** — for the `*-infer` conditions, how far the
+  model's implied heading is from ground truth.
+
+**Where it runs.** Zero-shot baselines (`B-given`, `B-infer`) run
+**locally** on the RTX 3060 — inference only, no training. The LoRA
+conditions are trained on Modal and evaluated straight after each run.
+PASS_strict is compared across the 4 conditions for **each** ablation.
+
+*Prior round, for reference:* a compass-free explicit-CoT LoRA reached
+52.9 % PASS / median heading error 20.8° (vs base 99°); the with-compass
+ceiling was 100 %.
 
 ---
 

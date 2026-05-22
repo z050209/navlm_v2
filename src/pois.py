@@ -32,6 +32,10 @@ WAY_TAGS = {
                 "pedestrian", "living_street"],
     "waterway": "river", "natural": "water", "man_made": "bridge",
 }
+# OSM tags carrying alternative names for the same place.
+# English / German only — Chinese names are not collected as aliases.
+ALIAS_TAGS = ["alt_name", "short_name", "official_name", "loc_name",
+              "name:en", "name:de"]
 
 
 def clean_name(name):
@@ -49,6 +53,48 @@ def clean_name(name):
     return n
 
 
+def collect_aliases(name, tags):
+    """Deduped alias list for a POI — the canonical name plus the OSM
+    alternative-name tag values (ALIAS_TAGS, English/German only).
+    `tags`: a dict-like of OSM tags. Pure — unit-tested."""
+    cands = [name]
+    for t in ALIAS_TAGS:
+        v = tags.get(t)
+        if v:
+            cands += [s.strip() for s in str(v).split(";")]
+    seen, out = set(), []
+    for c in cands:
+        c = " ".join((c or "").split())
+        if not c or c.lower() in NAME_BLOCKLIST:
+            continue
+        if c.lower() not in seen:
+            seen.add(c.lower())
+            out.append(c)
+    return out
+
+
+def resolve_poi(query, pois):
+    """Resolve a place name to a POI via its name + aliases.
+
+    `pois`: list of dicts, each with 'name' and (optional) 'aliases'.
+    Match order: exact (case-insensitive) on name/alias, then substring
+    either direction. Returns the POI dict or None. Pure — unit-tested.
+    """
+    q = " ".join((query or "").split()).lower()
+    if not q:
+        return None
+    for p in pois:                              # exact
+        for n in [p["name"]] + list(p.get("aliases", [])):
+            if q == n.lower():
+                return p
+    for p in pois:                              # substring, either direction
+        for n in [p["name"]] + list(p.get("aliases", [])):
+            nl = n.lower()
+            if q in nl or nl in q:
+                return p
+    return None
+
+
 def extract(bbox=config.POI_BBOX):
     """Query OSM for point + way/area POIs; write pois.json. Needs osmnx."""
     import osmnx as ox
@@ -64,6 +110,7 @@ def extract(bbox=config.POI_BBOX):
             geom = row.geometry
             rows.append({
                 "name": name,
+                "aliases": collect_aliases(name, row),
                 "kind_group": kind_group,
                 "lat": geom.centroid.y, "lon": geom.centroid.x,
                 "geometry": geom.wkt,
