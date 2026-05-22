@@ -1,0 +1,48 @@
+# environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# secrets
+.env
+*.key
+
+# video files
+*.mp4
+*.mov
+*.webm
+*.avi
+*.mkv
+
+# image files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.webp
+*.tiff
+
+# checkpoints / model weights
+checkpoints/
+models/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.gguf
+*.npz
+*.pkl
+
+# data & large artifacts (host on Hugging Face, not git)
+data/
+results/
+*.pdf
+
+# generated / local
+costs/
+preview/
+*.log
+.DS_Store

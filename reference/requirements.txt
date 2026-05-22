@@ -1,0 +1,38 @@
+# Core ML stack
+torch>=2.4.0
+transformers>=4.47.0
+peft>=0.14.0
+accelerate>=1.2.0
+bitsandbytes>=0.45.0
+qwen-vl-utils
+
+# Vision / DINOv2
+timm
+open_clip_torch
+opencv-python-headless
+pillow
+
+# OSM + map matching
+osmnx>=1.9.0
+networkx>=3.0
+shapely
+geopandas
+
+# OCR
+paddlepaddle-gpu  # or paddlepaddle for CPU
+paddleocr
+
+# Data + utils
+numpy<2
+pandas
+tqdm
+requests
+folium  # for visualize_paths
+flask   # for synth_viewer
+
+# API teachers (optional, for re-generating synth data)
+anthropic  # for v4c rationale
+openai     # for OpenAI backend
+
+# Dev
+matplotlib
