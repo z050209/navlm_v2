@@ -213,33 +213,32 @@ agree. A name that still misses can be canonicalised by the geo-check VLM.
 6. **POI-region split** (§3) — the POI set is partitioned for the
    POI-generalization ablation.
 
-**POI scan of the video frames** — what `scan_video_pois_multi.py` does:
+**POI scan of the video frames — `src/poi_scan.py`.** This identifies
+which named places each frame actually shows. It matters because **the
+POIs that appear in the videos shape what the instruction tuning can
+cover — i.e. what a user can ask the model to navigate to**, so the scan
+must be honest about provenance.
 
-- **Logic.** It is a pure **VLM image-scan** — *no comparison against
-  OSM*. Gemma (`gemma-4-31b-it`) is shown a frame plus a prompt that
-  embeds the fixed **27-candidate list** (`CANDIDATE_POIS`), and is
-  asked "which of these 27 are clearly visible?" It replies with the
-  visible ones (0, 1, or several). The 27 is a **hardcoded shortlist**,
-  not the OSM file — the scan never touches `landmarks_zurich_osm.json`.
-- **Coverage.** It scans **every 20th frame** (`--every-n 20`), not all
-  ~27 k — about **1,358 frames** were scanned, producing
-  `_video_poi_multi.jsonl` (`{video, frame_id, visible_pois[]}`).
-- **Status.** That scan output is **kept as-is — not rerun.**
+- **Open-set, not a closed list.** Each frame goes to **Gemini Flash**
+  (`gemini-2.5-flash`, "gemini fast") which *freely names* every place
+  it sees — no fixed candidate menu. (This replaces the v1 closed
+  27-candidate Gemma scan.)
+- **Matched to OSM.** Every raw name the VLM returns is resolved against
+  the OSM POI table (§ above) with the alias-aware `resolve_poi()`, and
+  the matched POI is **tier-tagged L1 / L2 / L3** (`poi_tier()` — keyword
+  sets are editable in `src/poi_scan.py`). Names that match nothing are
+  still recorded as `unmatched` — that surfaces real places missing
+  from the OSM table.
+- **Output** `data/cities/zurich/poi_scan.jsonl`, per frame:
+  `{video, frame_id, raw_names[], matched[{raw, osm_name, tier}], unmatched[]}`.
+  This *is* the POI provenance — it shows exactly which POIs (and tiers)
+  the dataset can anchor and route to.
 
-**The 27 candidates (Q2).** `CANDIDATE_POIS` is *hand-picked* — the
-tier-1 / "L1" iconic set, kept short so the VLM picks from a manageable
-menu. It lives, with GPS / kind / 中文 names, in `src/poi.py`.
+**Run:** `python -m src.poi_scan --limit 5` (5-frame trial first) →
+`python -m src.poi_scan`. Cost: Gemini Flash, cheap.
 
-**Should L2 / other places be added?** Not to *this* scan. The scan's
-only job is a lightweight **POI-visibility index** ("which frames show
-Hauptbahnhof") — 27 iconic landmarks is enough for that, and a longer
-list raises VLM confusion and false positives. Crucially, the scan does
-**not** limit the training data: instruction **destinations** are drawn
-from the *full* OSM POI table (all tiers, §2.7), and the annotation
-teacher (Gemini Pro) looks at the photo directly and can anchor to *any*
-visible object — it is not restricted to the 27. So L2/L3 places are
-already used downstream; expanding the 27 would only enrich the index,
-at the cost of a re-scan — deferred unless we specifically need it.
+The `src/poi.py` 27-candidate list is now only the **iconic-POI
+reference / map** (`--map`) — it is no longer the scan input.
 
 **Code:** `src/poi.py` · **Out:** `viz/poi_candidates_map.html` (a
 signature emoji icon per POI kind) · **Run:** `python -m src.poi --list`
