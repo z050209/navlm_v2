@@ -1,0 +1,37 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>NavLM — 27 candidate POIs</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>html,body,#map{height:100%;margin:0}</style></head><body>
+<div id="map"></div><script>
+var map=L.map('map').setView([47.37109037037039,8.542479999999998],15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+ {maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+L.marker([47.37802,8.54023],{icon:L.divIcon({html:'<div style="font-size:22px">🚉</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Hauptbahnhof</b><br>苏黎世中央车站<br><i>station</i>').addTo(map);
+L.marker([47.3728,8.54149],{icon:L.divIcon({html:'<div style="font-size:22px">🌳</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Lindenhof</b><br>林登霍夫山丘<br><i>hill</i>').addTo(map);
+L.marker([47.36953,8.53866],{icon:L.divIcon({html:'<div style="font-size:22px">🟦</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Paradeplatz</b><br>阅兵广场<br><i>square</i>').addTo(map);
+L.marker([47.37072,8.54128],{icon:L.divIcon({html:'<div style="font-size:22px">🟦</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Münsterhof</b><br>明斯特霍夫广场<br><i>square</i>').addTo(map);
+L.marker([47.37005,8.54148],{icon:L.divIcon({html:'<div style="font-size:22px">⛪</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Fraumünster</b><br>圣母大教堂<br><i>church</i>').addTo(map);
+L.marker([47.37018,8.54425],{icon:L.divIcon({html:'<div style="font-size:22px">⛪</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Grossmünster</b><br>大教堂<br><i>church</i>').addTo(map);
+L.marker([47.37154,8.54126],{icon:L.divIcon({html:'<div style="font-size:22px">⛪</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>St. Peter</b><br>圣彼得教堂<br><i>church</i>').addTo(map);
+L.marker([47.36695,8.54513],{icon:L.divIcon({html:'<div style="font-size:22px">🟦</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Bellevueplatz</b><br>贝尔维尤广场<br><i>square</i>').addTo(map);
+L.marker([47.3662,8.54615],{icon:L.divIcon({html:'<div style="font-size:22px">🟦</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Sechseläutenplatz</b><br>六鸣节广场<br><i>square</i>').addTo(map);
+L.marker([47.36615,8.54153],{icon:L.divIcon({html:'<div style="font-size:22px">🟦</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Bürkliplatz</b><br>比尔克利广场<br><i>square</i>').addTo(map);
+L.marker([47.36593,8.54367],{icon:L.divIcon({html:'<div style="font-size:22px">🌉</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Quaibrücke</b><br>码头桥<br><i>bridge</i>').addTo(map);
+L.marker([47.3697,8.542],{icon:L.divIcon({html:'<div style="font-size:22px">🌉</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Münsterbrücke</b><br>大教堂桥<br><i>bridge</i>').addTo(map);
+L.marker([47.37117,8.54158],{icon:L.divIcon({html:'<div style="font-size:22px">🌉</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Rathausbrücke</b><br>市政厅桥<br><i>bridge</i>').addTo(map);
+L.marker([47.3716,8.5428],{icon:L.divIcon({html:'<div style="font-size:22px">🏛️</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Rathaus</b><br>市政厅<br><i>civic</i>').addTo(map);
+L.marker([47.36931,8.54121],{icon:L.divIcon({html:'<div style="font-size:22px">🏛️</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Stadthaus</b><br>市政府大楼<br><i>civic</i>').addTo(map);
+L.marker([47.36548,8.54683],{icon:L.divIcon({html:'<div style="font-size:22px">🎭</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Opernhaus</b><br>苏黎世歌剧院<br><i>culture</i>').addTo(map);
+L.marker([47.37021,8.54793],{icon:L.divIcon({html:'<div style="font-size:22px">🖼️</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Kunsthaus</b><br>苏黎世美术馆<br><i>museum</i>').addTo(map);
+L.marker([47.37926,8.54021],{icon:L.divIcon({html:'<div style="font-size:22px">🖼️</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Landesmuseum</b><br>瑞士国家博物馆<br><i>museum</i>').addTo(map);
+L.marker([47.3761,8.54652],{icon:L.divIcon({html:'<div style="font-size:22px">🌳</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Polyterrasse</b><br>联邦理工观景台<br><i>hill</i>').addTo(map);
+L.marker([47.37563,8.54058],{icon:L.divIcon({html:'<div style="font-size:22px">🏬</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Globus</b><br>高乐斯百货<br><i>store</i>').addTo(map);
+L.marker([47.3748,8.53846],{icon:L.divIcon({html:'<div style="font-size:22px">🏬</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Jelmoli</b><br>耶尔莫利百货<br><i>store</i>').addTo(map);
+L.marker([47.37367,8.53924],{icon:L.divIcon({html:'<div style="font-size:22px">🛣️</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Bahnhofstrasse</b><br>班霍夫大街<br><i>street</i>').addTo(map);
+L.marker([47.37318,8.54417],{icon:L.divIcon({html:'<div style="font-size:22px">🛣️</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Niederdorfstrasse</b><br>下村街<br><i>street</i>').addTo(map);
+L.marker([47.372,8.5433],{icon:L.divIcon({html:'<div style="font-size:22px">🛣️</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Limmatquai</b><br>利马特河滨道<br><i>street</i>').addTo(map);
+L.marker([47.37326,8.54],{icon:L.divIcon({html:'<div style="font-size:22px">🛣️</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Rennweg</b><br>伦韦格街<br><i>street</i>').addTo(map);
+L.marker([47.371,8.542],{icon:L.divIcon({html:'<div style="font-size:22px">🌊</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Limmat river</b><br>利马特河<br><i>water</i>').addTo(map);
+L.marker([47.365,8.545],{icon:L.divIcon({html:'<div style="font-size:22px">🌊</div>',className:'',iconSize:[24,24]})}).bindPopup('<b>Lake Zurich</b><br>苏黎世湖<br><i>water</i>').addTo(map);
+</script></body></html>
