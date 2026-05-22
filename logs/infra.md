@@ -217,3 +217,59 @@ Hugging Face from inside the job.
 
 Billed per-second of function runtime only — idle time costs nothing.
 Reference Modal example already in repo: `reference/run_dinov2_modal.py`.
+
+---
+
+## 11. Git / GitHub workflow
+
+The repo lives on **local disk** (`C:\Users\z0502\Desktop\cs231n\navlm_v2`),
+not Google Drive, so git stays healthy. Remote:
+`https://github.com/z050209/navlm_v2` (private).
+
+### How it was created & pushed (run once)
+
+```bash
+# from inside navlm_v2/
+git init -b main                            # new repo, branch 'main'
+git config user.email "z050209@gmail.com"   # commit identity (local to repo)
+git config user.name  "z050209"
+git add -A                                  # stage all (.gitignore filters out
+                                            #   videos/images/checkpoints/.venv/.env)
+git commit -m "Initial commit: NavLM v2 planning"
+
+# GitHub CLI — already authenticated as z050209:
+gh repo create navlm_v2 --private --source=. --remote=origin --push
+```
+
+That last command does three things at once: creates the private repo
+`z050209/navlm_v2` on GitHub, adds it as the `origin` remote, and pushes
+`main`. (Equivalent long form: `gh repo create` then `git remote add
+origin <url>` then `git push -u origin main`.)
+
+### Day-to-day — after editing files
+
+```bash
+git add -A                       # stage changes
+git commit -m "what changed"     # commit locally
+git push                         # upload to GitHub
+```
+
+From any directory, target the repo without `cd` using `git -C`:
+
+```bash
+git -C "C:/Users/z0502/Desktop/cs231n/navlm_v2" add -A
+```
+
+### Useful
+
+| Command | What |
+|---------|------|
+| `git status` | what's changed / staged |
+| `git log --oneline` | commit history |
+| `gh repo view --web` | open the repo in a browser |
+| `gh repo edit z050209/navlm_v2 --visibility public` | make it public |
+| `git pull` | fetch others' changes (if collaborating) |
+
+> A secret scan was run before the first push (`grep` for `AIza…` /
+> `MLY|…` patterns) — confirmed no API keys are committed. Keys stay in a
+> gitignored `.env`; only key *names* appear in this file.
