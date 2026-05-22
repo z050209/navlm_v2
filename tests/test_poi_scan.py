@@ -30,9 +30,10 @@ def test_parse_names_variants():
 
 def test_match_names_variant_fallback():
     osm = [
-        {"name": "Hauptbahnhof", "aliases": [], "osm_kind": "railway=station"},
+        {"name": "Hauptbahnhof", "aliases": [], "osm_kind": "railway=station",
+         "kind_label": "a railway station"},
         {"name": "Grossmünster", "aliases": [],
-         "osm_kind": "amenity=place_of_worship"},
+         "osm_kind": "amenity=place_of_worship", "kind_label": "a church"},
     ]
     places = [["Zurich Main Station", "Hauptbahnhof"], ["Nowhere"]]
     matched, unmatched = ps.match_names(places, osm)
@@ -40,12 +41,15 @@ def test_match_names_variant_fallback():
     assert matched[0]["osm_name"] == "Hauptbahnhof"
     assert matched[0]["matched_name"] == "Hauptbahnhof"
     assert matched[0]["tier"] == 1                      # railway=station -> L1
+    assert matched[0]["kind_label"] == "a railway station"
+    assert matched[0]["osm_kind"] == "railway=station"
     assert unmatched == [["Nowhere"]]
 
 
 def test_match_names_diacritic():
     osm = [{"name": "Grossmünster", "aliases": [],
-            "osm_kind": "amenity=place_of_worship"}]
+            "osm_kind": "amenity=place_of_worship", "kind_label": "a church"}]
     matched, _ = ps.match_names([["Grossmunster"]], osm)   # no umlaut
     assert matched and matched[0]["osm_name"] == "Grossmünster"
     assert matched[0]["tier"] == 1
+    assert matched[0]["kind_label"] == "a church"

@@ -101,8 +101,8 @@ def match_names(places, osm_pois):
     `places`: a list of variant-lists (from `parse_names`). For each
     place the first variant that resolves wins — so a miss on Gemini's
     English name can still hit on the German one. Returns
-    (matched, unmatched): matched is
-    `[{variants, matched_name, osm_name, tier}]`, unmatched is
+    (matched, unmatched): matched is `[{variants, matched_name,
+    osm_name, osm_kind, kind_label, tier}]`, unmatched is
     `[variants, ...]`. Pure — unit-tested.
     """
     matched, unmatched = [], []
@@ -114,10 +114,13 @@ def match_names(places, osm_pois):
                 used = v
                 break
         if hit:
+            kind = hit.get("osm_kind", "")
             matched.append({
                 "variants": variants, "matched_name": used,
                 "osm_name": hit["name"],
-                "tier": poi_tier(hit.get("osm_kind", "")),
+                "osm_kind": kind,
+                "kind_label": hit.get("kind_label", ""),
+                "tier": poi_tier(kind),
             })
         else:
             unmatched.append(variants)

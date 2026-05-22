@@ -271,7 +271,7 @@ must be honest about provenance.
   > `highway` in `TIER_BY_KEY`, or rank prominence by a separate signal
   > (e.g. POI-scan appearance frequency).
 - **Output** `data/cities/zurich/poi_scan.jsonl`, per frame:
-  `{video, frame_id, places[], matched[{variants, osm_name, tier}], unmatched[]}`.
+  `{video, frame_id, places[], matched[{variants, osm_name, osm_kind, kind_label, tier}], unmatched[]}`.
   This *is* the POI provenance — it shows exactly which POIs (and tiers)
   the dataset can anchor and route to.
 
