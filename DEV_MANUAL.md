@@ -15,7 +15,7 @@ This manual describes the method directly. `reference/` holds the old
 ## 1. Pipeline overview
 
 ```
-videos ─▶ frames ─▶ quality filter ─▶ POI scan (Gemma — kept as-is)
+videos ─▶ frames ─▶ quality filter ─▶ POI scan (Gemini Flash)
                                           │
    Street View reference grid ◀───────────┘
         │
@@ -161,14 +161,13 @@ chosen as a scene's representative.
 
 A POI is a named place with coordinates. v2 uses **one POI table**:
 
-- **OSM-extracted points** — `extract_osm_pois.py` queries OpenStreetMap
-  via osmnx Overpass over the project bbox and keeps 7 tag groups
-  (tourism, historic, amenity, transport stations, leisure, place),
-  filtered by name. → 453 point POIs.
-  Command: `python extract_osm_pois.py --bbox 8.520,47.360,8.570,47.395`
-  (W,S,E,N). The bbox is central Zurich's old town — the area the
-  walking tours cover (Hauptbahnhof → Altstadt → Grossmünster → lakefront),
-  ≈ 3.8 km × 3.9 km. **This bbox is the GPS scope of the project.**
+- **OSM-extracted points** — `src/pois.py` queries OpenStreetMap via
+  osmnx Overpass over the project bbox and keeps point landmarks tagged
+  tourism / historic / amenity / station / leisure / place, filtered by
+  name. The bbox (`config.POI_BBOX` = 8.520, 47.360, 8.570, 47.395
+  W,S,E,N) is central Zurich's old town — Hauptbahnhof → Altstadt →
+  Grossmünster → lakefront, ≈ 3.8 km × 3.9 km. **This bbox is the GPS
+  scope of the project.**
 - **Way / area features** — streets, the Limmat, Lake Zurich, bridges.
   These matter for navigation ("walk along Bahnhofstrasse") but OSM tags
   them as *ways / polygons*, which the point extraction above skips.
@@ -317,33 +316,35 @@ signature emoji icon per POI kind) · **Run:** `python -m src.poi --list`
 
 ### 2.4 Street View reference grid
 
-The reference index against which video frames are matched is Google
-Street View panoramas (`reference/fetch_streetview_grid.py`):
+The reference index that video frames are matched against is Google
+Street View panoramas, built by **`src/streetview.py`**:
 
-- The **free metadata endpoint** scans a grid and returns every panorama
-  ID + exact GPS at $0.
-- The **Street View Static API** ($7/1000) then downloads 4 headings
-  (N/E/S/W) per panorama.
+- **`--scan`** — the free metadata endpoint sweeps a grid and returns
+  every panorama ID + exact GPS, at $0 → `panos.jsonl`.
+- **`--download`** — the Street View Static API ($7/1000) then downloads
+  4 headings (N/E/S/W) per panorama → `images/` + `meta.jsonl`.
 
-**Crawl bbox (Q3).** Yes — the grid bbox is the **bounding box of the
-candidate POIs the videos visit** (the §2.3 POIs whose names appear in
-`_video_poi_multi.jsonl`), **+ a ~300 m margin** so a POI on the edge,
-or a route segment leaving the box, still has reference imagery. It is
-*derived*, not hand-set:
+**Crawl bbox (Q3).** The grid bbox is *derived*, not hand-set — it is
+the **bounding box of the POIs the videos actually visit**,
+**+ a ~300 m margin** (`config.SV_MARGIN_M`) so an edge POI, or a route
+segment leaving the box, still has reference imagery:
 
 ```
 bbox = (min_lon − m, min_lat − m, max_lon + m, max_lat + m)
-       over the visited POIs,  m ≈ 300 m   →   config.SV_BBOX
+       over the visited POIs,  m ≈ 300 m
 ```
 
-`src/streetview.py` computes this from `src/poi.py` coordinates (later
-also from recovered route GPS). The metadata scan is free, so the box
-can be widened and re-crawled incrementally if routes reach an edge.
+`streetview.bbox_from_scan()` reads the `matched` POIs from
+`poi_scan.jsonl` (§2.3), looks their GPS up in `pois.json`, and applies
+the margin. Before the scan exists it falls back to the `src/poi.py` 27
+candidates. The metadata sweep is free, so the box can be widened and
+re-crawled incrementally if routes reach an edge.
 
-**Code:** `src/streetview.py` · **In:** `config.SV_BBOX` + Google Maps
-key · **Out:** `data/cities/streetview/zurich/{images/,meta.jsonl}` ·
-**Run:** `python -m src.streetview --scan` (free metadata scan) then
-`--download` (Static API). ⏳ module to be built.
+**Code:** `src/streetview.py` · **In:** `poi_scan.jsonl` + `pois.json`
+(→ bbox) + Google Maps key · **Out:**
+`data/cities/streetview/zurich/{images/, panos.jsonl, meta.jsonl}` ·
+**Run:** `python -m src.streetview --bbox` (print the derived box) →
+`--scan` (free) → `--download` (Static API).
 
 ### 2.5 GPS recovery
 
@@ -406,9 +407,10 @@ Phase A output: **trusted frames, each with (GPS, heading)**.
 
 ### 2.6 Routing — and turning a route into an instruction (Q5)
 
-`way_planner.py` (osmnx + networkx) computes the OSM walking route from
-a frame's GPS to a destination POI: `nx.shortest_path` by length, giving
-the route geometry and the **first-segment absolute bearing `B`**.
+`src/routing.py` (`plan_route`, osmnx + networkx) computes the OSM
+walking route from a frame's GPS to a destination POI:
+`nx.shortest_path` by length, giving the route geometry and the
+**first-segment absolute bearing `B`**.
 
 HMM road-snapping (§2.5) gives **GPS positions only** — not which way
 the camera faces. That is why the per-frame **heading** matters: the
@@ -462,17 +464,18 @@ bin, excluding borderline cases. It is a discretization-driven tolerance,
 not a deep result: loosen toward 45° for more data, tighten for cleaner
 labels.
 
-**Run 5 samples first.** The annotation module takes a `--limit 5` flag;
-we inspect the 5 (thinking + answer + verifier verdict) before the full
-run. Code is `synth_unified.py`'s logic with the teacher swapped to
+**Run 5 samples first.** The annotation module `src/annotate.py` takes a
+`--limit 5` flag; we inspect the 5 (thinking + answer + verifier verdict)
+before the full run. It does the distance-banded destination sampling,
+the closed-loop verifier, and the teacher call
 `call_gemini(model="gemini-2.5-pro")`.
 
 ### 2.8 Image ↔ POI indexing & route map
 
-Indexes (kept): `_video_poi_multi.jsonl` (`{video, frame_id,
-visible_pois[]}`) and the Street-View-side visibility index, bridged by
-GPS — so any frame is traceable POI→frames and frame→POIs, which also
-yields the per-POI dataset distribution.
+Index: `poi_scan.jsonl` (§2.3) maps each video frame → the POIs visible
+in it, resolved to the OSM table by name — so any frame is traceable
+POI→frames and frame→POIs, which also yields the per-POI dataset
+distribution.
 
 Once frames carry GPS, plot the **8-video route map**: each video's
 recovered GPS sequence as a coloured polyline on one Leaflet/folium map —
@@ -480,19 +483,21 @@ both a deliverable and a sanity check on GPS recovery.
 
 ### 2.9 Gemini API budget (Q6)
 
-Per 1M tokens: Gemini 2.5 **Pro** $1.25 in / $10 out. Both VLM stages
-run on Pro (Q6); the POI scan is *not* rerun.
+Per 1M tokens: Gemini 2.5 **Pro** $1.25 in / $10 out · **Flash**
+$0.30 in / $2.50 out. The POI scan (§2.3) runs on Flash with downscaled
+frames; the geo-check and annotation VLM stages run on Pro (Q6).
 
 | Workload | Calls | Model | Est. cost |
 |----------|------:|-------|----------:|
+| POI scan — `--every-n 30`, 1024 px frames | ~870 | Flash | ~$0.50 |
 | VLM geo-check — candidate frames | ~5,000 | Pro | ~$18 |
 | Instruction annotation — 3 dest/frame | ~6,600 | Pro | ~$76 |
-| Street View Static crawl | — | — | ~$54 |
+| Street View Static crawl | ~2k–8k imgs | — | ~$15–55 |
 
-Total ≈ **$148**, against a **$50 GCP credit** — over budget. Mitigate
-by trimming the Street View crawl to the video routes and capping
-annotation samples. Flagged for the budget owner; tracked live with
-`reference/track_spend.py`.
+Total ≈ **$110–150**, against a **$50 GCP credit** — over budget.
+Mitigate by trimming the Street View crawl to the video routes and
+capping annotation samples. Flagged for the budget owner; tracked live
+with `reference/track_spend.py`.
 
 ---
 
@@ -648,10 +653,11 @@ Reported separately, un-weighted, for diagnosis:
 - **median heading error δ** — continuous, for the `*-implicit` /
   `*-explicit` (compass-free) conditions.
 
-**Where it runs.** Zero-shot baselines (`B-given`, `B-infer`) run
-**locally** on the RTX 3060 — inference only, no training. The LoRA
-conditions are trained on Modal and evaluated straight after each run.
-PASS_strict is compared across the 6 conditions for **each** ablation.
+**Where it runs.** The zero-shot baselines (`B-given`, `B-implicit`,
+`B-explicit`) run **locally** on the RTX 3060 — inference only, no
+training. The three LoRA conditions are trained on Modal and evaluated
+straight after each run. PASS_strict is compared across the 6 conditions
+for **each** ablation.
 
 *Prior round, for reference:* a compass-free explicit-CoT LoRA reached
 52.9 % PASS / median heading error 20.8° (vs base 99°); the with-compass
@@ -699,14 +705,21 @@ navlm_v2/
 
 ## 7. Roadmap
 
-1. ✅ Scaffold `config.py`, `src/`, `tests/`.
-2. ✅ Stage 1–2: video acquisition + frame extraction with quality filter.
-3. ✅ `src/poi.py` (27 candidates + map), `src/streetview.py` (grid
-   crawl), `src/reconcile.py` (weighted score), `train_modal.py` (Modal
-   LoRA). 24 pytest tests.
-4. GPS recovery: DINOv2 embed/match + VLM place-naming → feed
-   `src/reconcile.py` + heading; then HMM road-snapping.
-5. Sample test + `MIN_SIM` / `RECONCILE_TAU` tuning before the full crawl.
-6. Visualizations + 8-video route map.
-7. Phase B: routing + Gemini-2.5-Pro annotation (5-sample trial first).
-8. Phase C/D: `train_modal.py` LoRA run + local zero-shot + eval.
+1. ✅ Scaffold — `config.py`, `src/`, `tests/` (~62 pytest tests).
+2. ✅ All Phase A / B modules coded + unit-tested: `download_videos`,
+   `extract_frames`, `pois`, `poi_scan`, `streetview`, `gps_recovery`,
+   `reconcile`, `routing`, `road_snap`; plus `poi`, `annotate`, `viz`,
+   `train_modal`.
+3. ✅ Run so far: OSM POI table (`pois.json`, 1,289 POIs); frame
+   extraction (26,034 kept frames).
+4. ▶ POI scan — full run, Gemini Flash `--every-n 30` (in progress) →
+   derives the Street View crawl bbox.
+5. Street View crawl — `--scan` (free) → `--download` (Static API).
+6. GPS recovery: DINOv2 embed/match + VLM place-naming → `reconcile.py`
+   weighted score + heading; then HMM road-snapping → trusted
+   (GPS, heading) frames.
+7. Sample test + `MIN_SIM` / `RECONCILE_TAU` tuning.
+8. Visualizations + 8-video route map.
+9. Phase B: routing + Gemini-2.5-Pro annotation (5-sample trial first).
+10. Phase C/D: `train_modal.py` LoRA runs + local zero-shot + eval,
+    both ablations (§3 / §4).
