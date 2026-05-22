@@ -11,6 +11,26 @@ from pathlib import Path
 # ── paths ────────────────────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent
 
+
+def _load_dotenv():
+    """Populate os.environ from a gitignored .env at the repo root.
+    Tiny parser, no dependency; real environment variables win."""
+    env_file = REPO_ROOT / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.split("#", 1)[0].strip().strip('"').strip("'")
+        if key and val and key not in os.environ:
+            os.environ[key] = val
+
+
+_load_dotenv()
+
 # Raw data + pipeline outputs (local disk, gitignored).
 # Default: <repo>/data ; override with `set NAVLM_DATA=...`.
 DATA_ROOT = Path(os.environ.get("NAVLM_DATA", REPO_ROOT / "data"))
