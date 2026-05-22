@@ -136,13 +136,22 @@ def load_osm_pois():
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def scan_frame(image_path):
-    """One Gemini-Flash open-set naming call. Returns the raw name list."""
+def scan_frame(image_path, retries=3):
+    """One Gemini-Flash open-set naming call → variant-lists.
+    Retries with backoff on transient API errors (e.g. 503/429)."""
+    import time
     sys.path.insert(0, str(config.REPO_ROOT / "reference" / "toolbox"))
     from synth.backends import call_gemini
-    resp = call_gemini(str(image_path), GEMINI_SYS, GEMINI_PROMPT,
-                       model=config.GEMINI_SCAN)
-    return parse_names(resp)
+    for attempt in range(retries):
+        try:
+            resp = call_gemini(str(image_path), GEMINI_SYS, GEMINI_PROMPT,
+                               model=config.GEMINI_SCAN)
+            return parse_names(resp)
+        except Exception:
+            if attempt == retries - 1:
+                raise
+            time.sleep(3 * (attempt + 1))      # 3 s, 6 s backoff
+    return []
 
 
 def discover_frames(every_n=1):

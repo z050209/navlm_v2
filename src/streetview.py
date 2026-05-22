@@ -62,8 +62,36 @@ def grid_points(bbox, spacing_m: float = config.SV_GRID_M):
             for i in range(nx + 1) for j in range(ny + 1)]
 
 
+def bbox_from_scan(scan_path=None, pois_path=None,
+                   margin_m=config.SV_MARGIN_M):
+    """Crawl bbox from the POI scan — the POIs the videos *actually*
+    visit (`poi_scan.jsonl` `matched`), looked up in `pois.json`, +
+    margin. Returns (W, S, E, N). Raises ValueError if no matches."""
+    scan_path = Path(scan_path or (config.CITY_DIR / "poi_scan.jsonl"))
+    pois_path = Path(pois_path or (config.CITY_DIR / "pois.json"))
+    gps = {p["name"]: (p["lat"], p["lon"])
+           for p in json.loads(pois_path.read_text(encoding="utf-8"))}
+    coords = []
+    for ln in scan_path.read_text(encoding="utf-8").splitlines():
+        if not ln.strip():
+            continue
+        for m in json.loads(ln).get("matched", []):
+            g = gps.get(m.get("osm_name"))
+            if g:
+                coords.append(g)
+    if not coords:
+        raise ValueError("no matched POIs in the scan")
+    return bbox_from_pois(coords, margin_m)
+
+
 def crawl_bbox():
-    """The derived crawl bbox — visited-POI bbox + margin (Q3)."""
+    """The derived crawl bbox + margin (Q3). Prefers the POI scan (the
+    POIs the videos actually visit); falls back to the 27 candidates."""
+    if (config.CITY_DIR / "poi_scan.jsonl").exists():
+        try:
+            return bbox_from_scan()
+        except ValueError:
+            pass
     return bbox_from_pois(poi.CANDIDATE_POIS)
 
 

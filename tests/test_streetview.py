@@ -3,6 +3,7 @@
 Network steps (scan, download) are not exercised here.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -42,3 +43,18 @@ def test_grid_denser_with_smaller_spacing():
 def test_crawl_bbox_well_formed():
     w, s, e, n = sv.crawl_bbox()
     assert w < e and s < n
+
+
+def test_bbox_from_scan(tmp_path):
+    pois = tmp_path / "pois.json"
+    scan = tmp_path / "poi_scan.jsonl"
+    pois.write_text(json.dumps([
+        {"name": "A", "lat": 47.37, "lon": 8.54},
+        {"name": "B", "lat": 47.38, "lon": 8.55},
+        {"name": "C", "lat": 47.36, "lon": 8.53}]), encoding="utf-8")
+    scan.write_text(
+        json.dumps({"matched": [{"osm_name": "A"}, {"osm_name": "B"}]}) + "\n"
+        + json.dumps({"matched": [{"osm_name": "C"}]}) + "\n", encoding="utf-8")
+    w, s, e, n = sv.bbox_from_scan(scan, pois, margin_m=300)
+    # bbox of A/B/C (lat 47.36-47.38, lon 8.53-8.55) + a 300 m margin
+    assert w < 8.53 and s < 47.36 and e > 8.55 and n > 47.38
