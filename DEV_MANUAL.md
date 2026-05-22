@@ -51,22 +51,24 @@ function python { & "G:\My Drive\cs231n\project\cs231n\cs231n\navlm_ss\.venv\Scr
 
 Then run these one by one. Only ✅ steps exist yet; ⏳ land as built (§7).
 
-| # | Step | Command | Status |
-|---|------|---------|--------|
-| 0 | sanity-check config + paths | `python config.py` | ✅ |
-| 1 | run the unit tests | `python -m pytest tests/ -q` | ✅ |
-| 2 | print the 27 candidate POIs | `python -m src.poi --list` | ✅ |
-| 2b| write the POI icon map | `python -m src.poi --map` | ✅ |
-| 3 | list source videos found | `python -m src.extract_frames --list` | ✅ |
-| 4 | extract frames — all videos | `python -m src.extract_frames` | ✅ |
-| 4b| extract one video only | `python -m src.extract_frames --only hidden_streets` | ✅ |
-| – | download a missing video | `python -m src.download_videos --only <name>` | ✅ (videos present) |
-| 5 | Street View — derived crawl bbox | `python -m src.streetview --bbox` | ✅ |
-| 5b| Street View — free metadata scan | `python -m src.streetview --scan` | ✅ |
-| 5c| Street View — Static API download | `python -m src.streetview --download` | ✅ (costs $) |
-| 6 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | ⏳ module coming |
-| 7 | OSM + HMM road-snapping | `python -m src.road_snap` | ⏳ module coming |
-| – | LoRA training on Modal | `modal run train_modal.py` | ✅ built |
+**Pipeline run order** — Phase A is steps 1–8; later steps depend on
+earlier ones (a step's *needs* are noted).
+
+| # | Step | Command | Needs | Status |
+|---|------|---------|-------|--------|
+| 0 | sanity-check config | `python config.py` | — | ✅ |
+| 0b| run the unit tests | `python -m pytest tests/ -q` | — | ✅ |
+| 1 | build the OSM POI table | `python -m src.pois` | — | ✅ |
+| 2 | (download videos — already present) | `python -m src.download_videos` | — | ✅ |
+| 3 | extract frames (quality-filtered) | `python -m src.extract_frames` | step 2 | ✅ |
+| 4 | POI scan — Gemini Flash → OSM match | `python -m src.poi_scan --limit 5` then full | steps 1, 3 | ✅ |
+| 5 | Street View — bbox / scan / download | `python -m src.streetview --bbox` · `--scan` · `--download` | — | ✅ |
+| 6 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | steps 3, 5 | ⏳ |
+| 7 | OSM + HMM road-snapping | `python -m src.road_snap` | step 6 | ⏳ |
+| 8 | visualizations / route map | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
+| 9 | LoRA training on Modal | `modal run train_modal.py` | annotated data | ✅ |
+
+(`--list` previews most steps; `--limit N` does a small trial run.)
 
 Notes:
 - Step 3 writes frames to `data/cities/zurich/frames/<name>/` plus an
