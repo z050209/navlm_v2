@@ -51,13 +51,14 @@ Then run these one by one. Only ✅ steps exist yet; ⏳ land as built (§7).
 |---|------|---------|--------|
 | 0 | sanity-check config + paths | `python config.py` | ✅ |
 | 1 | run the unit tests | `python -m pytest tests/ -q` | ✅ |
-| 2 | list source videos found | `python -m src.extract_frames --list` | ✅ |
-| 3 | extract frames — all videos | `python -m src.extract_frames` | ✅ |
-| 3b| extract one video only | `python -m src.extract_frames --only hidden_streets` | ✅ |
-| – | download a missing video | `python -m src.download_videos --only <name>` | ✅ (videos already present) |
-| 4 | Street View reference crawl | `python -m src.streetview` | ⏳ module coming |
-| 5 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | ⏳ module coming |
-| 6 | OSM + HMM road-snapping | `python -m src.road_snap` | ⏳ module coming |
+| 2 | the 27 candidate POIs — table / map | `python -m src.poi --list` / `--map` | ✅ |
+| 3 | list source videos found | `python -m src.extract_frames --list` | ✅ |
+| 4 | extract frames — all videos | `python -m src.extract_frames` | ✅ |
+| 4b| extract one video only | `python -m src.extract_frames --only hidden_streets` | ✅ |
+| – | download a missing video | `python -m src.download_videos --only <name>` | ✅ (videos present) |
+| 5 | Street View reference crawl | `python -m src.streetview` | ⏳ module coming |
+| 6 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | ⏳ module coming |
+| 7 | OSM + HMM road-snapping | `python -m src.road_snap` | ⏳ module coming |
 
 Notes:
 - Step 3 writes frames to `data/cities/zurich/frames/<name>/` plus an
@@ -102,8 +103,12 @@ of its pHash from the *last kept* frame is ≥ `PHASH_THRESHOLD` (10 bits).
 A long static stretch therefore collapses to a single representative.
 
 Order matters: quality gate **before** dedup, so a blurry frame is never
-chosen as a scene's representative. Per-video keep/drop counts are logged
-to `frames/extract_report.json`.
+chosen as a scene's representative.
+
+**Code:** `src/extract_frames.py` · **In:** `videos/**/*.mp4` ·
+**Out:** `data/cities/zurich/frames/<name>/frame_NNNNN.jpg` +
+`frames/extract_report.json` (per-video keep/drop counts) ·
+**Run:** `python -m src.extract_frames` (`--list` preview, `--only <name>`).
 
 ### 2.3 POI table
 
@@ -117,11 +122,12 @@ A POI is a named place with coordinates. v2 uses **one POI table**:
   (W,S,E,N). The bbox is central Zurich's old town — the area the
   walking tours cover (Hauptbahnhof → Altstadt → Grossmünster → lakefront),
   ≈ 3.8 km × 3.9 km. **This bbox is the GPS scope of the project.**
-- **Scenery entries** — 13 hand-added entries for features OSM tags as
-  *ways/polygons*, which point extraction misses: streets (Bahnhofstrasse,
-  Niederdorfstrasse…), the Limmat, Lake Zurich, bridges. Each carries a
-  custom `radius_m` (streets ~300 m, lake 600 m, bridges ~80 m) so
-  proximity checks use a feature-appropriate radius. These matter for
+- **Scenery entries** — 13 entries for features OSM tags as *ways/polygons*
+  (streets, the Limmat, Lake Zurich, bridges) that point extraction misses.
+  **Who decided these (Q1):** they are *hand-curated* — written by hand in
+  `reference/toolbox/scenery_pois.py` by the original authors; the per-entry
+  `radius_m` (streets ~300 m, lake 600 m, bridges ~80 m) is a hand-set
+  estimate of how far each feature spans / is visible from. They matter for
   navigation ("walk along Bahnhofstrasse") and are folded into the table.
 
 > **Dropped (Q1):** the separate 31-entry `zurich_landmarks_gps.py`
@@ -131,13 +137,35 @@ A POI is a named place with coordinates. v2 uses **one POI table**:
 > point-extraction genuinely misses.
 
 **POI scan of the video frames** — `scan_video_pois_multi.py` had a VLM
-(Gemma) look at frames and list visible POIs from a fixed **26-candidate
-list**. That list (`CANDIDATE_POIS`) is a hand-picked shortlist of the
-most iconic Zurich landmarks + scenery — effectively the **tier-1 /
-"L1" iconic set** (Hauptbahnhof, Lindenhof, Paradeplatz, Fraumünster,
-Grossmünster, Bahnhofstrasse, the Limmat, Lake Zurich, …). It is short
-on purpose, so the VLM picks from a manageable menu. **The existing scan
-output (`_video_poi_multi.jsonl`) is kept as-is — not rerun.**
+(Gemma) look at frames and list visible POIs from a fixed **27-candidate
+list** (`CANDIDATE_POIS`). The existing scan output
+(`_video_poi_multi.jsonl`) is kept as-is — **not rerun**.
+
+**The 27 candidates (Q2).** There is **no extraction code** — the list
+was *hand-picked* (the tier-1 / "L1" iconic set, short so the VLM picks
+from a manageable menu). It now lives canonically — with GPS, kind and
+中文 names — in `src/poi.py`.
+
+**Code:** `src/poi.py` · **Out:** `viz/poi_candidates_map.html` (a
+signature emoji icon per POI kind) · **Run:** `python -m src.poi --list`
+(table) · `python -m src.poi --map` (icon map).
+
+| # | English | 中文 | kind | # | English | 中文 | kind |
+|--|---------|------|------|--|---------|------|------|
+| 1 | Hauptbahnhof | 苏黎世中央车站 | station | 15 | Stadthaus | 市政府大楼 | civic |
+| 2 | Lindenhof | 林登霍夫山丘 | hill | 16 | Opernhaus | 苏黎世歌剧院 | culture |
+| 3 | Paradeplatz | 阅兵广场 | square | 17 | Kunsthaus | 苏黎世美术馆 | museum |
+| 4 | Münsterhof | 明斯特霍夫广场 | square | 18 | Landesmuseum | 瑞士国家博物馆 | museum |
+| 5 | Fraumünster | 圣母大教堂 | church | 19 | Polyterrasse | 联邦理工观景台 | hill |
+| 6 | Grossmünster | 大教堂 | church | 20 | Globus | 高乐斯百货 | store |
+| 7 | St. Peter | 圣彼得教堂 | church | 21 | Jelmoli | 耶尔莫利百货 | store |
+| 8 | Bellevueplatz | 贝尔维尤广场 | square | 22 | Bahnhofstrasse | 班霍夫大街 | street |
+| 9 | Sechseläutenplatz | 六鸣节广场 | square | 23 | Niederdorfstrasse | 下村街 | street |
+| 10 | Bürkliplatz | 比尔克利广场 | square | 24 | Limmatquai | 利马特河滨道 | street |
+| 11 | Quaibrücke | 码头桥 | bridge | 25 | Rennweg | 伦韦格街 | street |
+| 12 | Münsterbrücke | 大教堂桥 | bridge | 26 | Limmat river | 利马特河 | water |
+| 13 | Rathausbrücke | 市政厅桥 | bridge | 27 | Lake Zurich | 苏黎世湖 | water |
+| 14 | Rathaus | 市政厅 | civic | | | | |
 
 ### 2.4 Street View reference grid
 
@@ -149,13 +177,25 @@ Street View panoramas (`reference/fetch_streetview_grid.py`):
 - The **Street View Static API** ($7/1000) then downloads 4 headings
   (N/E/S/W) per panorama.
 
-**Crawl bbox (Q3).** The grid should cover **where the videos actually
-walk**, not an arbitrary box. The route extent is bootstrapped from the
-GPS bounding box of the POIs the video POI-scan found (§2.3), plus a
-**~300 m margin** so a POI on the edge — or a route segment that leaves
-the box — still has reference imagery. The metadata scan is free and
-incremental, so the box can be expanded later if GPS recovery shows
-routes near an edge.
+**Crawl bbox (Q3).** Yes — the grid bbox is the **bounding box of the
+candidate POIs the videos visit** (the §2.3 POIs whose names appear in
+`_video_poi_multi.jsonl`), **+ a ~300 m margin** so a POI on the edge,
+or a route segment leaving the box, still has reference imagery. It is
+*derived*, not hand-set:
+
+```
+bbox = (min_lon − m, min_lat − m, max_lon + m, max_lat + m)
+       over the visited POIs,  m ≈ 300 m   →   config.SV_BBOX
+```
+
+`src/streetview.py` computes this from `src/poi.py` coordinates (later
+also from recovered route GPS). The metadata scan is free, so the box
+can be widened and re-crawled incrementally if routes reach an edge.
+
+**Code:** `src/streetview.py` · **In:** `config.SV_BBOX` + Google Maps
+key · **Out:** `data/cities/streetview/zurich/{images/,meta.jsonl}` ·
+**Run:** `python -m src.streetview --scan` (free metadata scan) then
+`--download` (Static API). ⏳ module to be built.
 
 ### 2.5 GPS recovery
 
@@ -201,12 +241,14 @@ keeps the most frames at acceptable quality wins. (Weights are heuristic
 for now — with a labelled subset they could be fit by logistic
 regression.)
 
-**Heading (Q5).** Each Street View crop was rendered at a *known*
-heading (0/90/180/270°). The frame's camera heading ≈ the heading of the
-matched crop; averaging the headings of the top-k matched crops
-(circular mean, outlier-filtered — the geometry is in
-`reference/toolbox/compute_frame_heading.py`) gives a heading estimate
-plus a spread-based confidence.
+**Heading.** Each Street View crop was rendered at a *known* heading
+(0/90/180/270°). The frame's camera heading ≈ the heading of the matched
+crop. **Top-k (Q4):** the DINOv2 match returns the `k` Street View crops
+with the **highest cosine similarity** to the frame's embedding (`k` is
+a config parameter, default `k = 5`); the heading is the
+outlier-filtered **circular mean** of those k crops' rendered headings,
+and the circular spread gives a confidence (geometry in
+`reference/toolbox/compute_frame_heading.py`).
 
 **Road-snapping.** The accepted per-frame GPS sequence is smoothed onto
 the OSM walking graph with HMM map-matching (Newson-Krumm Viterbi),
@@ -239,15 +281,38 @@ cannot be turned into a relative instruction and is not used.
 
 ### 2.7 Instruction-tuning annotation
 
-The teacher VLM (**Gemini 2.5 Pro**, Q6) is given a frame + its GPS +
+The teacher VLM (**Gemini 2.5 Pro**) is given a frame + its GPS +
 heading + nearby POIs + the planned route, and produces `<thinking>`
 (6 labelled reasoning steps) + `<answer>` (2–4 TTS-friendly sentences,
-relative verbs anchored to a visible object). **3 destinations per
-frame** (Q6), tier-weighted toward iconic POIs.
+relative verbs anchored to a visible object).
+
+**How each frame's samples are formed (Q6).** Per frame we draw **3
+destination POIs**, sampled by a **distance-band distribution** so most
+prompts are realistic short-range walks:
+
+| Walking distance to destination | Share of the 3 |
+|---------------------------------|----------------|
+| ≤ 500 m (a few minutes)         | **80 %** |
+| 500–1000 m                      | **10 %** |
+| 1000–1500 m                     | **10 %** |
+
+Within each band the destination is drawn tier-weighted toward iconic
+POIs. So a typical frame yields ≈ 2–3 short-range instructions plus the
+occasional longer one; across the dataset the 80/10/10 split holds.
 
 Every sample is gated by a **closed-loop verifier**: parse the action
 verb from the answer, check `|heading + ACTION_DELTA[verb] −
 route_bearing| < 30°`. Samples that fail are dropped.
+
+**Why 30° (Q5).** The 4 action verbs discretize heading into **4 bins of
+90°** (`ACTION_DELTA = {ahead 0, left −90, right +90, around 180}`); the
+boundary between "continue ahead" and a turn sits at ±45° — half a bin.
+A sample is "correct" if the required turn lands inside its verb's bin,
+i.e. within 45°. **30° is that 45° half-bin minus a ~15° safety margin**
+— it accepts a sample only when it sits comfortably inside the right
+bin, excluding borderline cases. It is a discretization-driven tolerance,
+not a deep result: loosen toward 45° for more data, tighten for cleaner
+labels.
 
 **Run 5 samples first.** The annotation module takes a `--limit 5` flag;
 we inspect the 5 (thinking + answer + verifier verdict) before the full
@@ -289,11 +354,25 @@ The hold-outs are **not** combined into one split — they are two
 independent ablation experiments:
 
 1. **Video / camera generalization** — train on 7 videos, test on the
-   held-out video (`saturday_morning`). Tests new footage of (possibly)
-   known places.
+   held-out video (`saturday_morning`). Tests new footage.
 2. **POI generalization** — train on one set of destination POIs, test
-   on a disjoint set. Tests routing to places never seen as a training
-   destination.
+   on a disjoint set. Tests routing to places unseen in training.
+
+**Assigning each frame to a POI region (Q7).** For the POI split we
+partition the map into **one region per POI** and label each frame by
+the region its recovered GPS falls in:
+
+- regions = a **Voronoi partition** of the POI coordinates, clipped to
+  the project bbox (each frame → its nearest POI). For scenery entries
+  (streets, river, lake) the region is instead that feature's `radius_m`
+  disc / buffer polygon.
+- a frame "belongs to" POI X if its GPS lies in X's region.
+- split the **POI set** into train / test; each frame then goes to train
+  or test by its region's POI — so a test-POI's frames are never trained on.
+
+The region polygons are exported and drawn on a map (§5) so the split is
+visually auditable — you can see which area, and which POI, each frame
+fell into.
 
 ---
 
@@ -313,11 +392,15 @@ lr 2e-4.
 ## 5. Visualizations
 
 Standalone HTML in `viz/`:
-1. POIs found per video frame, on a map (with the POI photo at its pin).
-2. Bought Street View panos highlighted on the map.
-3. Recovered video-frame GPS highlighted on the map.
-4. The 8-video routes derived from the images (§2.8).
-5. A Q&A viewer — photo + question + generated answer — to sanity-check
+1. **The 27 candidate POIs** with signature icons — `poi_candidates_map.html`
+   (`python -m src.poi --map`). ✅ built.
+2. POIs found per video frame, on a map (with the POI photo at its pin).
+3. Bought Street View panos highlighted on the map.
+4. Recovered video-frame GPS on the map, **overlaid with the POI region
+   polygons (Q8)** — so each frame's area and POI assignment (§3) is
+   visible at a glance.
+5. The 8-video routes derived from the images (§2.8).
+6. A Q&A viewer — photo + question + generated answer — to sanity-check
    the instruction tuning.
 
 ---
