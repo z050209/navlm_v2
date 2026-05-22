@@ -447,18 +447,37 @@ Can a VLM give *correct* walking directions from a phone photo + GPS
 
 ### 4.2 Conditions
 
-Four conditions, run for **each** ablation split (§3):
+**Three prompt variants × {base, LoRA} = 6 conditions**, run for **each**
+ablation split (§3):
 
-| ID | model | camera heading in the prompt? |
-|----|-------|-------------------------------|
-| **B-given** | base Qwen2.5-VL-7B, zero-shot | yes |
-| **B-infer** | base, zero-shot | no — must infer from the photo |
-| **L-given** | + NavLM LoRA | yes |
-| **L-infer** | + NavLM LoRA | no — must infer |
+| ID | model | heading in prompt | chain-of-thought |
+|----|-------|-------------------|------------------|
+| **B-given**    | base Qwen2.5-VL-7B, zero-shot | given  | — |
+| **B-implicit** | base, zero-shot               | hidden | implicit — no heading step |
+| **B-explicit** | base, zero-shot               | hidden | explicit `INFERRED_HEADING:` step |
+| **L-given**    | + NavLM LoRA                  | given  | — |
+| **L-implicit** | + NavLM LoRA                  | hidden | implicit |
+| **L-explicit** | + NavLM LoRA                  | hidden | explicit `INFERRED_HEADING:` step |
 
-Headline comparisons: **L-infer vs B-infer** (does fine-tuning teach
-heading inference?) and **L-infer vs L-given** (the accuracy cost of
-dropping the compass). The `*-given` rows are upper-bound references.
+The two compass-free variants differ in **how the CoT handles heading**:
+- **implicit** — heading is removed from the prompt; the model just
+  writes the answer and never states a heading.
+- **explicit** — the `<thinking>` block has a dedicated step where the
+  model writes its **`INFERRED_HEADING:`** — it triangulates visible
+  landmarks against the nearby-POI map and commits to a heading number
+  *before* choosing the action. This makes heading inference an
+  explicit, trainable, interpretable intermediate output.
+
+Headline comparisons:
+- **L-explicit vs B-explicit** — does fine-tuning teach the model to
+  triangulate its heading from the photo?
+- **L-explicit vs L-implicit** — does forcing heading into the CoT help?
+- **L-explicit vs L-given** — the accuracy cost of dropping the compass.
+
+`*-given` are upper-bound references. **L-explicit** — compass-free with
+explicit heading reasoning — is the main result. (In the prior round it
+was the best compass-free model: median heading error 21° vs 66° for
+implicit.)
 
 ### 4.3 Training
 
@@ -472,8 +491,11 @@ dropping the compass). The `*-given` rows are upper-bound references.
 | Batch | 1 × grad-accum 8 (effective 8); images capped 448² px |
 | Compute | Modal A100-80GB via `train_modal.py` — ~3–6 h, ~$22 / run |
 
-`L-given` and `L-infer` are two LoRA runs on the same frames, differing
-only in whether the user message includes the heading.
+`L-given`, `L-implicit` and `L-explicit` are three LoRA runs on the same
+frames. The teacher annotates once (heading visible, §2.7); the implicit
+and explicit training sets are *derived* from that base set — implicit
+strips the heading from the user message, explicit additionally rewrites
+the `<thinking>` to spell out the `INFERRED_HEADING:` step.
 
 ### 4.4 Evaluation
 
@@ -537,7 +559,7 @@ For diagnosis we also report, separately and un-weighted:
 **Where it runs.** Zero-shot baselines (`B-given`, `B-infer`) run
 **locally** on the RTX 3060 — inference only, no training. The LoRA
 conditions are trained on Modal and evaluated straight after each run.
-PASS_strict is compared across the 4 conditions for **each** ablation.
+PASS_strict is compared across the 6 conditions for **each** ablation.
 
 *Prior round, for reference:* a compass-free explicit-CoT LoRA reached
 52.9 % PASS / median heading error 20.8° (vs base 99°); the with-compass
