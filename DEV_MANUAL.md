@@ -80,6 +80,28 @@ Notes:
 
 ## 2. Pipeline stages
 
+Each stage is one `src/` module, runnable on its own (see the run table
+above). Every stage section gives **Code · In · Out · Run**.
+
+**Phase A — video → trusted (GPS, heading) frames:**
+
+| § | Stage | Module | Produces |
+|---|-------|--------|----------|
+| 2.1 | Video acquisition | `download_videos.py` | the 8 source `.mp4` |
+| 2.2 | Frame extraction | `extract_frames.py` | quality-filtered frames |
+| 2.3 | POI layer | `pois.py`, `poi_scan.py` | `pois.json`, `poi_scan.jsonl` |
+| 2.4 | Street View reference | `streetview.py` | the SV image index |
+| 2.5 | GPS recovery | `gps_recovery.py`, `reconcile.py` | per-frame GPS + heading |
+| 2.6 | Routing | `routing.py`, `road_snap.py` | OSM routes, snapped GPS |
+
+**Phase B and supporting:**
+
+| § | Stage | Module |
+|---|-------|--------|
+| 2.7 | Instruction-tuning annotation (Gemini Pro) | `annotate.py` |
+| 2.8 | Image ↔ POI indexing & route map | `viz.py` |
+| 2.9 | Gemini API budget | — |
+
 ### 2.1 Video acquisition
 
 8 YouTube walking-tour videos (`milestone2/videos/video_urls.md`);
@@ -226,13 +248,26 @@ must be honest about provenance.
   it sees — no fixed candidate menu. (This replaces the v1 closed
   27-candidate Gemma scan.)
 - **Matched to OSM.** Every raw name the VLM returns is resolved against
-  the OSM POI table (§ above) with the alias-aware `resolve_poi()`, and
-  the matched POI is **tier-tagged L1 / L2 / L3** (`poi_tier()` — keyword
-  sets are editable in `src/poi_scan.py`). Names that match nothing are
-  still recorded as `unmatched` — that surfaces real places missing
-  from the OSM table.
+  the OSM POI table with the alias-aware, diacritic-folded `resolve_poi()`
+  (Gemini also returns a German + English variant so at least one form
+  matches). Names that match nothing are recorded as `unmatched` — that
+  surfaces real places missing from the OSM table.
+- **Tiered by OSM tag.** Each matched POI is tagged **L1 / L2 / L3** by
+  `poi_tier()` in `src/poi_scan.py`, classifying on the POI's **OSM tag**
+  — not hand keywords. `src/pois.py:osm_kind()` records each POI's
+  primary tag (`tourism=museum`, `amenity=place_of_worship`,
+  `highway=primary`, …) into `pois.json`; `poi_tier()` maps that tag via
+  the editable `TIER_BY_TAG` / `TIER_BY_KEY` tables. L1 = landmark
+  categories you navigate *to* (attractions, churches, monuments,
+  stations); L2 = supporting POIs (museums, parks, bridges, named
+  streets, the river/lake); L3 = the rest. Current Zurich table:
+  **L1 ≈ 115, L2 ≈ 1168, L3 ≈ 6** of 1,289 POIs.
+  > Note: OSM tags give the *category*, not *fame* — every named street
+  > lands in L2, so L2 is broad (≈ 770 streets). To tighten it, demote
+  > `highway` in `TIER_BY_KEY`, or rank prominence by a separate signal
+  > (e.g. POI-scan appearance frequency).
 - **Output** `data/cities/zurich/poi_scan.jsonl`, per frame:
-  `{video, frame_id, raw_names[], matched[{raw, osm_name, tier}], unmatched[]}`.
+  `{video, frame_id, places[], matched[{variants, osm_name, tier}], unmatched[]}`.
   This *is* the POI provenance — it shows exactly which POIs (and tiers)
   the dataset can anchor and route to.
 
