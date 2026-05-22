@@ -81,9 +81,24 @@ Notes:
 ### 2.1 Video acquisition
 
 8 YouTube walking-tour videos (`milestone2/videos/video_urls.md`);
-`saturday_morning` is the evaluation hold-out. Videos already downloaded
-to `videos/` — no fetch needed. `src/download_videos.py` (yt-dlp) exists
-for any not yet present.
+`saturday_morning` is the evaluation hold-out.
+
+**Download — `src/download_videos.py`** (a yt-dlp wrapper). It reads the
+8 video IDs from `config.VIDEOS`, downloads each (best mp4 video + m4a
+audio, ffmpeg-merged) and is resumable — it skips any file already
+present.
+
+**Code:** `src/download_videos.py` · **In:** `config.VIDEOS` (8 IDs) ·
+**Out:** `videos/<name>.mp4` · **Run:**
+
+```bash
+python -m src.download_videos              # all 8
+python -m src.download_videos --only saturday_morning
+python -m src.download_videos --list       # list, do not download
+```
+
+All 8 videos are already in `videos/Zurich/` — this is for
+reproducibility / a missing video only.
 
 ### 2.2 Frame extraction — `src/extract_frames.py`
 
@@ -198,15 +213,33 @@ agree. A name that still misses can be canonicalised by the geo-check VLM.
 6. **POI-region split** (§3) — the POI set is partitioned for the
    POI-generalization ablation.
 
-**POI scan of the video frames** — `scan_video_pois_multi.py` had a VLM
-(Gemma) look at frames and list visible POIs from a fixed **27-candidate
-list** (`CANDIDATE_POIS`). The existing scan output
-(`_video_poi_multi.jsonl`) is kept as-is — **not rerun**.
+**POI scan of the video frames** — what `scan_video_pois_multi.py` does:
 
-**The 27 candidates (Q2).** There is **no extraction code** — the list
-was *hand-picked* (the tier-1 / "L1" iconic set, short so the VLM picks
-from a manageable menu). It now lives canonically — with GPS, kind and
-中文 names — in `src/poi.py`.
+- **Logic.** It is a pure **VLM image-scan** — *no comparison against
+  OSM*. Gemma (`gemma-4-31b-it`) is shown a frame plus a prompt that
+  embeds the fixed **27-candidate list** (`CANDIDATE_POIS`), and is
+  asked "which of these 27 are clearly visible?" It replies with the
+  visible ones (0, 1, or several). The 27 is a **hardcoded shortlist**,
+  not the OSM file — the scan never touches `landmarks_zurich_osm.json`.
+- **Coverage.** It scans **every 20th frame** (`--every-n 20`), not all
+  ~27 k — about **1,358 frames** were scanned, producing
+  `_video_poi_multi.jsonl` (`{video, frame_id, visible_pois[]}`).
+- **Status.** That scan output is **kept as-is — not rerun.**
+
+**The 27 candidates (Q2).** `CANDIDATE_POIS` is *hand-picked* — the
+tier-1 / "L1" iconic set, kept short so the VLM picks from a manageable
+menu. It lives, with GPS / kind / 中文 names, in `src/poi.py`.
+
+**Should L2 / other places be added?** Not to *this* scan. The scan's
+only job is a lightweight **POI-visibility index** ("which frames show
+Hauptbahnhof") — 27 iconic landmarks is enough for that, and a longer
+list raises VLM confusion and false positives. Crucially, the scan does
+**not** limit the training data: instruction **destinations** are drawn
+from the *full* OSM POI table (all tiers, §2.7), and the annotation
+teacher (Gemini Pro) looks at the photo directly and can anchor to *any*
+visible object — it is not restricted to the 27. So L2/L3 places are
+already used downstream; expanding the 27 would only enrich the index,
+at the cost of a re-scan — deferred unless we specifically need it.
 
 **Code:** `src/poi.py` · **Out:** `viz/poi_candidates_map.html` (a
 signature emoji icon per POI kind) · **Run:** `python -m src.poi --list`
