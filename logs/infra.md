@@ -14,7 +14,7 @@ API pricing, and where to check spend.
 |---------|--------|---------|
 | GitHub | ✅ logged in | `z050209` |
 | gcloud | ✅ logged in | `z050209@gmail.com`, project `cs231n-navlm-2026` |
-| Modal | ⚠️ CLI not installed here | workspace `z050209` (needs `pip install modal` + auth) |
+| Modal | ⚠️ CLI installed, not authenticated | workspace `z050209` — run `modal setup` |
 | Hugging Face | ❌ not set up | needed for dataset/checkpoint hosting |
 
 ---
@@ -120,6 +120,100 @@ API pricing, and where to check spend.
 | git, gh, gcloud | ✅ installed |
 | Python venv (`navlm_ss/.venv`) | ✅ torch 2.5.1+cu124, transformers, torchvision, requests |
 | ffmpeg | ❌ not installed (needed for frame extraction) |
-| Modal CLI | ❌ not installed |
+| Modal CLI | ✅ installed (v1.4.3) · ⚠️ run `modal setup` to authenticate |
 | Hugging Face CLI (`hf`) | ❌ not installed |
 | `imagehash`, `yt-dlp`, `osmnx`, `opencv` | ❌ not in venv (needed for v2) |
+
+---
+
+## 10. Running model training on Modal
+
+Modal runs Python functions on cloud GPUs, billed **per-second only while
+the function runs**. You write a normal `.py`, decorate a function with
+`@app.function(gpu=...)`, and `modal run` it — Modal builds the container,
+provisions the GPU, runs, and tears down.
+
+### One-time setup
+
+```bash
+modal setup                                          # browser auth → ~/.modal.toml
+modal secret create huggingface HF_TOKEN=hf_xxxxx    # so jobs can pull/push HF
+```
+
+### Core concepts
+
+| Modal object | Purpose |
+|--------------|---------|
+| `modal.App` | a named project |
+| `modal.Image` | the container (declare pip deps in code) |
+| `modal.Volume` | persistent disk — survives between runs (checkpoints, data) |
+| `modal.Secret` | injects API tokens as env vars (never hard-code keys) |
+| `@app.function(gpu=...)` | the GPU job; `gpu` ∈ `T4`, `L4`, `A10G`, `A100-40GB`, `A100-80GB`, `H100` |
+| `@app.local_entrypoint()` | what `modal run` calls on your laptop to launch it |
+
+### Example — LoRA SFT of Qwen2.5-VL-7B (`train_modal.py`)
+
+```python
+import modal
+
+app = modal.App("navlm-train")
+
+# container image — declare deps once, Modal caches the build
+train_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install("torch", "transformers", "peft", "bitsandbytes",
+                 "accelerate", "datasets", "qwen-vl-utils", "huggingface_hub")
+)
+
+# persistent disk for checkpoints (survives across runs)
+ckpts = modal.Volume.from_name("navlm-ckpts", create_if_missing=True)
+
+@app.function(
+    image=train_image,
+    gpu="A100-80GB",                       # ~$3.73/hr
+    timeout=6 * 3600,                      # kill after 6h
+    volumes={"/ckpts": ckpts},
+    secrets=[modal.Secret.from_name("huggingface")],   # → $HF_TOKEN
+)
+def train_lora(epochs: int = 2, lr: float = 2e-4, lora_r: int = 16):
+    from huggingface_hub import snapshot_download
+    # pull base model + our synth dataset from Hugging Face
+    base = snapshot_download("Qwen/Qwen2.5-VL-7B-Instruct")
+    data = snapshot_download("z050209/navlm-synth", repo_type="dataset")
+
+    # ... load base 4-bit (NF4), attach LoRA r=lora_r alpha=32,
+    #     run SFTTrainer for `epochs` at `lr` ...
+
+    out = f"/ckpts/lora_r{lora_r}_e{epochs}"
+    # trainer.save_model(out)
+    ckpts.commit()                         # persist before the GPU is freed
+    return out
+
+@app.local_entrypoint()
+def main(epochs: int = 2, lr: float = 2e-4):
+    print("adapter saved to:", train_lora.remote(epochs=epochs, lr=lr))
+```
+
+### Run it
+
+```bash
+modal run train_modal.py                     # default args, streams logs live
+modal run train_modal.py --epochs 3 --lr 1e-4 # override
+modal volume ls navlm-ckpts                   # see saved checkpoints
+modal volume get navlm-ckpts /lora_r16_e2 ./  # download the adapter locally
+modal app logs navlm-train                    # past run logs
+```
+
+`.remote()` runs on the cloud GPU; `.local()` runs in-process (handy for
+debugging). Data/checkpoints stay on the `modal.Volume` or get pushed to
+Hugging Face from inside the job.
+
+### Cost
+
+| GPU | Rate | A typical LoRA run (3–6 h) |
+|-----|------|----------------------------|
+| A100-80GB | ~$3.73/hr | **~$11–22** |
+| A10G 24GB | ~$1.10/hr | cheaper; fine for eval / DINOv2 embedding |
+
+Billed per-second of function runtime only — idle time costs nothing.
+Reference Modal example already in repo: `reference/run_dinov2_modal.py`.
