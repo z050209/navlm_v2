@@ -68,6 +68,14 @@ def test_fold_strips_diacritics():
     assert pois.fold("Zürichsee") == "zurichsee"
 
 
+def test_kind_label():
+    assert pois.kind_label("amenity=theatre") == "a theatre"
+    assert pois.kind_label("amenity=place_of_worship") == "a church"
+    assert pois.kind_label("railway=station") == "a railway station"
+    assert pois.kind_label("highway=primary") == "a street"   # key fallback
+    assert pois.kind_label("") == "a place"
+
+
 def test_osm_kind():
     assert pois.osm_kind({"tourism": "museum"}) == "tourism=museum"
     assert pois.osm_kind({"amenity": "place_of_worship",

@@ -56,6 +56,41 @@ def osm_kind(row):
     return ""
 
 
+# OSM tag -> human-readable descriptor (for the spoken answers)
+OSM_KIND_LABEL = {
+    "tourism=attraction": "a landmark", "tourism=viewpoint": "a viewpoint",
+    "tourism=museum": "a museum", "tourism=gallery": "an art gallery",
+    "tourism=hotel": "a hotel", "tourism=artwork": "a public artwork",
+    "tourism=zoo": "a zoo", "tourism=theme_park": "a theme park",
+    "historic=castle": "a castle", "historic=monument": "a monument",
+    "historic=memorial": "a memorial",
+    "amenity=place_of_worship": "a church", "amenity=townhall": "the town hall",
+    "amenity=theatre": "a theatre", "amenity=cinema": "a cinema",
+    "amenity=museum": "a museum", "amenity=library": "a library",
+    "amenity=marketplace": "a market square",
+    "amenity=university": "a university", "amenity=college": "a college",
+    "railway=station": "a railway station", "man_made=bridge": "a bridge",
+    "waterway=river": "a river", "natural=water": "a body of water",
+    "leisure=park": "a park", "leisure=garden": "a garden",
+    "leisure=stadium": "a stadium", "place=square": "a square",
+}
+LABEL_BY_KEY = {"highway": "a street", "tourism": "a place of interest",
+                "historic": "a historic site", "amenity": "a local amenity",
+                "leisure": "a leisure spot", "place": "a place",
+                "railway": "a transport stop", "waterway": "a waterway",
+                "natural": "a natural feature", "man_made": "a structure"}
+
+
+def kind_label(osm_kind_tag):
+    """Human-readable descriptor for a POI's OSM tag — e.g.
+    'amenity=theatre' -> 'a theatre'. Pure — unit-tested."""
+    if not osm_kind_tag:
+        return "a place"
+    if osm_kind_tag in OSM_KIND_LABEL:
+        return OSM_KIND_LABEL[osm_kind_tag]
+    return LABEL_BY_KEY.get(osm_kind_tag.split("=", 1)[0], "a place")
+
+
 def clean_name(name):
     """Return a normalised POI name, or None if it should be dropped.
     Drops blocklisted / too-short / too-long / non-capitalised names."""
@@ -134,11 +169,15 @@ def extract(bbox=config.POI_BBOX):
             if not name:
                 continue
             geom = row.geometry
+            ok = osm_kind(row)
+            desc = row.get("description")
             rows.append({
                 "name": name,
                 "aliases": collect_aliases(name, row),
                 "kind_group": kind_group,
-                "osm_kind": osm_kind(row),
+                "osm_kind": ok,
+                "kind_label": kind_label(ok),
+                "description": desc.strip() if isinstance(desc, str) else "",
                 "lat": geom.centroid.y, "lon": geom.centroid.x,
                 "geometry": geom.wkt,
             })
