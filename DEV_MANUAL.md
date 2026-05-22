@@ -36,6 +36,37 @@ Phase A (video → trusted GPS+heading frames) is built first.
 
 ---
 
+## ▶ How to run — commands, in order
+
+Once per terminal, activate the shared venv and cd into the repo:
+
+```powershell
+& "G:\My Drive\cs231n\project\cs231n\cs231n\navlm_ss\.venv\Scripts\Activate.ps1"
+cd C:\Users\z0502\Desktop\cs231n\navlm_v2
+```
+
+Then run these one by one. Only ✅ steps exist yet; ⏳ land as built (§7).
+
+| # | Step | Command | Status |
+|---|------|---------|--------|
+| 0 | sanity-check config + paths | `python config.py` | ✅ |
+| 1 | run the unit tests | `python -m pytest tests/ -q` | ✅ |
+| 2 | list source videos found | `python -m src.extract_frames --list` | ✅ |
+| 3 | extract frames — all videos | `python -m src.extract_frames` | ✅ |
+| 3b| extract one video only | `python -m src.extract_frames --only hidden_streets` | ✅ |
+| – | download a missing video | `python -m src.download_videos --only <name>` | ✅ (videos already present) |
+| 4 | Street View reference crawl | `python -m src.streetview` | ⏳ module coming |
+| 5 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | ⏳ module coming |
+| 6 | OSM + HMM road-snapping | `python -m src.road_snap` | ⏳ module coming |
+
+Notes:
+- Step 3 writes frames to `data/cities/zurich/frames/<name>/` plus an
+  `extract_report.json` with per-video keep/drop counts.
+- `config.py` locates `ffmpeg` automatically (installed via winget).
+- Each `src` module also accepts `-h` for its options.
+
+---
+
 ## 2. Pipeline stages
 
 ### 2.1 Video acquisition
