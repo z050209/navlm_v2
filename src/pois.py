@@ -14,6 +14,8 @@ import json
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 
@@ -103,7 +105,8 @@ def extract(bbox=config.POI_BBOX):
     rows = []
     for tags, kind_group in ((POINT_TAGS, "point"), (WAY_TAGS, "way")):
         gdf = ox.features_from_bbox((w, s, e, n), tags=tags)
-        for _, row in gdf.iterrows():
+        for _, row in tqdm(gdf.iterrows(), total=len(gdf),
+                           desc=f"[pois] {kind_group}", unit="osm"):
             name = clean_name(row.get("name"))
             if not name:
                 continue

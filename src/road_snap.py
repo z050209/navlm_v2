@@ -84,8 +84,9 @@ def snap(gps_seq, graph_path=None, radius_m=40.0):
         G = pickle.load(f)
 
     # candidate graph nodes within radius_m of each observation
+    from tqdm import tqdm
     obs_states = []
-    for lat, lon in gps_seq:
+    for lat, lon in tqdm(gps_seq, desc="[road_snap] candidates", unit="obs"):
         node = ox.distance.nearest_nodes(G, lon, lat)
         cands = [node] + [n for n in G.neighbors(node)]
         obs_states.append(cands)

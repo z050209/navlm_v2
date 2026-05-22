@@ -25,6 +25,8 @@ import os
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config            # noqa: E402
 from src import poi      # noqa: E402
@@ -88,7 +90,7 @@ def scan():
 
     n_new = 0
     with panos_path.open("a", encoding="utf-8") as f:
-        for i, (lat, lon) in enumerate(pts, 1):
+        for lat, lon in tqdm(pts, desc="[scan]", unit="pt"):
             r = requests.get(SV_META, params={
                 "location": f"{lat},{lon}", "key": key, "source": "outdoor",
             }, timeout=30).json()
@@ -103,8 +105,6 @@ def scan():
                                 "lon": loc.get("lng"),
                                 "date": r.get("date", "")}) + "\n")
             n_new += 1
-            if i % 200 == 0:
-                print(f"  [{i}/{len(pts)}] unique panos = {len(seen)}")
     print(f"[scan] done — {len(seen)} unique panos ({n_new} new), "
           f"$0 -> {panos_path}")
 
@@ -133,7 +133,7 @@ def download(max_panos: int = 0):
 
     n_new = 0
     with meta_path.open("a", encoding="utf-8") as f:
-        for p in panos:
+        for p in tqdm(panos, desc="[download]", unit="pano"):
             for h in config.SV_HEADINGS:
                 img_id = f"{p['pano_id']}_h{h:03d}"
                 if img_id in done:

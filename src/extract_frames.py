@@ -35,6 +35,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 
@@ -91,7 +93,7 @@ def extract_video(video: Path, name: str) -> dict:
 
     kept = n_blur = n_exposure = n_dup = 0
     last_hash = None
-    for f in dense:
+    for f in tqdm(dense, desc=f"  {name}", unit="frame", leave=False):
         blur, luma = quality_metrics(f)
         ok, reason = passes_quality(blur, luma)
         if not ok:
