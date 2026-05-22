@@ -75,6 +75,20 @@ BLUR_MIN_VAR = 100.0      # variance-of-Laplacian floor; below = too blurry
 EXPOSURE_DARK = 25        # mean luma below this = too dark
 EXPOSURE_BRIGHT = 230     # mean luma above this = blown out
 
+# ── Street View reference crawl ──────────────────────────────────────
+SV_MARGIN_M = 300.0               # crawl-bbox margin around visited POIs
+SV_GRID_M = 50.0                  # metadata grid spacing, metres
+SV_HEADINGS = [0, 90, 180, 270]   # crops downloaded per panorama
+SV_IMG_SIZE = "640x640"
+SV_FOV = 90
+
+# ── GPS recovery / matching ──────────────────────────────────────────
+DINOV2_TOPK = 5           # k nearest Street View crops per video frame
+MIN_SIM = 0.0             # absolute cosine-similarity floor (tuned later)
+RECONCILE_D0_M = 150.0    # agreement-term decay scale (haversine metres)
+RECONCILE_WEIGHTS = (0.4, 0.4, 0.2)   # (cosine, agreement, VLM-confidence)
+RECONCILE_TAU = 0.5       # accept a frame when combined score >= tau
+
 # ── models ───────────────────────────────────────────────────────────
 DINOV2_MODEL = "facebook/dinov2-base"
 GEMINI_GEOCHECK = "gemini-2.5-pro"     # VLM geo-localization (Q6: Pro)

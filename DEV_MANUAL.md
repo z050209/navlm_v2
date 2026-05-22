@@ -56,9 +56,10 @@ Then run these one by one. Only ✅ steps exist yet; ⏳ land as built (§7).
 | 4 | extract frames — all videos | `python -m src.extract_frames` | ✅ |
 | 4b| extract one video only | `python -m src.extract_frames --only hidden_streets` | ✅ |
 | – | download a missing video | `python -m src.download_videos --only <name>` | ✅ (videos present) |
-| 5 | Street View reference crawl | `python -m src.streetview` | ⏳ module coming |
+| 5 | Street View bbox / scan / crawl | `python -m src.streetview --bbox` · `--scan` · `--download` | ✅ built |
 | 6 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | ⏳ module coming |
 | 7 | OSM + HMM road-snapping | `python -m src.road_snap` | ⏳ module coming |
+| – | LoRA training on Modal | `modal run train_modal.py` | ✅ built |
 
 Notes:
 - Step 3 writes frames to `data/cities/zurich/frames/<name>/` plus an
@@ -122,19 +123,19 @@ A POI is a named place with coordinates. v2 uses **one POI table**:
   (W,S,E,N). The bbox is central Zurich's old town — the area the
   walking tours cover (Hauptbahnhof → Altstadt → Grossmünster → lakefront),
   ≈ 3.8 km × 3.9 km. **This bbox is the GPS scope of the project.**
-- **Scenery entries** — 13 entries for features OSM tags as *ways/polygons*
-  (streets, the Limmat, Lake Zurich, bridges) that point extraction misses.
-  **Who decided these (Q1):** they are *hand-curated* — written by hand in
-  `reference/toolbox/scenery_pois.py` by the original authors; the per-entry
-  `radius_m` (streets ~300 m, lake 600 m, bridges ~80 m) is a hand-set
-  estimate of how far each feature spans / is visible from. They matter for
-  navigation ("walk along Bahnhofstrasse") and are folded into the table.
+- **Way / area features** — streets, the Limmat, Lake Zurich, bridges.
+  These matter for navigation ("walk along Bahnhofstrasse") but OSM tags
+  them as *ways / polygons*, which the point extraction above skips.
+  **(Q1)** v2 does **not** hand-curate these. It pulls them from OSM
+  *programmatically* — `highway` (named streets), `waterway` +
+  `natural=water` (river, lake), `man_made=bridge` — keeping their real
+  geometry, so "near a street/river" is a true point-to-line distance,
+  not a hand-set radius.
 
-> **Dropped (Q1):** the separate 31-entry `zurich_landmarks_gps.py`
-> hand-curated table. Its only unique role was OCR alias matching; OCR is
-> removed (§2.5), and the OSM 453 already covers those landmarks. The
-> scenery entries are kept because they cover way/area features OSM
-> point-extraction genuinely misses.
+> **Dropped:** both hand-curated tables — `zurich_landmarks_gps.py` (31
+> entries, only ever used for OCR alias matching, and OCR is removed) and
+> `scenery_pois.py` (13 entries with hand-set radii). v2 has **one POI
+> table, fully OSM-extracted** — points + way/area features above.
 
 **POI scan of the video frames** — `scan_video_pois_multi.py` had a VLM
 (Gemma) look at frames and list visible POIs from a fixed **27-candidate
@@ -431,10 +432,12 @@ navlm_v2/
 
 1. ✅ Scaffold `config.py`, `src/`, `tests/`.
 2. ✅ Stage 1–2: video acquisition + frame extraction with quality filter.
-3. Street View crawl module (`src/streetview.py`).
-4. GPS recovery: DINOv2 embed/match + VLM place-naming + weighted score
-   + heading + HMM snapping.
-5. Sample test + `min_sim`/`τ` tuning before the full crawl.
+3. ✅ `src/poi.py` (27 candidates + map), `src/streetview.py` (grid
+   crawl), `src/reconcile.py` (weighted score), `train_modal.py` (Modal
+   LoRA). 24 pytest tests.
+4. GPS recovery: DINOv2 embed/match + VLM place-naming → feed
+   `src/reconcile.py` + heading; then HMM road-snapping.
+5. Sample test + `MIN_SIM` / `RECONCILE_TAU` tuning before the full crawl.
 6. Visualizations + 8-video route map.
 7. Phase B: routing + Gemini-2.5-Pro annotation (5-sample trial first).
-8. Phase C/D: Modal LoRA training + local zero-shot + eval (both ablations).
+8. Phase C/D: `train_modal.py` LoRA run + local zero-shot + eval.
