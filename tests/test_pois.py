@@ -60,3 +60,14 @@ def test_resolve_poi_diacritic_fold():
 def test_fold_strips_diacritics():
     assert pois.fold("Grossmünster") == "grossmunster"
     assert pois.fold("Zürichsee") == "zurichsee"
+
+
+def test_osm_kind():
+    assert pois.osm_kind({"tourism": "museum"}) == "tourism=museum"
+    assert pois.osm_kind({"amenity": "place_of_worship",
+                          "name": "X"}) == "amenity=place_of_worship"
+    assert pois.osm_kind({"highway": "primary"}) == "highway=primary"
+    assert pois.osm_kind({"name": "X"}) == ""              # no kind tag
+    # priority order: tourism before highway
+    assert pois.osm_kind({"tourism": "attraction",
+                          "highway": "primary"}) == "tourism=attraction"

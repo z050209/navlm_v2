@@ -40,6 +40,21 @@ WAY_TAGS = {
 ALIAS_TAGS = ["alt_name", "short_name", "official_name", "loc_name",
               "name:en", "name:de"]
 
+# OSM tag keys that say what a POI *is*, in priority order.
+OSM_KIND_KEYS = ["tourism", "historic", "amenity", "railway", "man_made",
+                 "waterway", "natural", "leisure", "highway", "place"]
+
+
+def osm_kind(row):
+    """The POI's primary OSM tag as 'key=value' (e.g. 'tourism=museum',
+    'amenity=place_of_worship', 'highway=primary'), or '' if none.
+    `row`: a dict-like of OSM tags. Pure — unit-tested."""
+    for k in OSM_KIND_KEYS:
+        v = row.get(k)
+        if isinstance(v, str) and v.strip():
+            return f"{k}={v.strip()}"
+    return ""
+
 
 def clean_name(name):
     """Return a normalised POI name, or None if it should be dropped.
@@ -123,6 +138,7 @@ def extract(bbox=config.POI_BBOX):
                 "name": name,
                 "aliases": collect_aliases(name, row),
                 "kind_group": kind_group,
+                "osm_kind": osm_kind(row),
                 "lat": geom.centroid.y, "lon": geom.centroid.x,
                 "geometry": geom.wkt,
             })

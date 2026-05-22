@@ -15,7 +15,7 @@ dataset can be filtered to **L1 + L2**.
 Needs GEMINI_API_KEY (.env). Model: `gemini-2.5-flash` ("gemini fast").
 Output: data/cities/zurich/poi_scan.jsonl
 
-The L1 / L2 keyword sets below are meant to be edited — tune the tiers.
+Tiering is OSM-tag based (poi_tier, below) — edit the TIER_BY_* maps.
 """
 
 import argparse
@@ -29,21 +29,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config                       # noqa: E402
 from src.pois import resolve_poi    # noqa: E402
 
-# ── tier keyword sets — EDIT to tune which POIs count as L1 / L2 ──────
-L1_KEYWORDS = {
-    "hauptbahnhof", "grossmünster", "grossmunster", "fraumünster",
-    "fraumunster", "paradeplatz", "bahnhofstrasse", "lindenhof",
-    "bellevue", "opernhaus", "kunsthaus", "st. peter", "limmat",
-    "lake zurich", "zürichsee", "niederdorf", "rathaus", "landesmuseum",
-    "sechseläutenplatz", "münsterhof", "polyterrasse", "eth", "jelmoli",
-    "globus", "bürkliplatz", "stadthaus", "quaibrücke", "münsterbrücke",
+# ── tiers, by OSM tag — derived from OpenStreetMap's own categories.
+#    Edit these maps to re-tier. A specific 'key=value' wins over the
+#    key-only fallback. (OSM gives the *category*; true prominence would
+#    need another signal — see DEV_MANUAL §2.3.)
+TIER_BY_TAG = {
+    # L1 — landmark categories people navigate TO
+    "tourism=attraction": 1, "tourism=viewpoint": 1, "tourism=zoo": 1,
+    "historic=castle": 1, "historic=monument": 1, "historic=memorial": 1,
+    "railway=station": 1, "amenity=place_of_worship": 1,
+    "amenity=townhall": 1,
+    # L2 — supporting POIs
+    "tourism=museum": 2, "tourism=gallery": 2, "tourism=artwork": 2,
+    "tourism=hotel": 2, "tourism=theme_park": 2,
+    "amenity=theatre": 2, "amenity=cinema": 2, "amenity=marketplace": 2,
+    "amenity=library": 2, "amenity=university": 2, "amenity=college": 2,
+    "leisure=park": 2, "leisure=garden": 2, "leisure=stadium": 2,
+    "man_made=bridge": 2, "waterway=river": 2, "natural=water": 2,
+    "place=square": 2,
 }
-L2_KEYWORDS = {
-    "museum", "kirche", "church", "platz", "square", "brücke", "bridge",
-    "park", "garten", "garden", "quai", "promenade", "gasse", "strasse",
-    "universität", "university", "theater", "theatre", "hotel", "markt",
-    "tower", "turm", "monument", "fountain", "brunnen", "hof",
-}
+# key-only fallback when the exact key=value is not mapped above
+TIER_BY_KEY = {"tourism": 2, "historic": 2, "man_made": 2, "waterway": 2,
+               "highway": 2, "amenity": 3, "leisure": 3, "natural": 3,
+               "railway": 3, "place": 3}
 
 GEMINI_SYS = "You name visible places in street-level photos of Zurich."
 GEMINI_PROMPT = (
@@ -61,14 +69,15 @@ GEMINI_PROMPT = (
 )
 
 
-def poi_tier(name, kind_label=""):
-    """Classify a POI into tier 1 (iconic) / 2 (mid) / 3 (other). Pure."""
-    t = f"{name} {kind_label}".lower()
-    if any(k in t for k in L1_KEYWORDS):
-        return 1
-    if any(k in t for k in L2_KEYWORDS):
-        return 2
-    return 3
+def poi_tier(osm_kind):
+    """Tier a POI from its OSM tag 'key=value' (`src/pois.py:osm_kind`):
+    1 = iconic landmark, 2 = mid, 3 = other. A specific tag value wins;
+    else a key-level fallback; else L3. Pure — unit-tested."""
+    if not osm_kind:
+        return 3
+    if osm_kind in TIER_BY_TAG:
+        return TIER_BY_TAG[osm_kind]
+    return TIER_BY_KEY.get(osm_kind.split("=", 1)[0], 3)
 
 
 def parse_names(text):
@@ -108,7 +117,7 @@ def match_names(places, osm_pois):
             matched.append({
                 "variants": variants, "matched_name": used,
                 "osm_name": hit["name"],
-                "tier": poi_tier(hit["name"], hit.get("kind_label", "")),
+                "tier": poi_tier(hit.get("osm_kind", "")),
             })
         else:
             unmatched.append(variants)
