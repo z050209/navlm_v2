@@ -38,16 +38,21 @@ Phase A (video → trusted GPS+heading frames) is built first.
 
 ## ▶ How to run — commands, in order
 
-Once per terminal, `cd` into the repo and point `python` at the shared
-venv. **Do not** use the venv's `Activate.ps1` — it lives on Google
-Drive, so PowerShell's execution policy blocks it as untrusted. Calling
-the venv `python.exe` directly has no such issue:
+Once per terminal, `cd` into the repo and activate the local conda env
+`navlm_v2` (Python 3.11, on the C: drive — the earlier Drive venv hung
+because every Python import had to read `.py` files from Google Drive):
 
 ```powershell
 cd C:\Users\z0502\Desktop\cs231n\navlm_v2
-# alias `python` to the project venv for this terminal — no Activate.ps1
-function python { & "G:\My Drive\cs231n\project\cs231n\cs231n\navlm_ss\.venv\Scripts\python.exe" @args }
+conda activate navlm_v2          # or use the env python directly:
+# function python { & "C:\Users\z0502\anaconda3\envs\navlm_v2\python.exe" @args }
 ```
+
+The env was created via `conda create -n navlm_v2 -c conda-forge
+python=3.11 pip -y`, then `pip install` of: torch (CUDA 12.4),
+transformers, Pillow, numpy, tqdm, requests, folium, opencv-python,
+imagehash, osmnx, networkx, modal, yt-dlp, pytest. Local SSD only —
+no Google Drive in the import path.
 
 Then run these one by one. Only ✅ steps exist yet; ⏳ land as built (§7).
 
@@ -61,11 +66,13 @@ earlier ones (a step's *needs* are noted).
 | 1 | build the OSM POI table | `python -m src.pois` | — | ✅ |
 | 2 | (download videos — already present) | `python -m src.download_videos` | — | ✅ |
 | 3 | extract frames (quality-filtered) | `python -m src.extract_frames` | step 2 | ✅ |
-| 4 | POI scan — Gemini Flash → OSM match | `python -m src.poi_scan --limit 5` then `--every-n 10` | steps 1, 3 | ✅ |
-| 5 | Street View — bbox / scan / download | `python -m src.streetview --bbox` · `--scan` · `--download` | — | ✅ |
+| 4 | POI scan — Gemini Pro (Vertex) → OSM match | `python -m src.poi_scan --limit 3` then `--every-n 30` | steps 1, 3 | ✅ |
+| 4b| POI-scan map (matched POIs + derived bboxes) | `python -m src.viz_scan` | step 4 | ✅ |
+| 5 | Street View — bbox / scan / download | `python -m src.streetview --bbox` · `--scan` · `--download` | step 4 | ✅ |
+| 5b| **DINOv2 match pilot** — v2 frames vs the 712 v1 SV images | `python -m src.dinov2_match --every-n 40 --min-sim 0.60` | step 3 + local copy of SV images | ✅ |
 | 6 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | steps 3, 5 | ⏳ |
 | 7 | OSM + HMM road-snapping | `python -m src.road_snap` | step 6 | ⏳ |
-| 8 | visualizations / route map | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
+| 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
 | 9 | LoRA training on Modal | `modal run train_modal.py` | annotated data | ✅ |
 
 (`--list` previews most steps; `--limit N` does a small trial run.)
@@ -375,11 +382,70 @@ Each video frame needs a recovered **GPS** *and* **heading**. Neither
 DINOv2 nor a VLM is reliable enough alone, so v2 combines two
 independent estimates with a weighted score.
 
-**Estimate 1 — DINOv2 visual match.** `dinov2-base` (avg-pooled)
+**Estimate 1 — DINOv2 visual match.** `dinov2-base` (CLS-token)
 embeds the frame; cosine-match against the Street View index. Output:
 the matched pano GPS `g_dino` and the best cosine similarity `s ∈ [0,1]`.
 An absolute floor `min_sim` rejects weak matches (cosine similarity is
 relative — without a floor an argmax always returns *something*).
+
+> **DINOv2 match pilot — `src/dinov2_match.py`.** Before paying for a
+> larger Street View crawl, we test how well DINOv2 actually matches
+> v2 video frames against the **712 SV images already on disk** from
+> v1 (178 panos × 4 headings). The script embeds both sets (CLS-token,
+> cached to `data/cities/zurich/dinov2/*.npz`), computes top-K cosine,
+> prints the top-1 distribution, and writes an HTML grid
+> `viz/dinov2_match_test.html` partitioned by `--min-sim` (default 0.60)
+> — **MATCHED** rows (top-1 ≥ threshold, sorted desc) and **NO MATCH**
+> rows.
+>
+> **How the pilot was actually run** (reproducible):
+>
+> 1. **Copy the 712 SV images Drive → local SSD.** The originals live in
+>    `G:\My Drive\cs231n\project\cs231n\cs231n\navlm_ss\data\cities\
+>    streetview\zurich\images\`. An earlier run hung for 24 h reading
+>    them over Drive, so we copy to the canonical v2 path
+>    (`config.STREETVIEW_DIR / "images"`):
+>    ```powershell
+>    robocopy "G:\My Drive\cs231n\project\cs231n\cs231n\navlm_ss\data\cities\streetview\zurich\images" `
+>             "C:\Users\z0502\Desktop\cs231n\navlm_v2\data\cities\streetview\zurich\images" `
+>             /NFL /NDL /NJH /NJS /MT:8
+>    # 712 jpgs, 60 MB
+>    ```
+>    The v1 `meta.jsonl` / `panos.jsonl` / `embeddings.npz` are **not**
+>    copied — v2's extracted frames differ from v1, so the v1
+>    embeddings are stale; meta is only needed once we wire GPS recovery.
+> 2. **Create the local conda env.** The first attempts hung because the
+>    venv lived on Google Drive (every Python import hit Drive). Fix:
+>    ```powershell
+>    cmd /c "call C:\Users\z0502\anaconda3\Scripts\activate.bat && `
+>            conda create -n navlm_v2 -c conda-forge --override-channels `
+>            python=3.11 pip -y"
+>    # then install packages (see § How to run)
+>    ```
+> 3. **Run the pilot.** With `navlm_v2` activated (or via the env's
+>    `python.exe` directly):
+>    ```bash
+>    python -m src.dinov2_match --every-n 40 --min-sim 0.60 -k 3
+>    # ~655 v2 frames vs 712 SV refs, threshold cos >= 0.60
+>    ```
+>    Wall time ~1 min on an RTX 3060 (45 + 41 batches at ~3 batch/s).
+>
+> **Pilot results (first run, all 8 videos, every-40 sampling):**
+>
+> ```
+> top-1 cosine: mean=0.586  median=0.617  min=0.089  max=0.844
+>   > 0.85 very strong            0/655  ( 0%)
+>   > 0.75 strong                79/655  (12%)
+>   >= 0.60 MATCHED              352/655 (54%)   <- headline
+>   > 0.50 weak                  484/655 (74%)
+> ```
+>
+> **~54 % of frames matched** at cos ≥ 0.60 — the 712 v1 SV images cover
+> about half the videos' routes. The remaining 46 % are the gap a fresh
+> `--download` needs to fill. Max cos 0.844 (no near-identity) reflects
+> viewpoint mismatch between phone-walk frames and SV's 4 fixed compass
+> crops — exactly why the pipeline combines DINOv2 with VLM
+> place-naming (§2.5 Estimate 2) instead of relying on cosine alone.
 
 **Estimate 2 — VLM place-naming.** The geo-check VLM (**Gemini 2.5
 Pro**, Q6) is shown the frame and is *not* asked to localize precisely —
@@ -696,13 +762,32 @@ ceiling was 100 %.
 Standalone HTML in `viz/`:
 1. **The 27 candidate POIs** with signature icons — `poi_candidates_map.html`
    (`python -m src.poi --map`). ✅ built.
-2. POIs found per video frame, on a map (with the POI photo at its pin).
-3. Bought Street View panos highlighted on the map.
-4. Recovered video-frame GPS on the map, **overlaid with the POI region
+2. **POI-scan map** — every matched POI from `poi_scan.jsonl` placed on
+   a Leaflet map (folium), with the derived Street View crawl bbox(es)
+   overlaid. ✅ built — `src/viz_scan.py` → `viz/poi_scan_map.html`.
+   - dots: matched POIs · size ∝ log(sightings) · colour by tier
+     (L1 red, L2 blue, L3 grey); click for name + reasoning from an
+     example frame;
+   - orange flags: *outlier* POIs whose OSM centroid sits outside
+     `POI_BBOX` (rivers, lakes, long lake-front streets) — they pull the
+     raw bbox out, so the recommended bbox excludes them;
+   - rectangles: black = `POI_BBOX` (OSM extraction region); red solid
+     = clean crawl bbox + 300 m (centroid-clipped, recommended);
+     grey dashed = raw scan bbox + 300 m.
+   - Run: `python -m src.viz_scan`.
+3. **DINOv2 match grid** — v2 video frames matched against the 712 v1
+   Street View images, rows sorted by top-1 cosine descending and
+   split MATCHED / NO MATCH at the `--min-sim` threshold (default
+   0.60). ✅ built — `src/dinov2_match.py` →
+   `viz/dinov2_match_test.html`. The grid is the visual sanity check
+   for "is the existing SV reference set sufficient for our routes?".
+   Run: `python -m src.dinov2_match --every-n 40 --min-sim 0.60`.
+4. Bought Street View panos highlighted on the map.
+5. Recovered video-frame GPS on the map, **overlaid with the POI region
    polygons (Q8)** — so each frame's area and POI assignment (§3) is
    visible at a glance.
-5. The 8-video routes derived from the images (§2.8).
-6. A Q&A viewer — photo + question + generated answer — to sanity-check
+6. The 8-video routes derived from the images (§2.8).
+7. A Q&A viewer — photo + question + generated answer — to sanity-check
    the instruction tuning.
 
 ---
@@ -736,17 +821,22 @@ navlm_v2/
    `extract_frames`, `pois`, `poi_scan`, `gemini_api`, `streetview`,
    `gps_recovery`, `reconcile`, `routing`, `road_snap`; plus `poi`,
    `annotate`, `viz`, `train_modal`.
-3. ✅ Run so far: OSM POI table (`pois.json`, 1,289 POIs); frame
-   extraction (26,034 kept frames); POI-scan trial verified on Vertex
-   Pro (inference prompt — names + reasoned location guess).
-4. ▶ POI scan — full run, Gemini 2.5 Pro via Vertex AI `--every-n 30`
-   (in progress) → derives the Street View crawl bbox.
-5. Street View crawl — `--scan` (free) → `--download` (Static API).
-6. GPS recovery: DINOv2 embed/match + VLM place-naming → `reconcile.py`
+3. ✅ Built so far: OSM POI table (`pois.json`, 1,289 POIs); frame
+   extraction (26,034 kept frames).
+4. ✅ POI scan — full run on Gemini 2.5 Pro via Vertex AI
+   `--every-n 30` (872 frames, **227 distinct OSM POIs matched**,
+   $10.68 of the Education credit). Crawl bbox derived
+   (~4.0 × 4.4 km after centroid-clip; viz: `viz/poi_scan_map.html`).
+5. ▶ DINOv2 match pilot — v2 frames vs the 712 v1 SV images
+   (`viz/dinov2_match_test.html`); the match-rate at the chosen
+   `--min-sim` decides whether more SV is needed.
+6. Street View crawl — `--scan` (free) → `--download` (Static API),
+   sized by the pilot's match-rate.
+7. GPS recovery: DINOv2 embed/match + VLM place-naming → `reconcile.py`
    weighted score + heading; then HMM road-snapping → trusted
    (GPS, heading) frames.
-7. Sample test + `MIN_SIM` / `RECONCILE_TAU` tuning.
-8. Visualizations + 8-video route map.
-9. Phase B: routing + Gemini-2.5-Pro annotation (5-sample trial first).
-10. Phase C/D: `train_modal.py` LoRA runs + local zero-shot + eval,
+8. Sample test + `MIN_SIM` / `RECONCILE_TAU` tuning.
+9. Visualizations + 8-video route map.
+10. Phase B: routing + Gemini-2.5-Pro annotation (5-sample trial first).
+11. Phase C/D: `train_modal.py` LoRA runs + local zero-shot + eval,
     both ablations (§3 / §4).
