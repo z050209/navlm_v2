@@ -50,11 +50,46 @@ def build():
                                show=False)
     low = folium.FeatureGroup(name="legacy low_score (if present)",
                               show=False)
+    # g_vlm = VLM's resolved POI centroid (any frame with a vlm match).
+    # Two sub-layers so each can be toggled independently. The accepted
+    # frames' centroids are mostly near g_dino; the disagree frames'
+    # centroids fly far (incl. Limmat / Zürichsee → 14 km off-bbox).
+    vlm_cen_acc = folium.FeatureGroup(
+        name="VLM centroid (g_vlm) — accepted", show=False)
+    vlm_cen_dis = folium.FeatureGroup(
+        name="VLM centroid (g_vlm) — disagree", show=False)
 
     cnt = collections.Counter()
     for r in rows:
         v = r["video"]
         col = vcolor[v]
+
+        # VLM-resolved POI centroid (g_vlm). Plot on toggle layers so
+        # the long-feature outliers (Limmat / Zürichsee centroids 14 km
+        # off-bbox) are visible only when you ask for them.
+        g_vlm = r.get("g_vlm")
+        if g_vlm:
+            d_to_vlm = r.get("variance_m")
+            popup = folium.Popup(
+                f"<b>g_vlm</b> for {v}/{r['frame_id']}<br>"
+                f"VLM said: <b>{r.get('place_guess', '')}</b>"
+                f" (resolved centroid)<br>"
+                f"{('%.0f m' % d_to_vlm) if d_to_vlm is not None else '?'}"
+                f" from g_dino", max_width=320)
+            target = vlm_cen_acc if r.get("accepted") else (
+                vlm_cen_dis if r.get("reject_reason") == "disagree"
+                else None)
+            if target is not None:
+                folium.CircleMarker(
+                    location=g_vlm, radius=3, color="#FF9900",
+                    fill=True, fill_opacity=0.55, weight=1,
+                    tooltip=(f"g_vlm: {r.get('place_guess', '')}  "
+                             f"({d_to_vlm:.0f} m off)"
+                             if d_to_vlm is not None else
+                             f"g_vlm: {r.get('place_guess', '')}"),
+                    popup=popup,
+                ).add_to(target)
+
         if r.get("accepted"):
             cnt["accepted"] += 1
             popup = folium.Popup(
@@ -142,6 +177,8 @@ def build():
     vlm_unres.add_to(m)
     weak.add_to(m)
     low.add_to(m)
+    vlm_cen_acc.add_to(m)
+    vlm_cen_dis.add_to(m)
     folium.LayerControl(collapsed=False).add_to(m)
 
     # legend (fixed HTML overlay)
@@ -168,7 +205,13 @@ def build():
       (tooltip shows the raw VLM guess &mdash; often a real place
       missing from our OSM table).<br>
       <span style="color:#888;">&#9679;</span> dino_weak
-      ({cnt['dino_weak']}, toggle on to view).
+      ({cnt['dino_weak']}, toggle on to view).<br>
+      <span style="color:#FF9900;">&#9679;</span> <b>g_vlm centroids</b>
+      &mdash; toggle on to see, per frame, where the VLM's resolved POI
+      sits. For small POIs the centroid is close to <code>g_dino</code>;
+      for long features (Limmat, Zürichsee) the centroid is
+      <b>kilometres off</b> &mdash; exactly why we trust <code>g_dino</code>
+      as the accepted GPS instead of blending in the centroid.
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend))
