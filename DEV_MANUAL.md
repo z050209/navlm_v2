@@ -528,14 +528,15 @@ owns the geometric helpers + an STRtree on the OSM POI geometries.
 > linguistic failure modes have to correlate, which is statistically
 > much rarer than positional coincidence.
 
-**GPS blend on accept.**
-- if `|g_dino − g_vlm| ≤ 150 m` (close): **midpoint** of the two
-  (50/50, no confidence weighting — VLM may be wrong).
-- otherwise (semantic match only, far apart): use **`g_dino` alone**
-  — long features (Limmat, Zürichsee, Bahnhofstrasse) have centroids
-  far from the actual photo; midpoint with such a centroid is
-  meaningless. The semantic match validates DINOv2's coords; we don't
-  need to blend.
+**GPS on accept = `g_dino` always.** The SV pano is a real
+photograph at a *known* coordinate (~5 m accuracy from Google).
+The VLM's resolved POI is the *centroid* of an OSM feature —
+acceptable for a small point POI, but kilometres off for long
+features (Limmat, Zürichsee, Bahnhofstrasse). Trust the pano's
+coords; the VLM's role here is purely to **confirm the place name
+in F3**, not to contribute to the position. (`variance_m` =
+`haversine(g_dino, g_vlm)` is still logged as a diagnostic, but
+unused for the accepted GPS.)
 
 **Heading — same-pano cosine-weighted mean.** Earlier we averaged
 headings across the top-K SV crops, which mixed crops from *different

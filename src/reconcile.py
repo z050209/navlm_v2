@@ -10,9 +10,16 @@ Two reconcilers are exposed:
       Three independent filters — any failure rejects:
         1.  cosine >= MIN_SIM             (DINOv2 has a real match)
         2.  VLM gps present (resolved to a known POI)
-        3.  |g_dino - g_vlm| <= MAX_VAR_M (they agree spatially)
-      Blend: 50/50 midpoint of g_dino and g_vlm. *No single criterion
-      can overrule another* — important because the VLM is fallible.
+        3.  semantic_match                (VLM's named POI is the same
+                                           place DINOv2 picked — caller
+                                           computes this; the strict
+                                           name check or a
+                                           neighborhood-buffer check
+                                           both qualify)
+      GPS on accept = g_dino (the SV pano's coordinates). The VLM
+      contributes only the name confirmation (F3); its lookup centroid
+      is not used as a position because for long features the centroid
+      can be kilometres off.
 
   reconcile_weighted (legacy / ablation)
       Q = w_s·cosine + w_a·agreement + w_c·vlm_confidence, accept if
@@ -88,10 +95,12 @@ def reconcile_strict(dino_gps, cosine_sim, vlm_gps, vlm_confidence,
     + name comparison against vlm_place_name); reconcile_strict stays
     pure (no POI / file I/O).
 
-    On accept the GPS is the **midpoint of g_dino and g_vlm** (50/50)
-    — we deliberately do NOT lean towards either signal because the VLM
-    can be confidently wrong. `score` is reported for diagnostics but
-    is *not* the accept gate.
+    On accept the GPS is **g_dino** (the matched SV pano's
+    coordinates). The VLM contributes only the *name* confirmation
+    (F3); its lookup centroid is not used as a position because for
+    long features (Limmat, Zürichsee, long streets) the centroid can
+    be kilometres from the actual photo. `score` is reported for
+    diagnostics but is *not* the accept gate.
 
     Returns: {accepted, score, variance_m, gps, reject_reason,
               spatial_match}.
@@ -114,18 +123,14 @@ def reconcile_strict(dino_gps, cosine_sim, vlm_gps, vlm_confidence,
         out["reject_reason"] = "disagree"
         return out
     out["accepted"] = True
-    if spatial_match:
-        # close in metres -> 50/50 midpoint is meaningful
-        out["gps"] = ((dino_gps[0] + vlm_gps[0]) / 2,
-                      (dino_gps[1] + vlm_gps[1]) / 2)
-    else:
-        # semantic match but far apart: VLM's resolved POI is a long /
-        # large feature (Limmat river, Zürichsee, Bahnhofstrasse) whose
-        # *centroid* is far from where the photo was taken. Don't blend
-        # with a centroid that would yield a meaningless midpoint —
-        # trust DINOv2's coordinates and record the semantic
-        # confirmation in `dino_nearest_name` / `place_guess`.
-        out["gps"] = (dino_gps[0], dino_gps[1])
+    # GPS = g_dino always. The SV pano is a real photo with known
+    # coordinates (~5 m accuracy); the VLM's resolved POI is the
+    # centroid of an OSM feature — fine for small POIs but
+    # potentially kilometres off for long features (Limmat,
+    # Zürichsee, Bahnhofstrasse). Trust the pano's coords; VLM's
+    # role here is purely to *confirm* the place name (F3), not to
+    # contribute to the position.
+    out["gps"] = (dino_gps[0], dino_gps[1])
     return out
 
 

@@ -50,15 +50,12 @@ def test_reconcile_rejects_when_estimates_disagree():
 # ── reconcile_strict (the default; user-driven multi-filter design) ──
 
 def test_strict_accepts_when_all_filters_pass():
-    """F1+F2+F3 (semantic) pass and estimates are close (<MAX_VAR_M)
-    -> midpoint blend accepted."""
+    """F1+F2+F3 (semantic) pass -> accept; gps = g_dino always."""
     r = rec.reconcile_strict((47.37, 8.54), 0.80, (47.371, 8.541), "high",
                              min_sim=0.60, max_var_m=150.0,
                              semantic_match=True)
     assert r["accepted"] is True
-    # midpoint blend, NOT confidence-weighted
-    assert abs(r["gps"][0] - (47.37 + 47.371) / 2) < 1e-9
-    assert abs(r["gps"][1] - (8.54 + 8.541) / 2) < 1e-9
+    assert r["gps"] == (47.37, 8.54)              # g_dino, no blend
     assert r["reject_reason"] == ""
 
 
@@ -88,12 +85,16 @@ def test_strict_rejects_disagree_even_with_high_vlm_conf():
     assert r["gps"] is None
 
 
-def test_strict_blend_is_exact_midpoint():
-    """No confidence weighting — the 50/50 was deliberate."""
-    r = rec.reconcile_strict((47.0, 8.0), 0.95, (47.001, 8.001), "low",
-                             semantic_match=True)
-    assert r["accepted"] is True
-    assert r["gps"] == ((47.0 + 47.001) / 2, (8.0 + 8.001) / 2)
+def test_strict_uses_g_dino_no_matter_spatial_or_not():
+    """GPS is g_dino in both branches — close and far. No midpoint."""
+    # close in metres
+    r1 = rec.reconcile_strict((47.0, 8.0), 0.95, (47.001, 8.001), "low",
+                              semantic_match=True)
+    assert r1["accepted"] and r1["gps"] == (47.0, 8.0)
+    # far (would have been the "centroid-protected" branch)
+    r2 = rec.reconcile_strict((47.0, 8.0), 0.80, (47.4, 8.4), "high",
+                              semantic_match=True)
+    assert r2["accepted"] and r2["gps"] == (47.0, 8.0)
 
 
 def test_reconcile_alias_uses_strict():
@@ -103,32 +104,17 @@ def test_reconcile_alias_uses_strict():
 
 # ── F3 semantic OR spatial fallback ───────────────────────────────────
 
-def test_strict_semantic_only_uses_dino_gps_not_centroid():
-    """Long features (Limmat, Bahnhofstrasse) have centroids far from
-    actual position. Semantic-only accept must NOT midpoint with the
-    VLM centroid — it must trust DINOv2's coords. Otherwise the
-    accepted GPS is a meaningless midpoint."""
+def test_strict_long_feature_does_not_pollute_gps():
+    """Long features (Limmat, Bahnhofstrasse) have centroids
+    kilometres from any actual photo. With g_dino-only blending
+    that's automatic — the bogus centroid is never used."""
     r = rec.reconcile_strict((47.370, 8.530), 0.80,
                              (47.380, 8.500), "high",   # ~2.6 km away
                              min_sim=0.65, max_var_m=150.0,
                              semantic_match=True)
     assert r["accepted"] is True
     assert r["spatial_match"] is False
-    # gps == g_dino, NOT the midpoint
-    assert r["gps"] == (47.370, 8.530)
-
-
-def test_strict_both_match_uses_midpoint():
-    """When both spatial AND semantic agree, the 50/50 midpoint is
-    correct and informative."""
-    r = rec.reconcile_strict((47.370, 8.530), 0.80,
-                             (47.371, 8.531), "high",   # ~130 m
-                             min_sim=0.65, max_var_m=150.0,
-                             semantic_match=True)
-    assert r["accepted"] is True
-    assert r["spatial_match"] is True
-    assert abs(r["gps"][0] - 47.3705) < 1e-6
-    assert abs(r["gps"][1] - 8.5305) < 1e-6
+    assert r["gps"] == (47.370, 8.530)             # g_dino, not the centroid
 
 
 def test_strict_no_spatial_fallback_anymore():
