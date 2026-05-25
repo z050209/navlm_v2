@@ -38,11 +38,17 @@ def build():
     folium.Rectangle(bounds=[(S, W), (N, E)], color="#000", weight=2,
                      fill=False, tooltip="POI_BBOX").add_to(m)
 
-    accepted = folium.FeatureGroup(name="Accepted (DINOv2 + VLM reconciled)",
-                                   show=True)
+    accepted = folium.FeatureGroup(
+        name="Accepted (trustworthy, reconciled)", show=True)
+    disagree = folium.FeatureGroup(
+        name="Disagree (g_dino & g_vlm > MAX_VAR_M, both plotted)",
+        show=True)
+    vlm_unres = folium.FeatureGroup(
+        name="VLM unresolved (g_dino plotted; VLM guess not in OSM)",
+        show=True)
     weak = folium.FeatureGroup(name="dino_weak (VLM-only GPS plotted)",
                                show=False)
-    low = folium.FeatureGroup(name="rejected_low_score (VLM GPS plotted)",
+    low = folium.FeatureGroup(name="legacy low_score (if present)",
                               show=False)
 
     cnt = collections.Counter()
@@ -77,19 +83,63 @@ def build():
                 tooltip=(f"dino_weak: {v}/{r['frame_id']}  "
                          f"cos {r['s_dino']:.2f}")
             ).add_to(weak)
+        elif r.get("reject_reason") == "disagree" and r.get("g_vlm"):
+            cnt["disagree"] += 1
+            popup = folium.Popup(
+                f"<b>{v}/{r['frame_id']}</b> &mdash; <b>disagree</b><br>"
+                f"variance: <b>{r.get('variance_m') or 0:.0f} m</b><br>"
+                f"DINOv2 cos: {r['s_dino']:.3f} &rarr; "
+                f"{r['g_dino'][0]:.5f}, {r['g_dino'][1]:.5f}"
+                f" (nearest OSM: <i>{r.get('dino_nearest_name', '?')}</i>)<br>"
+                f"VLM ({r['vlm_conf']}): <b>{r['place_guess']}</b> &rarr; "
+                f"{r['g_vlm'][0]:.5f}, {r['g_vlm'][1]:.5f}<br>"
+                f"&nbsp; <i>{r.get('reasoning', '')}</i>",
+                max_width=380)
+            # plot BOTH g_dino (blue) and g_vlm (orange) so the
+            # disagreement is visible at a glance
+            folium.CircleMarker(
+                location=r["g_dino"], radius=3, color="#1f3a68",
+                fill=True, fill_opacity=0.6, weight=1,
+                tooltip=f"DINOv2 pin (disagree): {v}/{r['frame_id']}",
+                popup=popup,
+            ).add_to(disagree)
+            folium.CircleMarker(
+                location=r["g_vlm"], radius=3, color="#CC6600",
+                fill=True, fill_opacity=0.6, weight=1,
+                tooltip=f"VLM pin (disagree): {v}/{r['frame_id']}",
+                popup=popup,
+            ).add_to(disagree)
+        elif r.get("reject_reason") == "vlm_unresolved" and r.get("g_dino"):
+            cnt["vlm_unresolved"] += 1
+            popup = folium.Popup(
+                f"<b>{v}/{r['frame_id']}</b> &mdash; "
+                f"<b>vlm_unresolved</b><br>"
+                f"DINOv2 cos: {r['s_dino']:.3f} &rarr; "
+                f"{r['g_dino'][0]:.5f}, {r['g_dino'][1]:.5f}<br>"
+                f"VLM said: <b>'{r.get('vlm_guess_raw', '')}'</b> "
+                f"(no OSM match)<br>"
+                f"&nbsp; <i>{r.get('reasoning', '')}</i>",
+                max_width=380)
+            folium.CircleMarker(
+                location=r["g_dino"], radius=5, color="#9933CC",
+                fill=True, fill_opacity=0.8, weight=2,
+                tooltip=(f"vlm_unresolved: {v}/{r['frame_id']}  "
+                         f"VLM='{r.get('vlm_guess_raw', '')}'"),
+                popup=popup,
+            ).add_to(vlm_unres)
         elif r.get("reject_reason") == "low_score" and r.get("g_vlm"):
             cnt["low_score"] += 1
             folium.CircleMarker(
-                location=r["g_vlm"], radius=3, color="#CC6600",
-                fill=True, fill_opacity=0.5, weight=1,
-                tooltip=(f"low_score: {v}/{r['frame_id']}  "
-                         f"score {r.get('score') or 0:.2f}  "
-                         f"variance {r.get('variance_m') or 0:.0f} m")
+                location=r["g_vlm"], radius=3, color="#AA00AA",
+                fill=True, fill_opacity=0.4, weight=1,
+                tooltip=f"legacy low_score: {v}/{r['frame_id']}"
             ).add_to(low)
         else:
             cnt["other"] += 1
 
     accepted.add_to(m)
+    disagree.add_to(m)
+    vlm_unres.add_to(m)
     weak.add_to(m)
     low.add_to(m)
     folium.LayerControl(collapsed=False).add_to(m)
@@ -103,15 +153,21 @@ def build():
     <div style="position: fixed; bottom: 20px; left: 20px; background: white;
          padding: 10px 12px; border: 1px solid #888; border-radius: 6px;
          font-family: Arial, sans-serif; font-size: 12px; z-index: 9999;
-         box-shadow: 0 1px 4px rgba(0,0,0,0.2); max-width: 360px;">
-      <b>GPS recovery &mdash; {cnt['accepted']} accepted</b>
-      &nbsp;({cnt['dino_weak']} dino_weak, {cnt['low_score']} low_score
-      shown when toggled)<br>
-      <b>Accepted</b>: reconciled GPS, coloured by video:<br>{swatches}<br>
-      <span style="color:#888;">&#9679;</span> dino_weak (no good SV ref,
-      VLM GPS plotted)&nbsp;&middot;&nbsp;
-      <span style="color:#CC6600;">&#9679;</span> low_score (signals
-      disagree, VLM GPS plotted)
+         box-shadow: 0 1px 4px rgba(0,0,0,0.2); max-width: 420px;">
+      <b>GPS recovery (strict F1+F2+F3)</b><br>
+      <b>Accepted ({cnt['accepted']})</b> &mdash; reconciled GPS, coloured
+      by video. Click any dot for full detail:<br>{swatches}<br>
+      <span style="color:#1f3a68;">&#9679;</span>
+      <span style="color:#CC6600;">&#9679;</span>
+      <b>Disagree ({cnt['disagree']})</b> &mdash; DINOv2 pin (blue) +
+      VLM pin (orange) drawn together so you see the disagreement.<br>
+      <span style="color:#9933CC;">&#9679;</span>
+      <b>VLM unresolved ({cnt['vlm_unresolved']})</b> &mdash; DINOv2 has
+      a real match, but the VLM's guess didn't resolve to any OSM POI
+      (tooltip shows the raw VLM guess &mdash; often a real place
+      missing from our OSM table).<br>
+      <span style="color:#888;">&#9679;</span> dino_weak
+      ({cnt['dino_weak']}, toggle on to view).
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend))

@@ -104,7 +104,12 @@ SV_FOV = 90
 
 # ── GPS recovery / matching ──────────────────────────────────────────
 DINOV2_TOPK = 5           # k nearest Street View crops per video frame
-MIN_SIM = 0.0             # absolute cosine-similarity floor (tuned later)
+MIN_SIM = 0.60            # absolute cosine-similarity floor (DINOv2-match pilot)
+RECONCILE_MAX_VAR_M = 150.0   # used only to choose blend (midpoint vs g_dino);
+                              # NOT an accept gate any more.
+NEIGHBORHOOD_RADIUS_M = 250.0  # F3: dino_nearest POI must lie within this
+                               # of VLM's named POI geometry (point-to-line)
+# ── weighted-Q knobs (legacy reconcile.reconcile_weighted; kept for ablation)
 RECONCILE_D0_M = 150.0    # agreement-term decay scale (haversine metres)
 RECONCILE_WEIGHTS = (0.4, 0.4, 0.2)   # (cosine, agreement, VLM-confidence)
 RECONCILE_TAU = 0.5       # accept a frame when combined score >= tau

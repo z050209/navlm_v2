@@ -87,30 +87,41 @@ def main():
     `data/cities/zurich/gps_recovery.jsonl` (flushed live, crash-safe).
     """
     import argparse
+    import collections
     import json
     import numpy as np
     from tqdm import tqdm
     from src import reconcile
     from src.geo_check import geo_check_from_scan
+    from src.spatial import (build_poi_index, nearest_poi_m,
+                              name_matches_poi, distance_pois_m)
 
     ap = argparse.ArgumentParser(
         description="GPS recovery — DINOv2 + VLM, weighted reconcile")
     ap.add_argument("-k", type=int, default=config.DINOV2_TOPK,
                     help="top-K SV matches per frame")
-    ap.add_argument("--min-sim", type=float, default=0.60,
+    ap.add_argument("--min-sim", type=float, default=config.MIN_SIM,
                     help="reject DINOv2 match below this cosine "
-                         "(default 0.60, the pilot threshold)")
+                         "(filter F1, default config.MIN_SIM)")
+    ap.add_argument("--max-var-m", type=float,
+                    default=config.RECONCILE_MAX_VAR_M,
+                    help="reject if |g_dino - g_vlm| > this in metres "
+                         "(filter F3, default config.RECONCILE_MAX_VAR_M)")
     ap.add_argument("--frame-cache", type=str, default="frames_n30_l0",
                     help="DINOv2 frame cache name "
                          "(under data/cities/zurich/dinov2/)")
     args = ap.parse_args()
 
-    # OSM POIs — VLM guess -> GPS lookup
+    # OSM POIs — VLM guess -> GPS lookup + spatial index for the
+    # semantic cross-check (nearest POI to DINOv2's SV pano).
     pois = json.loads(
         (config.CITY_DIR / "pois.json").read_text(encoding="utf-8"))
     pois_map = {p["name"]: p for p in pois}
+    poi_index = build_poi_index(pois)
+    print(f"[gps_recovery] indexed {len(poi_index['pois'])} / {len(pois)} "
+          f"POI geometries for nearest-POI cross-check")
 
-    # SV per-image meta — id -> (lat, lon, heading)
+    # SV per-image meta — id -> {lat, lon, heading, pano_id}
     sv_meta_path = config.STREETVIEW_DIR / "meta.jsonl"
     if not sv_meta_path.exists():
         sys.exit(f"no SV meta at {sv_meta_path} — copy it from the v1 "
@@ -118,7 +129,11 @@ def main():
     sv_meta = {}
     for line in sv_meta_path.open(encoding="utf-8"):
         m = json.loads(line)
-        sv_meta[m["id"]] = (m["lat"], m["lon"], m.get("compass_angle", 0))
+        sv_meta[m["id"]] = {
+            "lat": m["lat"], "lon": m["lon"],
+            "heading": m.get("compass_angle", 0),
+            "pano_id": m.get("pano_id", ""),
+        }
 
     # DINOv2 caches (sv refs + video frames)
     cdir = config.CITY_DIR / "dinov2"
@@ -137,15 +152,26 @@ def main():
     frame_idx = {(p.parent.name, p.stem): i
                  for i, p in enumerate(frame_paths)}
 
+    # pre-group SV crops by pano_id so we can compute same-pano heading
+    # confidence (A) per frame: of the 4 crops at top-1's pano, the
+    # cosine gap between the best heading and the second tells us how
+    # well DINOv2 can pin down direction (not just location).
+    pano_id_per_crop = [sv_meta.get(sid, {}).get("pano_id", "")
+                         for sid in sv_ids]
+    pano_to_crop_idx = collections.defaultdict(list)
+    for i, pid in enumerate(pano_id_per_crop):
+        if pid:
+            pano_to_crop_idx[pid].append(i)
+
     # POI-scan rows (the VLM signal, already computed)
     scan_path = config.CITY_DIR / "poi_scan.jsonl"
     scan_rows = [json.loads(l) for l in scan_path.open(encoding="utf-8")
                  if l.strip()]
 
     out_path = config.CITY_DIR / "gps_recovery.jsonl"
-    counts = {"accepted": 0, "rejected_low_score": 0,
+    counts = {"accepted": 0, "disagree": 0,
               "dino_weak": 0, "vlm_unresolved": 0,
-              "no_frame_emb": 0}
+              "no_sv_meta": 0, "no_frame_emb": 0}
 
     with out_path.open("w", encoding="utf-8") as fout:
         for row in tqdm(scan_rows, desc="[gps_recovery]", unit="frame"):
@@ -156,61 +182,116 @@ def main():
                 continue
 
             # ── DINOv2 ─────────────────────────────────────────────
-            idx, sims = cosine_topk(frame_embs[i], sv_embs, k=args.k)
+            # full cosine vector against all SV crops -> top-K + the
+            # SAME-PANO heading-confidence diagnostic
+            sims_all = sv_embs @ frame_embs[i]
+            top_idx = np.argpartition(-sims_all, args.k)[:args.k]
+            top_idx = top_idx[np.argsort(-sims_all[top_idx])]
+            top_sims = sims_all[top_idx]
+            idx, sims = top_idx, top_sims          # legacy variable names
+
             top_id = sv_ids[int(idx[0])]
-            dino_loc = sv_meta.get(top_id)              # (lat,lon,head)
+            top_meta = sv_meta.get(top_id, {})
+            dino_loc = ((top_meta["lat"], top_meta["lon"],
+                          top_meta["heading"])
+                         if top_meta else None)
             s_dino = float(sims[0])
-            headings = [sv_meta.get(sv_ids[int(j)], (0, 0, 0))[2]
+            headings = [sv_meta.get(sv_ids[int(j)], {}).get("heading", 0)
                         for j in idx]
             heading = circular_mean(headings)
             spread = circular_spread(headings)
 
+            # SAME-PANO heading confidence (A): how much does the best
+            # heading at top-1's pano beat the second-best heading at
+            # the same pano? high gap -> heading is well-defined; low
+            # gap -> 2+ directions look equally similar = ambiguous.
+            top_pano = top_meta.get("pano_id", "")
+            same_pano = pano_to_crop_idx.get(top_pano, [])
+            same_pano_sims = sorted(
+                (float(sims_all[j]) for j in same_pano), reverse=True)
+            heading_gap = (
+                (same_pano_sims[0] - same_pano_sims[1]) / same_pano_sims[0]
+                if len(same_pano_sims) >= 2 and same_pano_sims[0] > 0
+                else 1.0)
+            same_pano_heading_count = len(same_pano)
+
             # ── VLM ───────────────────────────────────────────────
             vlm = geo_check_from_scan(row, pois_map)
 
-            rec = {
+            # ── semantic + neighborhood cross-checks ──
+            dino_nearest = None
+            dino_nearest_m = None
+            exact_name_match = False     # diagnostic: VLM name == dino's nearest
+            neighborhood_match = False   # F3 gate: dino's nearest within
+                                         # NEIGHBORHOOD_RADIUS_M of VLM's POI
+            poi_dist_m = None
+            if dino_loc is not None:
+                dino_nearest, dino_nearest_m = nearest_poi_m(
+                    dino_loc[0], dino_loc[1], poi_index)
+                exact_name_match = name_matches_poi(
+                    vlm["place_name"], dino_nearest)
+                if vlm["place_name"] and dino_nearest:
+                    poi_dist_m = distance_pois_m(
+                        vlm["place_name"], dino_nearest["name"], poi_index)
+                    neighborhood_match = (
+                        poi_dist_m <= config.NEIGHBORHOOD_RADIUS_M)
+            # If the exact name matches, the neighborhood does too.
+            semantic_match = exact_name_match or neighborhood_match
+
+            base = {
                 "video": row["video"], "frame_id": row["frame_id"],
                 "g_dino": [dino_loc[0], dino_loc[1]] if dino_loc else None,
                 "s_dino": s_dino,
                 "g_vlm": list(vlm["gps"]) if vlm["gps"] else None,
                 "vlm_conf": vlm["confidence"],
-                "place_guess": vlm["place_name"],
+                "place_guess": vlm["place_name"],   # resolved OSM name
+                "vlm_guess_raw": row.get("guess", ""),   # what VLM said
+                "reasoning": vlm["reasoning"][:240],
+                "dino_nearest_name": (dino_nearest["name"]
+                                       if dino_nearest else ""),
+                "dino_nearest_m": dino_nearest_m,
+                "poi_dist_m": poi_dist_m,   # vlm-POI <-> dino-nearest-POI
+                "exact_name_match": exact_name_match,
+                "neighborhood_match": neighborhood_match,
+                "semantic_match": semantic_match,   # F3 gate
                 "top_sv_id": top_id,
                 "heading": heading, "heading_spread": spread,
+                "heading_gap": heading_gap,                 # A: per-frame
+                "same_pano_heading_count": same_pano_heading_count,
             }
 
-            # ── reconcile decision ────────────────────────────────
-            if not dino_loc or s_dino < args.min_sim:
-                rec.update({"accepted": False, "score": s_dino,
-                            "variance_m": None, "gps": None,
-                            "reject_reason": "dino_weak"})
-                counts["dino_weak"] += 1
-            elif not vlm["gps"]:
-                rec.update({"accepted": False, "score": None,
-                            "variance_m": None, "gps": None,
-                            "reject_reason": "vlm_unresolved"})
-                counts["vlm_unresolved"] += 1
+            # ── reconcile_strict — F1, F2, F3 (semantic OR spatial) ──
+            if dino_loc is None:                        # SV meta missing
+                base.update({"accepted": False, "score": s_dino,
+                             "variance_m": None, "gps": None,
+                             "reject_reason": "no_sv_meta",
+                             "spatial_match": None})
+                counts["no_sv_meta"] += 1
             else:
-                r = reconcile.reconcile(
+                r = reconcile.reconcile_strict(
                     (dino_loc[0], dino_loc[1]), s_dino,
-                    vlm["gps"], vlm["confidence"])
-                rec.update({"accepted": r["accepted"],
-                            "score": r["score"],
-                            "variance_m": r["variance_m"],
-                            "gps": list(r["gps"]) if r["gps"] else None,
-                            "reject_reason": (""
-                                              if r["accepted"]
-                                              else "low_score")})
-                counts["accepted" if r["accepted"]
-                       else "rejected_low_score"] += 1
+                    vlm["gps"], vlm["confidence"],
+                    min_sim=args.min_sim, max_var_m=args.max_var_m,
+                    semantic_match=semantic_match)
+                base.update({
+                    "accepted": r["accepted"], "score": r["score"],
+                    "variance_m": r["variance_m"],
+                    "spatial_match": r["spatial_match"],
+                    "gps": list(r["gps"]) if r["gps"] else None,
+                    "reject_reason": r["reject_reason"],
+                })
+                bucket = "accepted" if r["accepted"] else r["reject_reason"]
+                counts[bucket] = counts.get(bucket, 0) + 1
 
-            fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            fout.write(json.dumps(base, ensure_ascii=False) + "\n")
             fout.flush()
 
     print(f"[gps_recovery] wrote {out_path}")
+    print(f"[gps_recovery] reconcile_strict | min_sim={args.min_sim} "
+          f"| max_var_m={args.max_var_m}")
     total = sum(counts.values())
     for k, v in counts.items():
-        print(f"  {k:22s} {v:4d}  ({100 * v / max(1, total):.0f}%)")
+        print(f"  {k:18s} {v:4d}  ({100 * v / max(1, total):.0f}%)")
 
 
 if __name__ == "__main__":
