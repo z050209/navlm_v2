@@ -101,6 +101,8 @@ SV_GRID_M = 50.0                  # metadata grid spacing, metres
 SV_HEADINGS = [0, 90, 180, 270]   # crops downloaded per panorama
 SV_IMG_SIZE = "640x640"
 SV_FOV = 90
+SV_FOOTPRINT_BUFFER_M = 150.0     # targeted crawl: only buy panos within
+                                  # this many metres of a poi_scan matched POI
 
 # ── GPS recovery / matching ──────────────────────────────────────────
 DINOV2_TOPK = 5           # k nearest Street View crops per video frame
