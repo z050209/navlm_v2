@@ -68,10 +68,11 @@ earlier ones (a step's *needs* are noted).
 | 3 | extract frames (quality-filtered) | `python -m src.extract_frames` | step 2 | ✅ |
 | 4 | POI scan — Gemini Pro (Vertex) → OSM match | `python -m src.poi_scan --limit 3` then `--every-n 30` | steps 1, 3 | ✅ |
 | 4b| POI-scan map (matched POIs + derived bboxes) | `python -m src.viz_scan` | step 4 | ✅ |
-| 5 | Street View — bbox / scan / download | `python -m src.streetview --bbox` · `--scan` · `--download` | step 4 | ✅ |
-| 5b| **DINOv2 match pilot** — v2 frames vs the 712 v1 SV images | `python -m src.dinov2_match --every-n 40 --min-sim 0.60` | step 3 + local copy of SV images | ✅ |
-| 6 | GPS recovery (DINOv2 + VLM) | `python -m src.gps_recovery` | steps 3, 5 | ⏳ |
-| 7 | OSM + HMM road-snapping | `python -m src.road_snap` | step 6 | ⏳ |
+| 5 | Street View — bbox / scan / download (targeted, §2.4) | `python -m src.streetview --bbox` · `--scan` · `--download` | step 4 | ✅ |
+| 5b| **DINOv2 match pilot** — v2 frames vs the v1 712 SV images | `python -m src.dinov2_match --every-n 40 --min-sim 0.60` | step 3 + local copy of SV images | ✅ |
+| 6 | **GPS recovery** (strict F1/F2/F3 + same-pano heading) | `python -m src.gps_recovery` | steps 3, 4, 5 | ✅ |
+| 6b| GPS-recovery map + per-frame photo grid (sanity check) | `python -m src.viz_recovery` · `python -m src.viz_recovery_grid` | step 6 | ✅ |
+| 7 | OSM + HMM road-snapping (snap GPS, correct heading) | `python -m src.road_snap` | step 6 | ⏳ |
 | 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
 | 9 | LoRA training on Modal | `modal run train_modal.py` | annotated data | ✅ |
 
@@ -376,6 +377,38 @@ re-crawled incrementally if routes reach an edge.
 **Run:** `python -m src.streetview --bbox` (print the derived box) →
 `--scan` (free) → `--download` (Static API).
 
+> **Targeted-crawl strategy — only buy where the videos go.** The free
+> `--scan` finds ~1,915 unique panos in the central-Zurich bbox; at
+> $7/1000 × 4 headings that's $54 for the lot. But the POI scan
+> (`poi_scan.jsonl`) already tells us *where the 8 videos actually
+> walked* (227 matched OSM POIs). A pano is only useful if it's near
+> one of those — everywhere else in the bbox is dead weight.
+>
+> The recipe:
+> 1. take each of the 227 matched POIs from `poi_scan.jsonl` (street
+>    polylines, square polygons, point landmarks);
+> 2. **buffer by ~150 m** (covers one city-block around each visited
+>    POI);
+> 3. union the buffers → the "visited footprint";
+> 4. filter the 1,915 metadata-scanned panos → keep only those inside
+>    the footprint (typically ~800–1,000 panos);
+> 5. `--download` just that subset (~$22–28).
+>
+> | strategy | panos | cost | what it covers |
+> |---|---:|---:|---|
+> | already-bought (v1, sunk) | 178 | $5 | Bahnhofstrasse strip only — 1 video well |
+> | **targeted 150 m POI buffer** | ~800–1,000 | **$22–28** | every street the videos walk, dense |
+> | tight 75 m POI buffer | ~400–600 | $11–17 | same routes, sparser, gaps likely |
+> | blanket — every pano | 1,915 | $54 | whole bbox including streets never visited |
+>
+> **Iterate if needed.** After the targeted download, re-run
+> `gps_recovery`. If `dino_weak` is still high (>20%), the remaining
+> dino_weak frames' VLM-guess positions are exactly where the gap is —
+> buffer those + a small top-up download (~100 panos, $3) fills it.
+> "Data tells us where to spend" loop. Total expected spend ≈ **$25–35**
+> vs $54 for blanket, with **fewer location-bias false positives** in
+> `accepted` (we won't be over-biased toward over-represented streets).
+
 ### 2.5 GPS recovery
 
 Each video frame needs a recovered **GPS** *and* **heading**. Neither
@@ -461,32 +494,124 @@ it **names a place**. It returns strict JSON:
 The `place` string is resolved to GPS `g_vlm` via the POI table
 (preferred over the VLM's own lat/lon, which is coarser).
 
-**Reconciliation — weighted score (Q4).** For each frame:
+**Reconciliation — strict F1/F2/F3 (the current default).** A single
+weighted-Q score was too forgiving — a high cosine + high VLM
+confidence could drag a frame past `tau` even when the two GPSes
+disagreed by hundreds of metres. Replaced with **three independent
+filters; all three must pass to accept** (`src/reconcile.py:
+reconcile_strict`, the legacy weighted version is kept as
+`reconcile_weighted` for ablation):
 
-- `d  = haversine(g_dino, g_vlm)` — disagreement, in metres
-- `a  = exp(-d / D0)` — agreement term, `D0 ≈ 150 m` (a = 1 when the two
-  estimates coincide, decaying as they diverge)
-- `c` — VLM confidence as a number: low = 0.3, medium = 0.6, high = 1.0
-- **combined quality** `Q = w_s·s + w_a·a + w_c·c`, weights summing to 1;
-  start at `(w_s, w_a, w_c) = (0.4, 0.4, 0.2)`
+```
+F1.  cos_dino  >=  config.MIN_SIM                   (DINOv2 real visual match)
+F2.  vlm_gps  is not None                            (VLM resolved to OSM POI)
+F3.  exact-name match  OR
+     distance(vlm_POI_geometry, dino_nearest_POI_geometry)
+                                  <= config.NEIGHBORHOOD_RADIUS_M  (250 m)
+```
 
-A frame's GPS is **accepted if `Q ≥ τ`**. The accepted coordinate is the
-confidence-weighted mean of `g_dino` and `g_vlm` when they agree,
-otherwise `g_dino` when only the DINOv2 match is strong. `τ`, `D0` and
-the weights are tuned by running the cheap **sample-test batch** at a
-few settings and **eyeballing 10 % of the matches**; the setting that
-keeps the most frames at acceptable quality wins. (Weights are heuristic
-for now — with a labelled subset they could be fit by logistic
-regression.)
+F3 is **semantic agreement** (the *name* of the place VLM guessed
+matches the OSM POI nearest to DINOv2's matched SV pano), with a
+**neighborhood fallback** at 250 m (`distance_pois_m` uses point-to-line
+distance via shapely, not centroid-to-centroid — so a long street like
+Bahnhofstrasse is matched correctly anywhere along it). `src/spatial.py`
+owns the geometric helpers + an STRtree on the OSM POI geometries.
 
-**Heading.** Each Street View crop was rendered at a *known* heading
-(0/90/180/270°). The frame's camera heading ≈ the heading of the matched
-crop. **Top-k (Q4):** the DINOv2 match returns the `k` Street View crops
-with the **highest cosine similarity** to the frame's embedding (`k` is
-a config parameter, default `k = 5`); the heading is the
-outlier-filtered **circular mean** of those k crops' rendered headings,
-and the circular spread gives a confidence (geometry in
-`reference/toolbox/compute_frame_heading.py`).
+> **Why semantic, not just spatial.** A naïve distance check
+> (`|g_dino − g_vlm| ≤ 150 m`) was rescuing frames where the two
+> signals were spatially close *by coincidence* — and a tighter
+> threshold lost too many true positives because VLM's resolved POI is
+> often a long street whose centroid is far from the photo. Comparing
+> at the *name* level (with a 250 m buffer to absorb nearest-POI
+> noise) is much more robust: for both estimates to converge on the
+> same wrongly-named OSM place by accident, the visual and the
+> linguistic failure modes have to correlate, which is statistically
+> much rarer than positional coincidence.
+
+**GPS blend on accept.**
+- if `|g_dino − g_vlm| ≤ 150 m` (close): **midpoint** of the two
+  (50/50, no confidence weighting — VLM may be wrong).
+- otherwise (semantic match only, far apart): use **`g_dino` alone**
+  — long features (Limmat, Zürichsee, Bahnhofstrasse) have centroids
+  far from the actual photo; midpoint with such a centroid is
+  meaningless. The semantic match validates DINOv2's coords; we don't
+  need to blend.
+
+**Heading — same-pano cosine-weighted mean.** Earlier we averaged
+headings across the top-K SV crops, which mixed crops from *different
+panos* (different locations). Now we commit to one location (top-1's
+pano) and ask only "which direction at that pano?":
+
+```
+   heading  =  atan2( Σᵢ cosᵢ · sin θᵢ ,   Σᵢ cosᵢ · cos θᵢ )
+
+where θᵢ ∈ {0°, 90°, 180°, 270°} are the 4 compass headings of the
+SV crops at top-1's pano, and cosᵢ is the cosine similarity of the
+query frame to each of those 4 crops (clamped to ≥0).
+```
+
+This is the cosine-weighted circular mean — a walker heading 45°
+(where the pano's 0° and 90° crops both score high) gets `heading ≈
+45°` instead of snapping to one of the four 90°-spaced discretized
+directions.
+
+**Heading confidence — `heading_gap`.** Per frame:
+
+```
+   gap  =  (best_at_pano − 2nd_at_pano) / best_at_pano
+```
+
+High gap (≥ 0.15) → DINOv2 *can* tell direction at this pano; low gap
+(< 0.05) → 2+ directions look nearly identical, heading is genuinely
+ambiguous (e.g., front-vs-back symmetric architecture). The 11 % of
+accepted frames with low gap will get their heading **replaced** by
+the segment bearing in the next (HMM) stage; the rest are trusted.
+
+> **Why `heading_gap` rather than top-K circular spread?** Spread
+> conflates two failure modes — *wrong pano* and *wrong direction at
+> the right pano*. The same-pano gap isolates the second, which is the
+> one that actually matters once F1/F2/F3 have locked in the location.
+
+**Road-snapping (`src/road_snap.py`, ⏳).** The accepted per-frame GPS
+sequence is smoothed onto the OSM walking graph with HMM map-matching
+(Newson-Krumm Viterbi). Three things it does beyond per-frame
+filtering:
+- **Snap GPS** to walkable geometry (removes the small jitter from our
+  ±30 m reconciled position).
+- **Correct heading**: replace per-frame DINOv2 heading with the
+  bearing of the chosen segment — fixes the 11 % `heading_gap < 0.05`
+  ambiguous frames automatically.
+- **Reject route outliers**: a frame whose snapped GPS is >50 m from
+  the Viterbi path, or whose heading is >90° off the segment bearing,
+  is the cross-frame disagreement check the per-frame stage cannot
+  see. Eliminate or correct based on residuals.
+
+Phase A output: **trusted frames, each with `(gps, heading, edge_id)`**.
+
+**Per-frame stage measured on 872 scanned frames (Phase A frame-by-frame):**
+
+```
+accepted          258  (30%)   ← trustworthy frames
+disagree          194  (22%)   ← genuine cross-bbox disagreements
+dino_weak         395  (45%)   ← no good SV reference → fix by §2.4 targeted crawl
+vlm_unresolved     25  ( 3%)   ← VLM named a real place missing from pois.json
+
+heading_gap among 258 accepted:
+  ≥ 0.15 confident   53%
+  ≥ 0.05 some signal 89%
+  <  0.05 ambiguous  11%   ← HMM will resolve via segment bearing
+
+per-video accepted: 11–82 frames; eval hold-out (saturday_morning) 28
+```
+
+**Modules:** `src/gps_recovery.py` (main orchestrator) ·
+`src/spatial.py` (POI geometry index + name match + neighborhood
+distance) · `src/geo_check.py` (per-frame VLM → GPS, no live API call
+when the frame is in `poi_scan.jsonl`) · `src/reconcile.py` (the
+F1/F2/F3 logic + 50/50 blend + centroid-blend protection) ·
+`src/viz_recovery_grid.py` (per-frame photo grid HTML — every frame
+shows QUERY + the 4 compass crops at top-1's pano, with the chosen
+direction outlined and the heading-calc math worked).
 
 **Road-snapping.** The accepted per-frame GPS sequence is smoothed onto
 the OSM walking graph with HMM map-matching (Newson-Krumm Viterbi),
@@ -782,12 +907,23 @@ Standalone HTML in `viz/`:
    `viz/dinov2_match_test.html`. The grid is the visual sanity check
    for "is the existing SV reference set sufficient for our routes?".
    Run: `python -m src.dinov2_match --every-n 40 --min-sim 0.60`.
-4. Bought Street View panos highlighted on the map.
-5. Recovered video-frame GPS on the map, **overlaid with the POI region
+4. **GPS-recovery map** — every reconciled frame on a Leaflet map,
+   coloured by video for accepted; toggleable layers for `disagree`,
+   `dino_weak`, `vlm_unresolved`. ✅ built — `src/viz_recovery.py` →
+   `viz/gps_recovery_map.html`.
+5. **GPS-recovery per-frame photo grid** — for each frame: QUERY photo
+   + the **4 compass crops at top-1's pano** (the heading-decision
+   evidence), with the chosen direction red-outlined; info panel with
+   POI-to-POI distance, F3 outcome, `heading_gap`, and the **worked
+   atan2 heading calculation** for that frame. ✅ built —
+   `src/viz_recovery_grid.py` → `viz/gps_recovery_grid.html`.
+   Sections: ACCEPTED / DISAGREE / VLM UNRESOLVED.
+6. Bought Street View panos highlighted on the map.
+7. Recovered video-frame GPS on the map, **overlaid with the POI region
    polygons (Q8)** — so each frame's area and POI assignment (§3) is
    visible at a glance.
-6. The 8-video routes derived from the images (§2.8).
-7. A Q&A viewer — photo + question + generated answer — to sanity-check
+8. The 8-video routes derived from the images (§2.8).
+9. A Q&A viewer — photo + question + generated answer — to sanity-check
    the instruction tuning.
 
 ---
@@ -816,27 +952,34 @@ navlm_v2/
 
 ## 7. Roadmap
 
-1. ✅ Scaffold — `config.py`, `src/`, `tests/` (73 pytest tests).
-2. ✅ All Phase A / B modules coded + unit-tested: `download_videos`,
+1. ✅ Scaffold — `config.py`, `src/`, `tests/` (95 pytest tests).
+2. ✅ Phase A modules coded + unit-tested: `download_videos`,
    `extract_frames`, `pois`, `poi_scan`, `gemini_api`, `streetview`,
-   `gps_recovery`, `reconcile`, `routing`, `road_snap`; plus `poi`,
-   `annotate`, `viz`, `train_modal`.
-3. ✅ Built so far: OSM POI table (`pois.json`, 1,289 POIs); frame
-   extraction (26,034 kept frames).
+   `dinov2_match`, `gps_recovery`, `geo_check`, `spatial`, `reconcile`,
+   `routing`, `road_snap` (stub); plus viz: `poi`, `viz`, `viz_scan`,
+   `viz_recovery`, `viz_recovery_grid`; plus `annotate`, `train_modal`.
+3. ✅ OSM POI table (`pois.json`, 1,289 POIs); frame extraction
+   (26,034 kept frames).
 4. ✅ POI scan — full run on Gemini 2.5 Pro via Vertex AI
    `--every-n 30` (872 frames, **227 distinct OSM POIs matched**,
    $10.68 of the Education credit). Crawl bbox derived
    (~4.0 × 4.4 km after centroid-clip; viz: `viz/poi_scan_map.html`).
-5. ▶ DINOv2 match pilot — v2 frames vs the 712 v1 SV images
-   (`viz/dinov2_match_test.html`); the match-rate at the chosen
-   `--min-sim` decides whether more SV is needed.
-6. Street View crawl — `--scan` (free) → `--download` (Static API),
-   sized by the pilot's match-rate.
-7. GPS recovery: DINOv2 embed/match + VLM place-naming → `reconcile.py`
-   weighted score + heading; then HMM road-snapping → trusted
-   (GPS, heading) frames.
-8. Sample test + `MIN_SIM` / `RECONCILE_TAU` tuning.
-9. Visualizations + 8-video route map.
-10. Phase B: routing + Gemini-2.5-Pro annotation (5-sample trial first).
-11. Phase C/D: `train_modal.py` LoRA runs + local zero-shot + eval,
+5. ✅ DINOv2 match pilot — 712 v1 SV images, 55 % of frames matched at
+   cos ≥ 0.60; remaining 45 % flag the SV coverage gap
+   (`viz/dinov2_match_test.html`).
+6. ✅ **GPS recovery (frame-by-frame)** — strict F1/F2/F3 +
+   same-pano cosine-weighted heading + `heading_gap` (§2.5).
+   **258 / 872 accepted (30 %)**, every video 11–82 frames, eval
+   hold-out 28 frames. Viz: `viz/gps_recovery_map.html` +
+   `viz/gps_recovery_grid.html`.
+7. ▶ **Targeted Street View crawl (§2.4)** — buy panos within 150 m
+   of the 227 matched POIs (~800–1,000 panos, ~$22–28) instead of
+   the full 1,915 in the bbox. Iterate based on remaining
+   `dino_weak` rate.
+8. ⏳ **HMM road-snapping** (`src/road_snap.py`) — snap GPS to
+   walking graph, **correct heading** from segment bearing, eliminate
+   route-outlier frames. Produces `phaseA_trusted.jsonl`.
+9. ⏳ 8-video route map + Q&A viewer (§5 items 8, 9).
+10. ⏳ Phase B — routing + Gemini-2.5-Pro annotation (5-sample trial first).
+11. ⏳ Phase C/D — `train_modal.py` LoRA runs + local zero-shot + eval,
     both ablations (§3 / §4).
