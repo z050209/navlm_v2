@@ -40,3 +40,21 @@ def test_circular_spread():
     assert gr.circular_spread([90, 90, 90]) == 0.0
     assert gr.circular_spread([0, 90, 180, 270]) > 90   # fully dispersed
     assert gr.circular_spread([]) == 360.0
+
+
+def test_circular_mean_weighted_interpolates_between_two_crops():
+    """A walker heading 45° has the pano's 0° and 90° crops both score
+    high, the 180°/270° crops low. Cosine-weighted mean must
+    interpolate to ≈45°, NOT snap to a crop's exact heading."""
+    angles = [0, 90, 180, 270]
+    weights = [0.75, 0.75, 0.30, 0.30]
+    m = gr.circular_mean(angles, weights)
+    assert 35 < m < 55                # very close to 45°
+
+
+def test_circular_spread_weighted_flags_opposite_directions_as_ambiguous():
+    """Two equally-strong opposing crops (0° and 180°) -> mean is
+    degenerate, spread should hit the ambiguous-direction sentinel."""
+    angles = [0, 90, 180, 270]
+    weights = [0.75, 0.30, 0.75, 0.30]
+    assert gr.circular_spread(angles, weights) > 90    # fully ambiguous

@@ -33,22 +33,36 @@ def cosine_topk(query_emb, ref_embs, k=config.DINOV2_TOPK):
     return order, sims[order]
 
 
-def circular_mean(degrees):
-    """Circular mean of a list of headings (degrees), in [0, 360)."""
+def circular_mean(degrees, weights=None):
+    """Circular mean of headings (degrees), in [0, 360). Optional
+    per-angle weights — used to compute the cosine-weighted mean of
+    the four crops at one pano (so a walker heading 45° between the
+    pano's 0° and 90° crops gets ≈ 45°, not 0° or 90°)."""
     if not degrees:
         return None
-    x = sum(math.sin(math.radians(d)) for d in degrees)
-    y = sum(math.cos(math.radians(d)) for d in degrees)
+    if weights is None:
+        weights = [1.0] * len(degrees)
+    x = sum(w * math.sin(math.radians(d)) for w, d in zip(weights, degrees))
+    y = sum(w * math.cos(math.radians(d)) for w, d in zip(weights, degrees))
     return (math.degrees(math.atan2(x, y)) + 360) % 360
 
 
-def circular_spread(degrees):
-    """Circular standard deviation (degrees) — heading confidence proxy."""
+def circular_spread(degrees, weights=None):
+    """Circular standard deviation (degrees) — heading confidence
+    proxy. With weights, divides by Σweights so a 4-way tie (any pair
+    of opposite directions weighted equally) returns 360° (fully
+    ambiguous), and a clean single direction returns ≈ 0°."""
     if not degrees:
         return 360.0
-    n = len(degrees)
-    x = sum(math.sin(math.radians(d)) for d in degrees) / n
-    y = sum(math.cos(math.radians(d)) for d in degrees) / n
+    if weights is None:
+        weights = [1.0] * len(degrees)
+    W = sum(weights)
+    if W < 1e-9:
+        return 360.0
+    x = sum(w * math.sin(math.radians(d))
+            for w, d in zip(weights, degrees)) / W
+    y = sum(w * math.cos(math.radians(d))
+            for w, d in zip(weights, degrees)) / W
     r = math.sqrt(x * x + y * y)
     if r >= 0.9999:
         return 0.0
@@ -196,24 +210,33 @@ def main():
                           top_meta["heading"])
                          if top_meta else None)
             s_dino = float(sims[0])
-            headings = [sv_meta.get(sv_ids[int(j)], {}).get("heading", 0)
-                        for j in idx]
-            heading = circular_mean(headings)
-            spread = circular_spread(headings)
 
-            # SAME-PANO heading confidence (A): how much does the best
-            # heading at top-1's pano beat the second-best heading at
-            # the same pano? high gap -> heading is well-defined; low
-            # gap -> 2+ directions look equally similar = ambiguous.
+            # ── HEADING: from the 4 crops at top-1's PANO only ──
+            # We trust one standard — the pano DINOv2 picked — and
+            # interpolate direction from the cosines of *its* 4
+            # compass crops. Mixing top-K across different panos
+            # averages apples and oranges.
             top_pano = top_meta.get("pano_id", "")
             same_pano = pano_to_crop_idx.get(top_pano, [])
-            same_pano_sims = sorted(
-                (float(sims_all[j]) for j in same_pano), reverse=True)
-            heading_gap = (
-                (same_pano_sims[0] - same_pano_sims[1]) / same_pano_sims[0]
-                if len(same_pano_sims) >= 2 and same_pano_sims[0] > 0
-                else 1.0)
+            same_pano_angles = [
+                sv_meta[sv_ids[j]]["heading"] for j in same_pano]
+            same_pano_weights = [
+                max(float(sims_all[j]), 0.0)        # clamp negatives
+                for j in same_pano]
+            heading = circular_mean(same_pano_angles, same_pano_weights)
+            spread = circular_spread(same_pano_angles, same_pano_weights)
             same_pano_heading_count = len(same_pano)
+
+            # heading_gap: how much does the best heading beat the 2nd
+            # at this same pano? high = well-defined; low = ambiguous.
+            same_pano_sims_sorted = sorted(
+                same_pano_weights, reverse=True)
+            heading_gap = (
+                ((same_pano_sims_sorted[0] - same_pano_sims_sorted[1])
+                 / same_pano_sims_sorted[0])
+                if len(same_pano_sims_sorted) >= 2
+                   and same_pano_sims_sorted[0] > 0
+                else 1.0)
 
             # ── VLM ───────────────────────────────────────────────
             vlm = geo_check_from_scan(row, pois_map)
