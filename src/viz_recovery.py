@@ -155,7 +155,8 @@ def build():
          font-family: Arial, sans-serif; font-size: 12px; z-index: 9999;
          box-shadow: 0 1px 4px rgba(0,0,0,0.2); max-width: 420px;">
       <b>GPS recovery (strict F1+F2+F3)</b><br>
-      <b>Accepted ({cnt['accepted']})</b> &mdash; reconciled GPS, coloured
+      <b>Accepted ({cnt['accepted']})</b> &mdash; g_dino (SV pano coords),
+      coloured
       by video. Click any dot for full detail:<br>{swatches}<br>
       <span style="color:#1f3a68;">&#9679;</span>
       <span style="color:#CC6600;">&#9679;</span>
