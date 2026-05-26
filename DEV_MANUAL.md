@@ -87,6 +87,7 @@ Later steps depend on earlier ones (a step's *needs* are noted).
 | 7d| Heading-QC diagnostic plots (KEPT vs Q1 fail · `heading_gap` histogram · per-video pass rate) | `python -m src.viz_heading_qc` | step 7b | ✅ — 3 PNGs under `viz/heading_qc_*.png`. See §2.5b. |
 | 7e| **Sample-50 photo grid** for the **trusted** cohort (data sanity check on the actual training input) | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --filter-from trusted_frames.jsonl --output trusted_frames_grid_50.html --limit 50 --random --seed 42` | step 7b | ✅ — `viz/trusted_frames_grid_50.html` (50 of 1,697 trusted). See §2.5c. |
 | 7f| **Per-video route comparison** (recovered walk dark→light gradient vs OSM ideal shortest path, overlaid per video) | `python -m src.viz_route_compare` | step 7 + 7a | ✅ — `viz/route_compare_per_video.html` (8 toggleable per-video layers; 2,028 frames in, OSM shortest-path overlay via osm_walking.pkl). See §2.5d. |
+| 7g| **Complete POI-pair route grid** (C(30,2) = 435 OSM shortest paths overlaid across the top-30 destinations — heatmaps the main corridors) | `python -m src.viz_poi_route_grid --input trusted_frames.jsonl --top-n 30 --output viz/poi_route_grid.html` | step 7b + 7a | ✅ — `viz/poi_route_grid.html` (30 ranked markers + 435 viridis_r-coloured routes). See §2.5f. |
 | 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
 | 9 | **Annotation smoke** — 5 frames, Gemini 2.5 Pro, picked system prompt | `python -m src.annotate --limit 5 --prompt-variant strict` | step 7b | ✅ (script) |
 | 9b| Annotation QA map — eyeball direction-correctness | `python -m src.viz_annotate --sample 60` | step 9 | ✅ (script) |
@@ -958,6 +959,62 @@ the v1 numbers; we have not yet swept these.
 | `transition_logp` β | **30 m** | Linear penalty on `\|route − great_circle\|` between consecutive candidates | `src/road_snap.py:transition_logp` |
 | candidate set per observation | nearest node + neighbours | typically 3–6 nodes; no hard cap | `src/road_snap.py:_per_video_snap` |
 | projection | **UTM 32N (EPSG:32632)** | fast cKDTree nearest-node lookup | `src/build_walking_graph.py` |
+
+### 2.5f Complete POI-pair route grid
+
+`viz/poi_route_grid.html` overlays the OSM shortest path between
+**every pair** of the top-30 destination POIs — C(30, 2) = **435
+routes** on one map — together with the 30 POI markers labelled by
+rank.
+
+```powershell
+python -m src.viz_poi_route_grid --input trusted_frames.jsonl `
+                                  --top-n 30 `
+                                  --output viz/poi_route_grid.html
+```
+
+Why this map matters: at the §2.7 instruction-annotation stage we
+sample destinations from this top-30 pool, so the routes we're going
+to plan during annotation are **subsets of these 435 paths**. The
+overlay heatmaps the streets the trained model will most rely on:
+Bahnhofstrasse, Limmatquai, Münsterbrücke and the old-town axes
+visibly heat up because they're shared by dozens of POI pairs.
+
+What's drawn:
+
+- **30 POI markers** — coloured by visit-count rank (top 1 dark red,
+  fading toward pink/grey for the lowest of the top-30). Labelled
+  with rank + name in a small badge next to the dot. Tooltip / popup
+  shows frame count and the centroid GPS used to seed the routes.
+- **435 OSM shortest paths** — semi-transparent thin polylines
+  (`opacity 0.18`, `weight 2`), coloured by route length using the
+  `viridis_r` colormap (yellow = short, purple = long). The
+  transparency is deliberate: where N paths overlap on the same
+  edge the visual density compounds into a heatmap.
+- LayerControl toggles the markers and routes independently.
+
+**Each POI's location** is the **median (lat, lon) of all frames
+whose `place_guess` resolves to that POI**, not the OSM-table
+centroid. This is the same GPS the annotator uses as a destination
+seed for the instruction prompts — using it here means the routes
+on the map are the routes the teacher will actually plan during
+annotation.
+
+**Cohort.** The default input is `trusted_frames.jsonl` (1,697
+frames, all 30 top-POIs survived heading_qc — see §2.5b table).
+You can switch to `gps_recovery_full.jsonl --tier 1` for the wider
+2,470-frame VLM-agreed cohort if you want to see the POI ranks
+before Q1 filtering — it's the same 30 POIs in nearly the same
+order.
+
+**Tuning knobs:**
+
+- `--top-n 50` — widen the destination pool (1,225 routes for N=50)
+- `--max-route-km 1.5` — drop unrealistically long routes (drops a
+  handful of "across the lake" pairs at default N=30; nothing
+  dropped at N=30 on this cohort)
+- `--poi-field dino_nearest_name` — rank by DINOv2-nearest OSM POI
+  instead of VLM-resolved POI (the 71-POI universe from §2.5)
 
 **Why 60° tolerances.** The 4 action verbs (continue, left, right,
 around) bin direction into 90° quadrants. We need the recovered
