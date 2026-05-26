@@ -66,8 +66,22 @@ def main():
           f"{G.number_of_nodes():,} nodes · "
           f"{G.number_of_edges():,} edges", flush=True)
 
+    # Project to UTM so `ox.distance.nearest_nodes` can use a fast
+    # cKDTree without the scikit-learn ball-tree fallback (which is
+    # only invoked on unprojected lat/lon graphs). We keep BOTH the
+    # original lat/lon coords (on every node, as `y` and `x`) AND a
+    # _projected_ copy stored under attribute "_projected" so callers
+    # can pick — road_snap.py uses the projected one for snap, then
+    # reads the lat/lon back for output.
+    G_proj = ox.project_graph(G)
+    print(f"[build_walking_graph] projected to UTM: "
+          f"{G_proj.graph.get('crs')}", flush=True)
+    # We pickle the PROJECTED graph; lat/lon are re-derivable by
+    # projecting back to EPSG:4326 if ever needed. For our snap loop
+    # only the relative geometry matters, and we then convert each
+    # chosen node's UTM (x, y) back to lat/lon for the output file.
     with out_path.open("wb") as f:
-        pickle.dump(G, f, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(G_proj, f, protocol=pickle.HIGHEST_PROTOCOL)
     mb = out_path.stat().st_size / (1024 * 1024)
     print(f"[build_walking_graph] wrote {out_path}  ({mb:.1f} MB)",
           flush=True)

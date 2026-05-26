@@ -670,7 +670,70 @@ through.
 
 The diagnostics file `data/cities/zurich/heading_qc_diagnostics.jsonl`
 gets the per-frame Q1/Q2/Q3 verdicts + the actual angular deltas;
-`src/viz_heading_qc.py` plots them (see §5 viz 12).
+`src/viz_heading_qc.py` plots them.
+
+**Measured on 2026-05-25** (`gps_recovery_full.jsonl` →
+`road_snap --tier 1 --top-pois 30` → `heading_qc`):
+
+```
+N considered (the HMM-snapped, top-30 cohort):  2,028 frames
+  dropped Q1 (heading_gap < 0.05):                331  (16 %)
+  dropped Q2 (|Δseg| > 60°):                      499  (25 %)
+  dropped Q3 (|Δtd|  > 60°):                      507  (25 %)
+  KEPT (all three pass) → trusted_frames.jsonl:   691  (34 %)
+
+|Δseg|: median 97.6°  p90 168.2°  max 179.8°
+|Δtd|:  median 92.4°  p90 167.1°  max 180.0°
+```
+
+Per-video kept counts (held-out `saturday_morning` in **bold**):
+
+| video | snapped | kept | pass |
+|---|---:|---:|---:|
+| looks_perfect    | 582 | 224 | 38 % |
+| hidden_streets   | 286 | 102 | 36 % |
+| most_elegant     | 256 |  90 | 35 % |
+| most_famous      | 209 |  71 | 34 % |
+| **saturday_morning** | 172 | **61** | 35 % |
+| old_town_limmat  | 228 |  56 | 25 % |
+| zurich_main      | 168 |  52 | 31 % |
+| bahnhofstrasse   | 127 |  35 | 28 % |
+| **total** | **2,028** | **691** | **34 %** |
+
+That the median |Δseg| and |Δtd| are both ~95° — much higher than
+the 60° tolerance — is informative: a substantial fraction of
+per-frame DINOv2 headings is wrong by a ~quadrant or more, and Q2/Q3
+catch them. Q2 and Q3 also overlap heavily (a single rotated camera
+fails both), so the union dropped is not (499+507) but a tighter
+807 frames once first-fail counting is applied.
+
+**Drop-reasons bar** (first-fail counting Q1 → Q2 → Q3, bars sum to N):
+
+![heading_qc drop reasons](viz/heading_qc_dropreasons.png)
+
+**Q2 disagreement histogram** — `|recovered − segment_bearing|`. The
+60° red line is the threshold; everything to the right is dropped:
+
+![heading_qc Δseg histogram](viz/heading_qc_delta_seg_hist.png)
+
+**Q3 disagreement histogram** — `|recovered − td_bearing|`. Note the
+similar shape to Q2 (the two checks are correlated but not identical
+— each catches a different ~12 % the other misses):
+
+![heading_qc Δtd histogram](viz/heading_qc_delta_td_hist.png)
+
+**Joint Q2/Q3 scatter** — each frame is one dot at (|Δseg|, |Δtd|).
+Green = passes both, red = fails at least one. The lower-left
+quadrant (both under 60°) is what survives:
+
+![heading_qc joint Δseg vs Δtd](viz/heading_qc_delta_joint.png)
+
+**Per-video pass rate** — pass rates land in a narrow 25–38 % band
+across videos, including the eval hold-out (`saturday_morning` at
+35 %), which is reassuring: the QC isn't systematically biased
+against any one video's footage:
+
+![heading_qc per-video pass rate](viz/heading_qc_pervideo.png)
 
 **Cohort scope — HMM runs on the VLM-agreed + top-30 POI subset.**
 By default `src/road_snap.py` uses `--tier 1 --top-pois 30`, meaning
@@ -1056,9 +1119,9 @@ override with `--output road_snapped.jsonl`.)
 | # | Code | In | Out | Run | Notes |
 |---|------|----|-----|-----|-------|
 | 6d | `src/gps_recovery.py` | `poi_scan_cos0.75.jsonl`, `frames_n1_l0.npz`, `pois.json` | `gps_recovery_full.jsonl` | `python -m src.gps_recovery --poi-scan poi_scan_cos0.75.jsonl --output gps_recovery_full.jsonl` | Re-runs the F1/F2/F3 filter with the expanded VLM signal. Same DINOv2 cache, same F1 cosine floor, same neighborhood radius — only the `--poi-scan` source changes. ~12 s (no API, no DINOv2 re-embedding — pre-cached matmul only). See §2.5 *The `--poi-scan` lever* for the side-by-side measurement. |
-| 7a | `src/build_walking_graph.py` | `config.POI_BBOX + 300 m margin` | `osm_walking.pkl` | `python -m src.build_walking_graph` | One-time osmnx download of central-Zurich's pedestrian network → pickled MultiDiGraph. Re-run with `--force` to refresh. |
-| 7  | `src/road_snap.py` | `gps_recovery_full.jsonl` + `osm_walking.pkl` | `road_snapped.jsonl` (per-frame `{gps_snapped, gps_raw, segment_id, segment_bearing, segment_length_m, snap_offset_m}`) | `python -m src.road_snap --input gps_recovery_full.jsonl --top-pois 30 --tier 1 --output road_snapped.jsonl` | HMM (Newson-Krumm Viterbi). **Filters input to (`tier=1` AND `place_guess ∈ top-30 POIs`)** so HMM works on the same cohort the teacher annotator will use (§2.7). Sets snapped to `--top-pois 0` to disable the POI filter and snap all VLM-agreed frames. |
-| 7b | `src/heading_qc.py` | `gps_recovery_full.jsonl` + `road_snapped.jsonl` | `trusted_frames.jsonl` | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | Drops frames with `heading_gap < 0.05` (ambiguous front/back) and `\|heading − segment_bearing\| > 60°` (HMM disagrees). The hard heading filter — survivors are the dataset's ground-truth heading. |
+| 7a | `src/build_walking_graph.py` | `config.POI_BBOX + 300 m margin` | `osm_walking.pkl` (UTM-projected) | `python -m src.build_walking_graph` | One-time osmnx download of central-Zurich's pedestrian network, projected to UTM 32N for fast cKDTree nearest-node lookup. Run on 2026-05-25: **17,996 nodes / 48,218 edges, 7.7 MB**. Re-run with `--force` to refresh. |
+| 7  | `src/road_snap.py` | `gps_recovery_full.jsonl` + `osm_walking.pkl` | `road_snapped.jsonl` (per-frame `{gps_snapped, gps_raw, segment_id, segment_bearing, segment_length_m, snap_offset_m}`) | `python -m src.road_snap --input gps_recovery_full.jsonl --tier 1 --top-pois 30 --poi-field place_guess --output road_snapped.jsonl` | HMM (Newson-Krumm Viterbi). **Filters input to (`tier=1` AND `place_guess ∈ top-30 POIs`)** so HMM works on the same cohort the teacher annotator will use (§2.7). Run on 2026-05-25: 2,470 VLM-agreed → 2,028 after top-30 → **2,028 snapped in 2 min 28 s**. Set `--top-pois 0` to disable the POI filter and snap all 2,470 VLM-agreed frames. |
+| 7b | `src/heading_qc.py` | `gps_recovery_full.jsonl` + `road_snapped.jsonl` | `trusted_frames.jsonl` + `heading_qc_diagnostics.jsonl` | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | Three-bearing cross-check (§2.5b): Q1 `heading_gap≥0.05` ∧ Q2 `\|Δseg\|≤60°` ∧ Q3 `\|Δtd\|≤60°`. Run on 2026-05-25: 2,028 considered → **691 kept (34 %)**; Q1 fail 331, Q2 fail 499, Q3 fail 507 (first-fail counting). saturday_morning hold-out kept 61. |
 | 7c | `src/viz_routes.py` | `trusted_frames.jsonl` | `viz/routes_trusted_frames.html` | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | Per-video colour-coded polyline of the surviving frames, optional heading arrows. **Inspect before annotating** — every video's polyline should look like a walking path, not a teleporting cloud. |
 | 7d | `src/viz_heading_qc.py` | `heading_qc_diagnostics.jsonl` (written by step 7b) | 5 PNGs under `viz/heading_qc_*.png` | `python -m src.viz_heading_qc` | Drop-reasons bar (Q1/Q2/Q3 first-fail counting), \|Δseg\| & \|Δtd\| histograms, joint Q2/Q3 scatter, per-video pass rate. The audit for the three-bearing cross-check in §2.5b. |
 | 9  | `src/annotate.py` | `trusted_frames.jsonl` + `pois.json` + `osm_walking.pkl` | `annotations_<variant>.jsonl` (5 rows × 3 dests = 15 (frame,dest) pairs) | `python -m src.annotate --limit 5 --prompt-variant strict` | **Smoke first.** 80/10/10 distance-banded destination sampling, OSM route, Gemini 2.5 Pro CoT+answer, closed-loop verifier (`δ<30°`). ~$0.07. Inspect every row by hand. |

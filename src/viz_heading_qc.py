@@ -189,14 +189,14 @@ def main():
           f"Q3_fail={dropped_q3}")
     if deltas_seg:
         ds = sorted(deltas_seg)
-        print(f"|Δseg|  median={ds[len(ds)//2]:.1f}°  "
-              f"p90={ds[int(0.9*len(ds))]:.1f}°  "
-              f"max={ds[-1]:.1f}°")
+        print(f"|d_seg|  median={ds[len(ds)//2]:.1f} deg  "
+              f"p90={ds[int(0.9*len(ds))]:.1f} deg  "
+              f"max={ds[-1]:.1f} deg")
     if deltas_td:
         dt = sorted(deltas_td)
-        print(f"|Δtd|   median={dt[len(dt)//2]:.1f}°  "
-              f"p90={dt[int(0.9*len(dt))]:.1f}°  "
-              f"max={dt[-1]:.1f}°")
+        print(f"|d_td|   median={dt[len(dt)//2]:.1f} deg  "
+              f"p90={dt[int(0.9*len(dt))]:.1f} deg  "
+              f"max={dt[-1]:.1f} deg")
 
 
 if __name__ == "__main__":

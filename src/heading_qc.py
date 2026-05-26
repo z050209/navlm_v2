@@ -202,10 +202,20 @@ def main():
                          "src.viz_heading_qc)")
     args = ap.parse_args()
 
-    in_path = Path(args.input)
-    snap_path = Path(args.snapped)
-    out_path = Path(args.output)
-    diag_path = Path(args.diagnostics)
+    def _resolve(p):
+        """Accept bare filenames (resolve under CITY_DIR) or full paths."""
+        path = Path(p)
+        if path.exists() or path.is_absolute():
+            return path
+        in_city = config.CITY_DIR / path.name
+        return in_city if in_city.exists() else path
+
+    in_path = _resolve(args.input)
+    snap_path = _resolve(args.snapped)
+    out_path = (Path(args.output) if Path(args.output).is_absolute()
+                else config.CITY_DIR / Path(args.output).name)
+    diag_path = (Path(args.diagnostics) if Path(args.diagnostics).is_absolute()
+                 else config.CITY_DIR / Path(args.diagnostics).name)
 
     snapped = {} if args.no_hmm else _load_snapped(snap_path)
     print(f"[heading_qc] in:        {in_path}", flush=True)

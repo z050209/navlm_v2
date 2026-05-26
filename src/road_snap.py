@@ -146,59 +146,79 @@ def top_n_pois(rows, n, field="place_guess"):
     return [name for name, _ in common]
 
 
-def _per_video_snap(graph, frames, radius_m=40.0):
+def _node_latlon(graph, node, to_latlon_xform):
+    """Return (lat, lon) for a node, regardless of whether the graph is
+    in lat/lon (EPSG:4326) or projected. For projected graphs we use
+    the provided pyproj Transformer to convert (x, y) → (lon, lat)."""
+    nx_attr = graph.nodes[node]
+    if to_latlon_xform is None:
+        # graph is already in lat/lon (osmnx default: y=lat, x=lon)
+        return nx_attr["y"], nx_attr["x"]
+    lon, lat = to_latlon_xform.transform(nx_attr["x"], nx_attr["y"])
+    return lat, lon
+
+
+def _per_video_snap(graph, frames):
     """Snap ONE video's frame sequence (sorted by frame_id) to the
     OSM walking graph. Returns a list of dicts, one per input frame.
 
-    Each output dict has:
-      gps_snapped       [lat, lon] of the chosen graph node
-      gps_raw           [lat, lon] from the input
-      segment_id        (u, v, k) of the OSM edge the frame snapped onto
-      segment_bearing   bearing of that edge (used by heading_qc)
-      segment_length_m  length of that edge (diagnostic)
-    """
+    Handles both unprojected (EPSG:4326) and projected (e.g. UTM)
+    graphs — projected is preferred so `ox.distance.nearest_nodes`
+    can use the fast cKDTree path instead of the scikit-learn
+    ball-tree fallback."""
     import networkx as nx
     import osmnx as ox
 
     if not frames:
         return []
-    gps_seq = [tuple(f["gps"]) for f in frames]
+    gps_seq = [tuple(f["gps"]) for f in frames]                # lat, lon
 
-    # candidate states per observation
+    crs = graph.graph.get("crs")
+    is_projected = bool(crs) and "4326" not in str(crs)
+    if is_projected:
+        from pyproj import Transformer
+        to_proj = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+        to_latlon = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+        # query each (lat, lon) -> (x, y) in graph CRS for nearest_nodes
+        xy = [to_proj.transform(lon, lat) for lat, lon in gps_seq]
+        nearest = [ox.distance.nearest_nodes(graph, x, y) for x, y in xy]
+    else:
+        to_latlon = None
+        nearest = [ox.distance.nearest_nodes(graph, lon, lat)
+                   for lat, lon in gps_seq]
+
     obs_states = []
-    for lat, lon in gps_seq:
-        node = ox.distance.nearest_nodes(graph, lon, lat)
-        cands = [node] + list(graph.neighbors(node))
-        obs_states.append(cands)
+    for node in nearest:
+        obs_states.append([node] + list(graph.neighbors(node)))
+
+    def _node_xy(n):
+        return graph.nodes[n]["x"], graph.nodes[n]["y"]
 
     def emit(t, node):
+        nlat, nlon = _node_latlon(graph, node, to_latlon)
         olat, olon = gps_seq[t]
-        d = _haversine_m(olat, olon,
-                          graph.nodes[node]["y"], graph.nodes[node]["x"])
-        return emission_logp(d)
+        return emission_logp(_haversine_m(olat, olon, nlat, nlon))
 
     def trans(t, prev, cur):
-        gc = _haversine_m(graph.nodes[prev]["y"], graph.nodes[prev]["x"],
-                          graph.nodes[cur]["y"], graph.nodes[cur]["x"])
+        plat, plon = _node_latlon(graph, prev, to_latlon)
+        clat, clon = _node_latlon(graph, cur, to_latlon)
+        gc = _haversine_m(plat, plon, clat, clon)
         try:
             route = nx.shortest_path_length(graph, prev, cur,
                                              weight="length")
         except nx.NetworkXNoPath:
-            route = gc * 10                  # heavy penalty
+            route = gc * 10
         return transition_logp(gc, route)
 
     path = viterbi(obs_states, emit, trans)
 
     out = []
     for i, (frame, node) in enumerate(zip(frames, path)):
-        nlat, nlon = graph.nodes[node]["y"], graph.nodes[node]["x"]
-        # segment = the edge from this node to the next node in the
-        # viterbi path; for the last frame, fall back to the edge from
-        # the previous node.
+        nlat, nlon = _node_latlon(graph, node, to_latlon)
         if i + 1 < len(path):
             nxt = path[i + 1]
         elif i > 0:
-            nxt = node; node = path[i - 1]    # bearing of previous edge
+            nxt = node; node = path[i - 1]
         else:
             nxt = node
         u, v = node, nxt
@@ -207,13 +227,10 @@ def _per_video_snap(graph, frames, radius_m=40.0):
             seg_length = 0.0
             seg_id = None
         else:
-            vlat, vlon = graph.nodes[v]["y"], graph.nodes[v]["x"]
-            seg_bearing = _bearing_deg(graph.nodes[u]["y"],
-                                       graph.nodes[u]["x"],
-                                       vlat, vlon)
-            seg_length = _haversine_m(graph.nodes[u]["y"],
-                                      graph.nodes[u]["x"],
-                                      vlat, vlon)
+            ulat, ulon = _node_latlon(graph, u, to_latlon)
+            vlat, vlon = _node_latlon(graph, v, to_latlon)
+            seg_bearing = _bearing_deg(ulat, ulon, vlat, vlon)
+            seg_length = _haversine_m(ulat, ulon, vlat, vlon)
             seg_id = (int(u), int(v))
         out.append({
             "video": frame["video"],
@@ -263,9 +280,18 @@ def main():
                          "(default place_guess; alt: dino_nearest_name)")
     args = ap.parse_args()
 
-    in_path = Path(args.input)
-    graph_path = Path(args.graph)
-    out_path = Path(args.output)
+    def _resolve(p):
+        """Accept bare filenames (resolve under CITY_DIR) or full paths."""
+        path = Path(p)
+        if path.exists() or path.is_absolute():
+            return path
+        in_city = config.CITY_DIR / path.name
+        return in_city if in_city.exists() else path
+
+    in_path = _resolve(args.input)
+    graph_path = _resolve(args.graph)
+    out_path = (Path(args.output) if Path(args.output).is_absolute()
+                else config.CITY_DIR / Path(args.output).name)
 
     if not in_path.exists():
         sys.exit(f"[road_snap] input not found: {in_path}")

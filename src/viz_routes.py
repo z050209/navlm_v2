@@ -127,10 +127,16 @@ def main():
     ap.add_argument("--show-headings", action="store_true")
     args = ap.parse_args()
 
-    in_path = Path(args.input)
+    def _resolve(p):
+        path = Path(p)
+        if path.exists() or path.is_absolute():
+            return path
+        in_city = config.CITY_DIR / path.name
+        return in_city if in_city.exists() else path
+
+    in_path = _resolve(args.input)
     if not in_path.exists():
-        # graceful fallback: phaseA_trusted may not exist yet
-        alt = config.CITY_DIR / "gps_recovery_all.jsonl"
+        alt = config.CITY_DIR / "gps_recovery_full.jsonl"
         if alt.exists():
             print(f"[viz_routes] {in_path.name} not found, falling back "
                   f"to {alt.name}", flush=True)
