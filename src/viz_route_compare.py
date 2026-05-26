@@ -150,11 +150,17 @@ def build_map(per_video, G, is_projected, to_latlon, to_proj):
         fg = folium.FeatureGroup(name=f"{video} ({len(rows)})", show=True)
 
         # OSM IDEAL — drawn first so it's behind the recovered line.
+        # Coloured in the VIDEO'S OWN hue (lighter shade + dashed +
+        # reduced opacity) so 8 OSM routes overlapping in central
+        # Zurich stay visually distinguishable per video. Previously
+        # they were all grey #888 and collapsed into a single
+        # indistinguishable mass.
         osm_path = _osm_path_latlon(G, start, mid, end,
                                      to_latlon, to_proj, is_projected)
         if osm_path:
-            folium.PolyLine(osm_path, color="#888", weight=6,
-                            opacity=0.55, dash_array="8,8",
+            osm_color = _shade(color, 1.0)        # light variant
+            folium.PolyLine(osm_path, color=osm_color, weight=5,
+                            opacity=0.85, dash_array="10,6",
                             tooltip=f"OSM ideal · {video}").add_to(fg)
 
         # RECOVERED — the actual walked path, on top. Drawn as

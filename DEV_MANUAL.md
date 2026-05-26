@@ -803,22 +803,161 @@ What you can spot in this view:
   visually distinct from training videos, confirming the eval split
   is genuinely held-out scenery.
 
-### 2.5e HMM road-snap parameters — quick reference
+### 2.5e HMM road-snap parameters — what each one calculates
 
-Soft thresholds used by `src/road_snap.py`'s Newson-Krumm Viterbi:
+`src/road_snap.py` runs Newson-Krumm HMM map-matching. For each
+frame's GPS observation, Viterbi picks the most-likely OSM graph
+node by combining two log-probabilities scored at every step.
+
+**(1) `emission_logp σ = 20 m`** — *how well does this candidate node
+explain this GPS reading?*
+
+```python
+def emission_logp(gps_dist_m, sigma_m=20.0):
+    return -0.5 * (gps_dist_m / sigma_m) ** 2
+```
+
+For each observation and each candidate node, the log-probability
+that the GPS reading came from the walker being at that node,
+modelling GPS error as a zero-mean Gaussian with standard deviation
+σ. `gps_dist_m` = haversine distance from the raw GPS to the
+candidate. σ = 20 m calibrates the tolerance:
+
+| GPS-to-node distance | penalty | weight |
+|---:|---:|---:|
+| 0 m  | 0.00 | 1.00 |
+| 10 m | 0.13 | 0.88 |
+| 20 m (1 σ) | 0.50 | 0.61 |
+| 40 m (2 σ) | 2.00 | 0.14 |
+| 60 m (3 σ) | 4.50 | 0.011 |
+
+Why σ = 20 m: urban GPS is ~5–10 m accurate; our `g_dino` (Street
+View pano coordinate) adds another ~5–15 m of pano-position error.
+20 m covers both without letting candidates 100 m away (parallel
+street) compete.
+
+**(2) `transition_logp β = 30 m`** — *how plausible is it that the
+walker moved from candidate A to candidate B between two consecutive
+frames?*
+
+```python
+def transition_logp(great_circle_m, route_m, beta_m=30.0):
+    return -abs(route_m - great_circle_m) / beta_m
+```
+
+For each pair of consecutive observations, compute two distances
+between any pair (previous candidate A, current candidate B):
+
+- `great_circle_m` = haversine straight-line distance A→B
+- `route_m` = `nx.shortest_path_length(G, A, B, weight="length")` —
+  the actual walking distance along the OSM edges
+
+The gap `|route − great_circle|` is what's penalised. Zero gap means
+A and B are directly walking-reachable. A 200-m gap (50 m apart as
+the crow flies, but 250 m via the OSM edges) means the candidate
+implies walking around a whole block — implausible between two
+consecutive frames. β = 30 m calibrates:
+
+| `\|route − gc\|` gap | penalty | weight |
+|---:|---:|---:|
+| 0 m  | 0.0 | 1.00 |
+| 30 m (1 β) | 1.0 | 0.37 |
+| 60 m (2 β) | 2.0 | 0.14 |
+| 150 m | 5.0 | 0.007 |
+| unreachable (`NetworkXNoPath`) | 10 × gc | ~0 |
+
+Why β = 30 m: intersections introduce small `route ≠ great_circle`
+gaps from kerb/crosswalk node placement (5–15 m typical). 30 m
+absorbs that without forgiving multi-block teleports.
+
+**(3) Candidate set per observation** — *which OSM nodes does Viterbi
+consider for each frame?*
+
+```python
+nearest = ox.distance.nearest_nodes(G, x, y)
+candidates = [nearest] + list(G.neighbors(nearest))
+```
+
+The single nearest graph node + its direct topological neighbours
+(typically 3–6 nodes on Zurich's walking graph). No hard distance
+cap on candidates — a neighbour 200 m away is still in the set; the
+emission penalty just makes it very unlikely. This is intentional:
+Viterbi can recover from a single bad nearest-node pick at frame t
+by jumping to a neighbour at frame t+1.
+
+Why this strategy vs alternatives:
+
+- *All nodes within R metres* — slower (per-frame spatial range
+  query), risks excluding the right node in sparse areas
+- *Top-K nearest by distance* — ignores graph topology, may pick K
+  nodes all on the same edge
+- *Nearest + neighbours (ours)* — O(log N) per frame, graph-aware,
+  ≤6 candidates so per-frame transition cost is tiny
+
+**(4) Graph projection — UTM 32N (EPSG:32632)** — *why we project the
+graph at build time.*
+
+`ox.distance.nearest_nodes(G, x, y)` has two performance paths:
+
+- **G in lat/lon (EPSG:4326)** — distance must be haversine
+  (great-circle). osmnx falls back to a `sklearn.neighbors.BallTree`
+  — needs scikit-learn installed AND is slow per query.
+- **G projected** — distance is Euclidean (Pythagorean). osmnx uses
+  `scipy.spatial.cKDTree` — already installed via scipy, queries in
+  O(log N) with cheap arithmetic.
+
+UTM zone 32N covers longitudes 6°E–12°E and so includes Zurich.
+Coordinates in this zone are in **metres** from the zone's origin,
+making Euclidean distance correct (the projection distortion at
+Zurich's latitude is < 0.1 %).
+
+Where the projection happens — `src/build_walking_graph.py`:
+
+```python
+G = ox.graph_from_bbox(bbox=(W, S, E, N), network_type="walk")
+G_proj = ox.project_graph(G)        # → EPSG:32632 (UTM 32N)
+pickle.dump(G_proj, f, …)
+```
+
+`road_snap.py` then loads the projected graph, projects each GPS
+observation `(lat, lon) → (x, y)` via `pyproj.Transformer`, runs
+the HMM in projected space, and converts the chosen nodes back to
+(lat, lon) when writing output.
+
+**How the three numbers combine in one Viterbi step.**
+
+```
+score(state_t) = max over prev in candidates_{t-1} of:
+                   score(prev)
+                 + emission_logp( dist(gps_t, state_t),               σ=20 )
+                 + transition_logp( |route(prev,state_t) − gc|,       β=30 )
+```
+
+For each candidate at time t, pick the previous-step candidate that
+gives the best *cumulative* score — accumulated path + how well
+candidate t explains observation t (emission) + how plausible the
+move from prev to t is (transition). Repeat for every frame. At the
+end, the highest-scoring final state's back-pointer chain is the
+snapped path.
+
+Result: a sequence of OSM nodes that's globally optimal under the
+soft penalties — never strays too far from the GPS, never teleports
+through buildings. **No candidate is ever hard-rejected by
+distance**, only weighted.
+
+**Tuning knobs.** Edit `sigma_m=20.0` in `emission_logp` and/or
+`beta_m=30.0` in `transition_logp` in `src/road_snap.py` and re-run
+step 7. Looser σ → more tolerant of GPS jitter (recovered route hugs
+GPS less tightly); looser β → more tolerant of OSM gaps between
+consecutive frames (allows more detours). The defaults above are
+the v1 numbers; we have not yet swept these.
 
 | Parameter | Default | What it controls | Where set |
 |---|---:|---|---|
-| `emission_logp` σ | **20 m** | Gaussian penalty on the distance from the raw GPS observation to a candidate graph node. 1 σ ≈ 60 % weight; 2 σ ≈ 13 %. Looser σ → more tolerant of GPS jitter. | `src/road_snap.py:emission_logp` |
-| `transition_logp` β | **30 m** | Linear-decay penalty on `|route_distance − great_circle_distance|` between consecutive candidate nodes — flags teleports / detours. Looser β → more tolerant of OSM-graph gaps between consecutive frames. | `src/road_snap.py:transition_logp` |
-| candidate set per observation | nearest node + its direct neighbours | No hard radius cap. Tighter sets reduce compute but risk excluding the right node. | `src/road_snap.py:_per_video_snap` |
-| projection | **UTM 32N (EPSG:32632)** | The walking graph is projected to UTM at build time (`build_walking_graph.py`) so `nearest_nodes` can use a fast cKDTree without needing scikit-learn. | `src/build_walking_graph.py` |
-
-The HMM never *hard-rejects* a candidate node by distance — it
-weights every option through the emission/transition log-probs and
-lets Viterbi pick the globally most likely path. To tighten or loosen,
-edit the `sigma_m=20.0` / `beta_m=30.0` defaults in `src/road_snap.py`
-and re-run step 7.
+| `emission_logp` σ | **20 m** | Gaussian penalty on GPS-to-candidate distance | `src/road_snap.py:emission_logp` |
+| `transition_logp` β | **30 m** | Linear penalty on `\|route − great_circle\|` between consecutive candidates | `src/road_snap.py:transition_logp` |
+| candidate set per observation | nearest node + neighbours | typically 3–6 nodes; no hard cap | `src/road_snap.py:_per_video_snap` |
+| projection | **UTM 32N (EPSG:32632)** | fast cKDTree nearest-node lookup | `src/build_walking_graph.py` |
 
 **Why 60° tolerances.** The 4 action verbs (continue, left, right,
 around) bin direction into 90° quadrants. We need the recovered
