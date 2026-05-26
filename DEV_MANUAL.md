@@ -86,6 +86,7 @@ Later steps depend on earlier ones (a step's *needs* are noted).
 | 7c| Per-video route map for the **trusted** cohort (eyeball: do the polylines trace real walks?) | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | step 7b | ✅ — `viz/routes_trusted_frames.html` (1,697 frames, 8 videos). See §2.5c. |
 | 7d| Heading-QC diagnostic plots (KEPT vs Q1 fail · `heading_gap` histogram · per-video pass rate) | `python -m src.viz_heading_qc` | step 7b | ✅ — 3 PNGs under `viz/heading_qc_*.png`. See §2.5b. |
 | 7e| **Sample-50 photo grid** for the **trusted** cohort (data sanity check on the actual training input) | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --filter-from trusted_frames.jsonl --output trusted_frames_grid_50.html --limit 50 --random --seed 42` | step 7b | ✅ — `viz/trusted_frames_grid_50.html` (50 of 1,697 trusted). See §2.5c. |
+| 7f| **Per-video route comparison** (recovered walk dark→light gradient vs OSM ideal shortest path, overlaid per video) | `python -m src.viz_route_compare` | step 7 + 7a | ✅ — `viz/route_compare_per_video.html` (8 toggleable per-video layers; 2,028 frames in, OSM shortest-path overlay via osm_walking.pkl). See §2.5d. |
 | 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
 | 9 | **Annotation smoke** — 5 frames, Gemini 2.5 Pro, picked system prompt | `python -m src.annotate --limit 5 --prompt-variant strict` | step 7b | ✅ (script) |
 | 9b| Annotation QA map — eyeball direction-correctness | `python -m src.viz_annotate --sample 60` | step 9 | ✅ (script) |
@@ -759,6 +760,65 @@ Open each with `file:///C:/Users/z0502/Desktop/cs231n/navlm_v2/viz/<name>.html`.
 pin `--seed 42` so the same 50 frames are sampled every time. Change
 the seed to look at a different draw. The route map (1st file) is
 deterministic — it plots every trusted frame.
+
+### 2.5d Per-video route comparison — recovered vs OSM ideal
+
+`viz/route_compare_per_video.html` overlays, **per video**, the two
+routes you actually want to compare:
+
+- **OSM ideal** (dashed grey) — `nx.shortest_path` on the walking
+  graph from the first frame's GPS to the last frame's GPS, via the
+  middle frame as a waypoint (so loops still produce a meaningful
+  comparison instead of collapsing to "stay at A").
+- **Recovered** (per-video colour, **dark → light gradient from
+  start to end**) — the chronological sequence of HMM-snapped GPS
+  positions. The shading is the direction cue: dark end of the line
+  is where the walk started, light end is where it finished.
+
+```powershell
+python -m src.viz_route_compare
+# default in : road_snapped.jsonl  +  osm_walking.pkl
+# default out: viz/route_compare_per_video.html
+# --only saturday_morning to focus one video
+```
+
+Markers per video:
+- green pin = start frame
+- red pin = end frame
+- blue pin = middle waypoint used by the OSM shortest path
+
+The LayerControl (top right of the map) toggles videos on/off; the
+legend (top left) shows each video's dark/base/light gradient swatches
++ frame count + OSM node count.
+
+What you can spot in this view:
+- segments where the recovered polyline jumps far off the OSM graph
+  → a remaining gps_recovery error (the dot doesn't snap cleanly to
+  a walking edge);
+- big detours from the OSM ideal → the videographer deliberately
+  routed through a landmark (tour-walk pattern; expected);
+- recovered route doubling back on itself → loop walks (Niederdorf-
+  strasse → Limmatquai is a common circuit in our videos);
+- saturday_morning hold-out (black gradient) traces a path that's
+  visually distinct from training videos, confirming the eval split
+  is genuinely held-out scenery.
+
+### 2.5e HMM road-snap parameters — quick reference
+
+Soft thresholds used by `src/road_snap.py`'s Newson-Krumm Viterbi:
+
+| Parameter | Default | What it controls | Where set |
+|---|---:|---|---|
+| `emission_logp` σ | **20 m** | Gaussian penalty on the distance from the raw GPS observation to a candidate graph node. 1 σ ≈ 60 % weight; 2 σ ≈ 13 %. Looser σ → more tolerant of GPS jitter. | `src/road_snap.py:emission_logp` |
+| `transition_logp` β | **30 m** | Linear-decay penalty on `|route_distance − great_circle_distance|` between consecutive candidate nodes — flags teleports / detours. Looser β → more tolerant of OSM-graph gaps between consecutive frames. | `src/road_snap.py:transition_logp` |
+| candidate set per observation | nearest node + its direct neighbours | No hard radius cap. Tighter sets reduce compute but risk excluding the right node. | `src/road_snap.py:_per_video_snap` |
+| projection | **UTM 32N (EPSG:32632)** | The walking graph is projected to UTM at build time (`build_walking_graph.py`) so `nearest_nodes` can use a fast cKDTree without needing scikit-learn. | `src/build_walking_graph.py` |
+
+The HMM never *hard-rejects* a candidate node by distance — it
+weights every option through the emission/transition log-probs and
+lets Viterbi pick the globally most likely path. To tighten or loosen,
+edit the `sigma_m=20.0` / `beta_m=30.0` defaults in `src/road_snap.py`
+and re-run step 7.
 
 **Why 60° tolerances.** The 4 action verbs (continue, left, right,
 around) bin direction into 90° quadrants. We need the recovered
