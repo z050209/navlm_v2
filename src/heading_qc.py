@@ -69,7 +69,11 @@ def bearing_pass(heading, segment_bearing,
 
 def _load_snapped(snapped_path):
     """{ (video, frame_id) -> {gps, segment_bearing, segment_id} }.
-    Returns {} if the file does not exist."""
+    Returns {} if the file does not exist.
+
+    Accepts either the new road_snap.py schema (`gps_snapped`,
+    `segment_bearing`, `segment_id`) or any older variant that still
+    carries those keys directly."""
     out = {}
     if not snapped_path.exists():
         return out
@@ -77,19 +81,26 @@ def _load_snapped(snapped_path):
         if not line.strip():
             continue
         d = json.loads(line)
-        out[(d["video"], d["frame_id"])] = d
+        # accept both key names
+        gps = d.get("gps_snapped") or d.get("gps")
+        out[(d["video"], d["frame_id"])] = {
+            "gps": gps,
+            "segment_bearing": d.get("segment_bearing"),
+            "segment_id": d.get("segment_id"),
+        }
     return out
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     ap.add_argument("--input",
-                    default=str(config.CITY_DIR / "gps_recovery_all.jsonl"))
+                    default=str(config.CITY_DIR / "gps_recovery_full.jsonl"))
     ap.add_argument("--snapped",
-                    default=str(config.CITY_DIR / "phaseA_snapped.jsonl"),
-                    help="HMM road-snap output (optional)")
+                    default=str(config.CITY_DIR / "road_snapped.jsonl"),
+                    help="HMM road-snap output (optional — Q1-only "
+                         "when absent)")
     ap.add_argument("--output",
-                    default=str(config.CITY_DIR / "phaseA_trusted.jsonl"))
+                    default=str(config.CITY_DIR / "trusted_frames.jsonl"))
     ap.add_argument("--min-gap", type=float, default=HEADING_GAP_MIN)
     ap.add_argument("--max-bearing-deg", type=float,
                     default=HEADING_VS_SEG_MAX)

@@ -1,14 +1,31 @@
-"""Stage 7 — OSM + HMM road-snapping (DEV_MANUAL §2.5).
+"""Stage 7 — OSM + HMM road-snapping (DEV_MANUAL §2.5, §2.10).
 
 Snaps the noisy per-frame GPS sequence onto the OSM walking graph with
 HMM map-matching (Newson-Krumm Viterbi). Per GPS observation we take
-candidate road points; the **emission** probability comes from the
-GPS-to-candidate distance, the **transition** probability from how well
-the on-road distance between consecutive candidates matches their
-straight-line distance; Viterbi then picks the most likely road path.
+candidate road nodes; the **emission** probability comes from the
+GPS-to-candidate distance, the **transition** probability from how
+well the on-road distance between consecutive candidates matches
+their straight-line distance; Viterbi then picks the most likely
+road path.
+
+CLI workflow (DEV_MANUAL §2.10 step 7):
+
+  1. `python -m src.build_walking_graph`   # one-time, produces
+                                            # osm_walking.pkl
+  2. `python -m src.road_snap`             # consumes
+     gps_recovery_full.jsonl, filters to VLM-agreed + top-N POI
+     cohort, snaps each video's frame sequence, writes
+     road_snapped.jsonl with {video, frame_id, gps_snapped,
+     gps_raw, segment_id, segment_bearing, segment_length_m}.
+
+The input filter is **`--top-pois 30`** — only frames whose VLM-
+resolved POI (`place_guess`) is among the 30 most common in the
+input. That matches the destination pool used by `src/annotate.py`
+(§2.7) so HMM works on the same cohort the teacher will annotate.
 
 Pure functions (emission_logp, transition_logp, viterbi) are
-unit-tested; `snap()` needs the osmnx walking graph.
+unit-tested; `snap()` and the main loop need the osmnx walking
+graph + per-frame jsonl input.
 """
 
 import math
@@ -109,9 +126,198 @@ def snap(gps_seq, graph_path=None, radius_m=40.0):
     return [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in path]
 
 
+def _bearing_deg(lat1, lon1, lat2, lon2):
+    """Initial compass bearing point 1 -> point 2, in [0, 360)."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lon2 - lon1)
+    x = math.sin(dl) * math.cos(p2)
+    y = (math.cos(p1) * math.sin(p2)
+         - math.sin(p1) * math.cos(p2) * math.cos(dl))
+    return (math.degrees(math.atan2(x, y)) + 360) % 360
+
+
+def top_n_pois(rows, n, field="place_guess"):
+    """Top-n POI names by frame count in the input rows. Ties broken
+    by alphabetic order. Pure — unit-testable."""
+    import collections
+    counts = collections.Counter((r.get(field) or "") for r in rows)
+    counts.pop("", None)
+    common = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:n]
+    return [name for name, _ in common]
+
+
+def _per_video_snap(graph, frames, radius_m=40.0):
+    """Snap ONE video's frame sequence (sorted by frame_id) to the
+    OSM walking graph. Returns a list of dicts, one per input frame.
+
+    Each output dict has:
+      gps_snapped       [lat, lon] of the chosen graph node
+      gps_raw           [lat, lon] from the input
+      segment_id        (u, v, k) of the OSM edge the frame snapped onto
+      segment_bearing   bearing of that edge (used by heading_qc)
+      segment_length_m  length of that edge (diagnostic)
+    """
+    import networkx as nx
+    import osmnx as ox
+
+    if not frames:
+        return []
+    gps_seq = [tuple(f["gps"]) for f in frames]
+
+    # candidate states per observation
+    obs_states = []
+    for lat, lon in gps_seq:
+        node = ox.distance.nearest_nodes(graph, lon, lat)
+        cands = [node] + list(graph.neighbors(node))
+        obs_states.append(cands)
+
+    def emit(t, node):
+        olat, olon = gps_seq[t]
+        d = _haversine_m(olat, olon,
+                          graph.nodes[node]["y"], graph.nodes[node]["x"])
+        return emission_logp(d)
+
+    def trans(t, prev, cur):
+        gc = _haversine_m(graph.nodes[prev]["y"], graph.nodes[prev]["x"],
+                          graph.nodes[cur]["y"], graph.nodes[cur]["x"])
+        try:
+            route = nx.shortest_path_length(graph, prev, cur,
+                                             weight="length")
+        except nx.NetworkXNoPath:
+            route = gc * 10                  # heavy penalty
+        return transition_logp(gc, route)
+
+    path = viterbi(obs_states, emit, trans)
+
+    out = []
+    for i, (frame, node) in enumerate(zip(frames, path)):
+        nlat, nlon = graph.nodes[node]["y"], graph.nodes[node]["x"]
+        # segment = the edge from this node to the next node in the
+        # viterbi path; for the last frame, fall back to the edge from
+        # the previous node.
+        if i + 1 < len(path):
+            nxt = path[i + 1]
+        elif i > 0:
+            nxt = node; node = path[i - 1]    # bearing of previous edge
+        else:
+            nxt = node
+        u, v = node, nxt
+        if u == v:
+            seg_bearing = None
+            seg_length = 0.0
+            seg_id = None
+        else:
+            vlat, vlon = graph.nodes[v]["y"], graph.nodes[v]["x"]
+            seg_bearing = _bearing_deg(graph.nodes[u]["y"],
+                                       graph.nodes[u]["x"],
+                                       vlat, vlon)
+            seg_length = _haversine_m(graph.nodes[u]["y"],
+                                      graph.nodes[u]["x"],
+                                      vlat, vlon)
+            seg_id = (int(u), int(v))
+        out.append({
+            "video": frame["video"],
+            "frame_id": frame["frame_id"],
+            "gps_snapped": [nlat, nlon],
+            "gps_raw": list(frame["gps"]),
+            "snap_offset_m": round(_haversine_m(
+                frame["gps"][0], frame["gps"][1], nlat, nlon), 2),
+            "segment_id": seg_id,
+            "segment_bearing": seg_bearing,
+            "segment_length_m": round(seg_length, 2),
+            "place_guess": frame.get("place_guess", ""),
+            "heading": frame.get("heading"),
+            "heading_gap": frame.get("heading_gap"),
+        })
+    return out
+
+
 def main():
-    print("[road_snap] HMM map-matching — needs recovered GPS "
-          "(src.gps_recovery) and the OSM walking graph.")
+    import argparse
+    import collections
+    import json
+    import pickle
+    from tqdm import tqdm
+
+    ap = argparse.ArgumentParser(
+        description="HMM road-snap on the VLM-agreed + top-N POI cohort.")
+    ap.add_argument("--input",
+                    default=str(config.CITY_DIR / "gps_recovery_full.jsonl"),
+                    help="per-frame jsonl from src.gps_recovery")
+    ap.add_argument("--graph",
+                    default=str(config.CITY_DIR / "osm_walking.pkl"),
+                    help="pickled osmnx walking graph "
+                         "(build with `python -m src.build_walking_graph`)")
+    ap.add_argument("--output",
+                    default=str(config.CITY_DIR / "road_snapped.jsonl"))
+    ap.add_argument("--tier", type=int, choices=[0, 1, 2], default=1,
+                    help="only consider rows with this tier "
+                         "(default 1 = VLM-agreed only)")
+    ap.add_argument("--top-pois", type=int, default=30,
+                    help="only snap frames whose place_guess is among "
+                         "the top-N most common (default 30; "
+                         "matches the §2.7 destination pool). "
+                         "0 = no POI filter.")
+    ap.add_argument("--poi-field", default="place_guess",
+                    help="which column to use for the top-N filter "
+                         "(default place_guess; alt: dino_nearest_name)")
+    args = ap.parse_args()
+
+    in_path = Path(args.input)
+    graph_path = Path(args.graph)
+    out_path = Path(args.output)
+
+    if not in_path.exists():
+        sys.exit(f"[road_snap] input not found: {in_path}")
+    if not graph_path.exists():
+        sys.exit(f"[road_snap] OSM walking graph not found: {graph_path}\n"
+                 f"  build it first: python -m src.build_walking_graph")
+
+    print(f"[road_snap] input:  {in_path}", flush=True)
+    print(f"[road_snap] graph:  {graph_path}", flush=True)
+    rows = [json.loads(l) for l in in_path.open(encoding="utf-8")
+            if l.strip()]
+    if args.tier:
+        rows = [r for r in rows if r.get("tier") == args.tier]
+    rows = [r for r in rows if r.get("accepted")]
+    print(f"[road_snap] after tier={args.tier} + accepted filter: "
+          f"{len(rows):,}", flush=True)
+
+    if args.top_pois > 0:
+        top = set(top_n_pois(rows, args.top_pois, field=args.poi_field))
+        print(f"[road_snap] top-{args.top_pois} {args.poi_field}: "
+              f"{sorted(top)[:6]}...", flush=True)
+        rows = [r for r in rows if (r.get(args.poi_field) or "") in top]
+        print(f"[road_snap] after top-{args.top_pois} POI filter: "
+              f"{len(rows):,} frames", flush=True)
+
+    with graph_path.open("rb") as f:
+        G = pickle.load(f)
+    print(f"[road_snap] graph: {G.number_of_nodes():,} nodes / "
+          f"{G.number_of_edges():,} edges", flush=True)
+
+    # group frames per video, sort within each by frame_id so the
+    # sequence is chronological
+    per_video = collections.defaultdict(list)
+    for r in rows:
+        per_video[r["video"]].append(r)
+    for v in per_video:
+        per_video[v].sort(key=lambda r: r["frame_id"])
+
+    n_total = 0
+    with out_path.open("w", encoding="utf-8") as fout:
+        for video, frames in tqdm(sorted(per_video.items()),
+                                   desc="[road_snap]", unit="video"):
+            snapped = _per_video_snap(G, frames)
+            for row in snapped:
+                fout.write(json.dumps(row, ensure_ascii=False) + "\n")
+            n_total += len(snapped)
+            tqdm.write(f"  {video:24s}  {len(snapped):4d} frames "
+                       f"snapped")
+
+    print(f"[road_snap] wrote {out_path}  ({n_total:,} rows)", flush=True)
+    print(f"  next: python -m src.heading_qc   "
+          f"(drop ambiguous-heading / HMM-disagree frames)", flush=True)
 
 
 if __name__ == "__main__":

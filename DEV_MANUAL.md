@@ -20,19 +20,21 @@ videos ─▶ frames ─▶ quality filter ─▶ POI scan (Gemini Pro · Vertex
    Street View reference grid ◀───────────┘
         │
         ▼
-   GPS recovery:  DINOv2 match  +  VLM place-naming  ─▶  weighted score
+   GPS+heading recovery:  DINOv2 match  +  VLM place-naming  ─▶  weighted score
         │
         ▼
-   OSM + HMM road-snapping ─▶ trusted (GPS, heading) frames   ◀── Phase A
+   OSM + HMM road-snapping ─▶ trusted (GPS, heading) frames    ─── label extraction
         │
-        ▼  Phase B
-   route planning ─▶ instruction annotation (Gemini 2.5 Pro) ─▶ verify
+        ▼                                                       ─── instruction annotation
+   route planning ─▶ teacher annotation (Gemini 2.5 Pro) ─▶ verify
         │
-        ▼  Phase C / D
+        ▼                                                       ─── LoRA training & eval
    LoRA SFT (Modal GPU)  ·  zero-shot baselines (local)  ·  eval
 ```
 
-Phase A (video → trusted GPS+heading frames) is built first.
+**Label extraction** (video → trusted GPS+heading frames) is built
+first — everything downstream depends on its output
+(`gps_recovery_full.jsonl`).
 
 ---
 
@@ -56,8 +58,9 @@ no Google Drive in the import path.
 
 Then run these one by one. Only ✅ steps exist yet; ⏳ land as built (§7).
 
-**Pipeline run order** — Phase A is steps 1–8; later steps depend on
-earlier ones (a step's *needs* are noted).
+**Pipeline run order** — label extraction is steps 1–7c; teacher
+annotation is steps 9–9d; LoRA training & eval is steps 10a–10d.
+Later steps depend on earlier ones (a step's *needs* are noted).
 
 | # | Step | Command | Needs | Status |
 |---|------|---------|-------|--------|
@@ -68,13 +71,30 @@ earlier ones (a step's *needs* are noted).
 | 3 | extract frames (quality-filtered) | `python -m src.extract_frames` | step 2 | ✅ |
 | 4 | POI scan — Gemini Pro (Vertex) → OSM match | `python -m src.poi_scan --limit 3` then `--every-n 30` | steps 1, 3 | ✅ |
 | 4b| POI-scan map (matched POIs + derived bboxes) | `python -m src.viz_scan` | step 4 | ✅ |
-| 5 | Street View — bbox / scan / download (targeted, §2.4) | `python -m src.streetview --bbox` · `--scan` · `--download` | step 4 | ✅ |
-| 5b| **DINOv2 match pilot** — v2 frames vs the v1 712 SV images | `python -m src.dinov2_match --every-n 40 --min-sim 0.60` | step 3 + local copy of SV images | ✅ |
+| 5 | Street View — bbox / scan / download (targeted, §2.4) | `python -m src.streetview --bbox` · `--scan` · `--download` | step 4 | ✅ — 1,108 panos × 4 headings = **4,431 crops** purchased (~$31) |
+| 5b| **DINOv2 match pilot** — v2 frames vs the v1 712 SV images | `python -m src.dinov2_match --every-n 40 --min-sim 0.60` | step 3 + local copy of SV images | ✅ (pilot) |
+| 5c| **DINOv2 re-embed** on the full 4,431-crop SV index | `python -m src.dinov2_match --every-n 1` (embeds the full 26,034 video frames) | step 5 | ✅ — `sv_v1.npz` (4431, 768), `frames_n1_l0.npz` (26034, 768) |
 | 6 | **GPS recovery** (strict F1/F2/F3 + same-pano heading) | `python -m src.gps_recovery` | steps 3, 4, 5 | ✅ |
 | 6b| GPS-recovery map + per-frame photo grid (sanity check) | `python -m src.viz_recovery` · `python -m src.viz_recovery_grid` | step 6 | ✅ |
-| 7 | OSM + HMM road-snapping (snap GPS, correct heading) | `python -m src.road_snap` | step 6 | ⏳ |
+| 6e| **Sample-50 photo grid** for the new VLM-agreed cohort (eyeball check) | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --output gps_recovery_full_grid_vlm_agreed_50.html --limit 50 --random --seed 42 --tier 1` | step 6d | ✅ — `viz/gps_recovery_full_grid_vlm_agreed_50.html` (50 of 2,470 VLM-agreed + 50 each of 1,432 disagree / 199 unresolved for compare-and-contrast) |
+| 6f| **POI + heading distribution charts** for the VLM-agreed cohort | `python -m src.viz_distributions --tier 1 --top-n 30 --prefix vlm_agreed --poi-field place_guess` (also try `--poi-field dino_nearest_name` for the 71-POI geometric view) | step 6d | ✅ — `viz/poi_distribution_vlm_agreed_place_guess.png` (**105 distinct OSM POIs after VLM check**, top 5: Bahnhofstrasse 295 / Augustinergasse 167 / Niederdorfstrasse 137 / Limmatquai 127 / Hauptbahnhof 120) + `viz/heading_rose_vlm_agreed.png` (circular) + `viz/heading_linear_vlm_agreed.png` (10°). N–S camera bias ~55 % matches the Bahnhofstrasse / Limmat walking corridor. Charts embedded in §2.5. |
+| 6c| **VLM expansion** — re-scan visual-match-only frames at cos≥0.75 to make them VLM-confirmed | `python _vlm_test.py --limit 0` → `poi_scan_cos0.75.jsonl` (4,101 rows, ~$48 on Pro/Vertex) | step 6 | ✅ |
+| 6d| **Re-run GPS+heading recovery** using the expanded VLM signal | `python -m src.gps_recovery --poi-scan poi_scan_cos0.75.jsonl --output gps_recovery_full.jsonl` | step 6c | ✅ — VLM-confirmed accepted 324 → 2,470 |
+| 7a| **Build OSM walking-graph pickle** (one-time) | `python -m src.build_walking_graph` → `data/cities/zurich/osm_walking.pkl` | — | ✅ (script) |
+| 7 | **HMM road-snapping** on the VLM-agreed + top-30 POI cohort | `python -m src.road_snap --input gps_recovery_full.jsonl --top-pois 30 --tier 1 --output road_snapped.jsonl` | step 6d + 7a | ✅ (script) |
+| 7b| **Heading QC** — drop ambiguous-heading / HMM-disagree frames | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | step 7 | ✅ (script) |
+| 7c| Per-video route map (sanity check) | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | step 7b | ✅ (script) |
 | 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
-| 9 | LoRA training on Modal | `modal run train_modal.py` | annotated data | ✅ |
+| 9 | **Annotation smoke** — 5 frames, Gemini 2.5 Pro, picked system prompt | `python -m src.annotate --limit 5 --prompt-variant strict` | step 7b | ✅ (script) |
+| 9b| Annotation QA map — eyeball direction-correctness | `python -m src.viz_annotate --sample 60` | step 9 | ✅ (script) |
+| 9c| **Annotation full batch** | `python -m src.annotate --prompt-variant <chosen>` | step 9 OK | ⏳ |
+| 9d| Derive {given, implicit, explicit} training views | `python -m src.derive_variants` | step 9c | ✅ (script) |
+| 9e| Build held-out test sets (video + POI ablations) | `python -m src.eval_split` | step 9c | ✅ (script) |
+| 9f| Upload SFT data + eval test sets to Modal volumes | `modal volume put navlm-data data/sft /sft` · `modal volume put navlm-data data/cities/zurich/eval_test_video.jsonl /eval/` · `modal volume put navlm-data data/cities/zurich/eval_test_poi.jsonl /eval/` | step 9d/9e | ⏳ |
+| 10a| **Train 3 LoRA variants on Modal** | `modal run train_modal.py --variant given` · `--variant implicit` · `--variant explicit` | step 9f | ✅ (script) |
+| 10b| **Eval — one cell** (smoke) | `modal run eval_modal.py --condition B-given --ablation video --limit 5 --no-anchor` | step 9f (+10a for L-*) | ✅ (script) |
+| 10c| **Eval — 6×2 full sweep** | `python experiments.py --mode all` | steps 9f, 10a | ✅ (script) |
+| 10d| **Pull results back** | `python pull_eval.py <run_id>` | step 10c | ✅ (script) |
 
 (`--list` previews most steps; `--limit N` does a small trial run.)
 
@@ -91,7 +111,7 @@ Notes:
 Each stage is one `src/` module, runnable on its own (see the run table
 above). Every stage section gives **Code · In · Out · Run**.
 
-**Phase A — video → trusted (GPS, heading) frames:**
+**Label extraction — video → trusted (GPS, heading) frames:**
 
 | § | Stage | Module | Produces |
 |---|-------|--------|----------|
@@ -102,13 +122,18 @@ above). Every stage section gives **Code · In · Out · Run**.
 | 2.5 | GPS recovery | `gps_recovery.py`, `reconcile.py` | per-frame GPS + heading |
 | 2.6 | Routing | `routing.py`, `road_snap.py` | OSM routes, snapped GPS |
 
-**Phase B and supporting:**
+**Teacher annotation, training & evaluation, and supporting:**
 
 | § | Stage | Module |
 |---|-------|--------|
-| 2.7 | Instruction-tuning annotation (Gemini Pro) | `annotate.py` |
-| 2.8 | Image ↔ POI indexing & route map | `viz.py` |
-| 2.9 | Gemini API budget | — |
+| 2.7  | Instruction-tuning annotation (Gemini Pro) | `annotate.py` |
+| 2.8  | Image ↔ POI indexing & route map | `viz.py` · `viz_routes.py` |
+| 2.9  | Gemini API budget | — |
+| 2.10 | **Annotation run sheet** — VLM expansion → re-recover → HMM → heading-QC → annotate → verify | `_vlm_test.py` · `gps_recovery.py` · `road_snap.py` · `heading_qc.py` · `viz_routes.py` · `annotate.py` · `viz_annotate.py` |
+| 2.11 | **System-prompt variants** for the annotation teacher | `annotate.py` (`SYS_PROMPTS`) |
+| 2.12 | **Variant derivation** — one annotation file → `{given, implicit, explicit}` SFT files | `derive_variants.py` |
+| 2.13 | **Eval-split builder** — make held-out test jsonl per ablation | `eval_split.py` |
+| 4.5  | **Modal experiment matrix** — 3 LoRA train + 12 eval cells + pull | `train_modal.py` · `eval_modal.py` · `experiments.py` · `pull_eval.py` · `eval_metrics.py` |
 
 ### 2.1 Video acquisition
 
@@ -573,52 +598,249 @@ the segment bearing in the next (HMM) stage; the rest are trusted.
 > the right pano*. The same-pano gap isolates the second, which is the
 > one that actually matters once F1/F2/F3 have locked in the location.
 
-**Road-snapping (`src/road_snap.py`, ⏳).** The accepted per-frame GPS
+**Road-snapping (`src/road_snap.py`).** The accepted per-frame GPS
 sequence is smoothed onto the OSM walking graph with HMM map-matching
 (Newson-Krumm Viterbi). Three things it does beyond per-frame
 filtering:
 - **Snap GPS** to walkable geometry (removes the small jitter from our
   ±30 m reconciled position).
-- **Correct heading**: replace per-frame DINOv2 heading with the
-  bearing of the chosen segment — fixes the 11 % `heading_gap < 0.05`
-  ambiguous frames automatically.
+- **Attach a segment bearing** to every frame — `heading_qc` then
+  cross-checks the per-frame DINOv2 heading against it, dropping the
+  ~15 % `heading_gap < 0.05` ambiguous frames whose camera heading
+  disagrees with the snapped walking edge.
 - **Reject route outliers**: a frame whose snapped GPS is >50 m from
   the Viterbi path, or whose heading is >90° off the segment bearing,
   is the cross-frame disagreement check the per-frame stage cannot
-  see. Eliminate or correct based on residuals.
+  see. Filtered out by `heading_qc`.
 
-Phase A output: **trusted frames, each with `(gps, heading, edge_id)`**.
+**Cohort scope — HMM runs on the VLM-agreed + top-30 POI subset.**
+By default `src/road_snap.py` uses `--tier 1 --top-pois 30`, meaning
+it only HMM-snaps frames that (a) survived the F1∧F2∧F3 strict gate
+**and** (b) whose VLM-resolved POI is among the 30 most common in
+the input (Bahnhofstrasse, Augustinergasse, Niederdorfstrasse, …; see
+§2.5 chart). Rationale:
 
-**Per-frame stage measured on 872 scanned frames (Phase A frame-by-frame):**
+- This is the **same cohort the teacher annotator will use** (§2.7
+  destination pool). Snapping anything more is wasted compute — those
+  frames won't be annotated.
+- Of the 2,470 VLM-agreed frames, the top-30 filter keeps **~1,900**
+  (≈ 77 %). The trimmed 23 % are 1-frame singletons that wouldn't
+  contribute to a route polyline anyway.
+- Override with `--top-pois 0` to snap all 2,470 (or `--tier 0` to
+  also include the 12,583 visual-match-only frames — HMM's sequence
+  continuity is in principle exactly what those frames need, but the
+  cost-controlled default skips them).
+
+Label-extraction output: **trusted frames, each with `(gps, heading, edge_id)`**.
+
+**GPS recovery — two paths through the filter, depending on whether
+the frame has a VLM scan.** The gps_recovery loop iterates **every
+frame in the DINOv2 cache** (the default `frames_n1_l0.npz` covers
+all ~26 k extracted frames). Each frame is sent down one of two paths:
 
 ```
-accepted          258  (30%)   ← trustworthy frames
-disagree          194  (22%)   ← genuine cross-bbox disagreements
-dino_weak         395  (45%)   ← no good SV reference → fix by §2.4 targeted crawl
-vlm_unresolved     25  ( 3%)   ← VLM named a real place missing from pois.json
+VLM-confirmed path   the frame is in <poi-scan file> (default: every-30
+                     VLM sample; current production:
+                     poi_scan_cos0.75.jsonl — see "--poi-scan lever"
+                     below for the upgrade path)
+                     F1 cos_dino  >= MIN_SIM            (DINOv2 real match)
+                     F2 vlm_gps   is not None            (VLM resolved to OSM)
+                     F3 exact-name match  OR
+                        distance(vlm_POI, dino_nearest_POI)
+                                            <= NEIGHBORHOOD_RADIUS_M
+                     gps = g_dino  (the matched SV pano's coords)
+                     → highest-confidence label, used directly by the
+                       teacher.
 
-heading_gap among 258 accepted:
-  ≥ 0.15 confident   53%
-  ≥ 0.05 some signal 89%
-  <  0.05 ambiguous  11%   ← HMM will resolve via segment bearing
-
-per-video accepted: 11–82 frames; eval hold-out (saturday_morning) 28
+visual-match path    the frame has no VLM signal (everything else)
+                     F1 cos_dino  >= MIN_SIM
+                     gps = g_dino
+                     → "DINOv2 candidate"; weaker per-frame confidence
+                       but useful in bulk. HMM road-snapping uses
+                       sequence continuity to filter single-frame errors.
 ```
 
-**Modules:** `src/gps_recovery.py` (main orchestrator) ·
-`src/spatial.py` (POI geometry index + name match + neighborhood
-distance) · `src/geo_check.py` (per-frame VLM → GPS, no live API call
-when the frame is in `poi_scan.jsonl`) · `src/reconcile.py` (the
-F1/F2/F3 logic + 50/50 blend + centroid-blend protection) ·
-`src/viz_recovery_grid.py` (per-frame photo grid HTML — every frame
-shows QUERY + the 4 compass crops at top-1's pano, with the chosen
-direction outlined and the heading-calc math worked).
+Both paths compute the same **heading** (cosine-weighted circular
+mean of the 4 compass crops at top-1's pano) and **heading_gap**
+(same-pano cosine ratio) as confidence diagnostics.
+
+**Headline per-frame stage measurement — full version
+(`gps_recovery_full.jsonl`, 2026-05-25):**
+
+```
+26,034 frames in the DINOv2 cache; F1 cos_dino >= 0.60 keeps 16,684
+
+VLM-confirmed path (4,101 frames have VLM at cos≥0.75
+                    after the §2.10 expansion):
+  accepted            2,470  (60%)   ← F1∧F2∧F3 strict-trusted
+  disagree            1,432  (35%)   ← VLM and DINOv2 disagree (rejected)
+  vlm_unresolved        199  ( 5%)   ← VLM named a place missing from OSM
+
+visual-match path (12,583 frames pass F1 only):
+  accepted           12,583          ← DINOv2-only, sequence-continuity job
+
+heading_gap among the 2,470 VLM-confirmed accepted:
+  ≥ 0.15 confident   43%
+  ≥ 0.05 some signal 85%
+  <  0.05 ambiguous  15%   ← HMM will resolve via segment bearing
+
+per-video VLM-confirmed accepted (eval hold-out saturday_morning bolded):
+  looks_perfect     668     bahnhofstrasse  136
+  hidden_streets    329     **saturday_morning  222**
+  most_elegant      306     zurich_main     252
+  most_famous       281     old_town_limmat 276
+```
+
+Total label-extraction output: **2,470 strict-trusted frames** for the
+teacher + **12,583 DINOv2-only frames** for HMM to filter on sequence
+continuity = 15,053 frames headed into the annotation step.
+
+**Visualizations of the 2,470 VLM-agreed cohort** (generated by
+`python -m src.viz_distributions --tier 1 --prefix vlm_agreed`):
+
+POI distribution — what the VLM thinks each frame is, after OSM
+alias resolution (**105 distinct OSM POIs** across 2,470 sightings;
+top 30 shown):
+
+![POI distribution (VLM-named OSM POIs)](viz/poi_distribution_vlm_agreed_place_guess.png)
+
+Top 10: Bahnhofstrasse 295 (12.0 %) · Augustinergasse 167 ·
+Niederdorfstrasse 137 · Limmatquai 127 · Zürich Hauptbahnhof 120 ·
+Münsterhof 118 · Storchengasse 111 · Münsterbrücke 97 · Münstergasse 90 ·
+Strehlgasse 73. Top 10 = 56 % of the cohort.
+
+**Three distinct POI counts** — make sure you ask about the right one:
+
+| Source column | Distinct count | What it counts |
+|---|---:|---|
+| `vlm_guess_raw` | 243 | Raw strings Gemini Pro wrote (e.g. "Grossmünster &#124; Great Minster") |
+| `place_guess`   | **105** | OSM POIs the VLM resolved to (alias-aware match against pois.json) |
+| `dino_nearest_name` | 71 | OSM POIs DINOv2 found geometrically nearest the matched SV pano |
+
+(Only 237/2,470 = 10 % have `place_guess == dino_nearest_name` exactly
+— most VLM-agreed frames pass F3 via the **250 m neighborhood**
+fallback, where the VLM named a landmark and DINOv2's nearest is the
+adjacent street/square. That's expected: "Grossmünster" vs
+"Grossmünsterplatz" should both pass.)
+
+Heading distribution — per-frame recovered headings (15° bins,
+circular polar; 0° = N, clockwise):
+
+![Heading rose (15° bins)](viz/heading_rose_vlm_agreed.png)
+
+Linear 10° histogram for exact counts:
+
+![Heading linear (10° bins)](viz/heading_linear_vlm_agreed.png)
+
+The strong N–S concentration (~55 % of headings within ±22.5 ° of
+0 °/180 °) reflects Zurich's main walking corridor along
+Bahnhofstrasse / the Limmat — the videos themselves are walked along
+this N–S axis. East/west headings (~25 % combined) are mostly
+cross-street segments. The 4-bin orange shading on the linear chart
+marks the diagonal compass intercardinals (NE/SE/SW/NW) — visibly
+underrepresented, which is geographical rather than a recovery
+artefact.
+
+**Pilot reference (for context — `gps_recovery_all.jsonl`, every-30
+sample only):** VLM-confirmed accepted 324 / 576 candidates that
+passed F1, visual-match accepted 16,108. The full version above is
+the `--poi-scan poi_scan_cos0.75.jsonl` upgrade of this pilot — same
+DINOv2 cache, same F1/F2/F3 logic, only the VLM-scan source changed.
+See "The `--poi-scan` lever" below for the controlled comparison.
+
+**Where `s_dino` (and therefore the cos≥0.75 filter) comes from.**
+
+```
+purchased SV images                 DINOv2-base                  matmul
+data/cities/streetview/zurich/   →  CLS token, L2-norm  ─┐    sims = SV·frame
+    images/*.jpg  (4,431 crops      ─────────────────┐   │       ↓
+    = 1,108 panos × 4 headings)                      │   │   s_dino = sims.max()
+    meta.jsonl    (lat/lon/heading                   ▼   │       │
+                   per crop)                  sv_v1.npz  │       ▼
+                                              (4431,768) │   gps_recovery_all.jsonl
+                                                         │     one row per frame,
+extracted video frames                                   │     s_dino column
+data/cities/zurich/frames/<video>/   →  DINOv2-base  →   │       │
+    frame_NNNNN.jpg  (26,034)            frames_n1_l0.npz┘       │
+                                         (26034,768)             ▼
+                                                          _vlm_test.py
+                                                            r['s_dino'] >= 0.75
+                                                                 │
+                                                                 ▼
+                                                          4,101 frames →
+                                                          Gemini Pro scan →
+                                                          poi_scan_cos0.75.jsonl
+```
+
+So **the 0.75 is a filter on a precomputed column** (`s_dino` in
+`gps_recovery_all.jsonl`), not a fresh DINOv2 run. `s_dino` itself is
+`(sv_v1.npz @ frames_n1_l0.npz[i]).max()` — the best cosine between
+the frame and any of the 4,431 purchased Street View crops.
+
+**The `--poi-scan` lever.** `gps_recovery.py --poi-scan <file>` picks
+which VLM-scan file defines the VLM-confirmed candidate set.
+Everything else is held constant — same `frames_n1_l0.npz` cache,
+same `MIN_SIM=0.6`, same `NEIGHBORHOOD_RADIUS_M=250 m`, same
+`reconcile_strict` logic — so the comparison isolates *exactly* the
+effect of the VLM expansion.
+
+**Measured side-by-side on 2026-05-25** (output files both on disk):
+
+| | pilot — `gps_recovery_all.jsonl` (--poi-scan poi_scan.jsonl) | full — `gps_recovery_full.jsonl` (--poi-scan poi_scan_cos0.75.jsonl) |
+|---|---:|---:|
+| VLM-scan source rows                       | 872 (every-30) | 4,101 (every-30 ∪ cos≥0.75 visual-match promotions) |
+| VLM-confirmed candidates surviving F1 (cos≥0.6) | 576 (296 dropped) | 4,101 (all pass F1 by definition) |
+| **VLM-confirmed accepted (F1∧F2∧F3 strict)**| **324**  | **2,470** ← **~7.6× more** |
+| VLM-confirmed rejected (F3 disagree)       | 252  | 1,631 |
+| Visual-match accepted (DINOv2-only, F1)    | 16,108 | 12,583 |
+| Total rows written                         | 16,684 | 16,684 |
+| Total accepted (VLM-confirmed + visual-match) | 16,432 | 15,053 |
+
+Two things to notice:
+
+1. **VLM-confirmed accepted ~7.6×.** The cos≥0.75 expansion handed F3
+   the VLM evidence to confirm 2,470 frames as strict-trusted, vs 324
+   from the every-30 pilot. These are the frames the teacher
+   annotator can use directly without needing HMM rescue.
+
+2. **Total accepted slightly down** (15,053 vs 16,432). This is a
+   *quality win*, not a loss: 1,631 frames that the pilot accepted on
+   the visual-match path (DINOv2-only) now have VLM evidence that
+   DINOv2 was wrong (F3 disagree), so they get rejected. Pre-filtering
+   those out before HMM saves the road-snapper from chasing route
+   outliers it would have had to drop anyway.
+
+Run the second variant (the §2.10 step 6d command):
+
+```powershell
+python -m src.gps_recovery --poi-scan poi_scan_cos0.75.jsonl `
+                           --output gps_recovery_full.jsonl
+```
+
+~12 s; no API; the output filename differs from the pilot's so both
+stay on disk side-by-side for viz comparisons (`viz_recovery.py
+--input gps_recovery_full.jsonl --output viz/gps_recovery_full_map.html`).
+
+**Modules:** `src/gps_recovery.py` (main orchestrator; iterates all
+frames in the DINOv2 cache, routes each frame down the VLM-confirmed
+or visual-match path) · `src/spatial.py` (POI geometry index + name
+match + neighborhood distance) · `src/geo_check.py` (per-frame
+VLM → GPS for the VLM-confirmed path; no live API call when the
+frame is already in the chosen poi-scan file) · `src/reconcile.py`
+(the F1/F2/F3 logic, gps = g_dino always) · `src/viz_recovery.py`
+(Folium map: per-frame g_dino dots, VLM-confirmed disagree, vlm-
+centroid layers, available-but-not-bought panos) ·
+`src/viz_recovery_grid.py` (per-frame photo grid HTML — QUERY frame
++ the 4 compass crops at top-1's pano, with the chosen direction
+outlined and the heading-calc math worked) · `src/viz_coverage.py`
+(SV-pano coverage + matched-POI map, outlier flagging via
+`outlier_pois.json`).
 
 **Road-snapping.** The accepted per-frame GPS sequence is smoothed onto
 the OSM walking graph with HMM map-matching (Newson-Krumm Viterbi),
 removing jitter and forcing positions onto walkable geometry.
 
-Phase A output: **trusted frames, each with (GPS, heading)**.
+Label-extraction output: **trusted frames, each with (GPS, heading)**.
 
 ### 2.6 Routing — and turning a route into an instruction (Q5)
 
@@ -661,9 +883,30 @@ prompts are realistic short-range walks:
 | 500–1000 m                      | **10 %** |
 | 1000–1500 m                     | **10 %** |
 
-Within each band the destination is drawn tier-weighted toward iconic
-POIs. So a typical frame yields ≈ 2–3 short-range instructions plus the
-occasional longer one; across the dataset the 80/10/10 split holds.
+**Destination pool — the top-30 POIs from the VLM-agreed cohort.**
+Rather than drawing destinations from the full 1,289 OSM POIs (most
+of which the videos never visit), or from all 105 VLM-resolved POIs
+(which has a long tail of 1-frame entries), we draw from the **top
+30 by frame count** in
+`viz/poi_distribution_vlm_agreed_place_guess.png` (§2.5). That set:
+
+- captures the places the videos actually walk past (Bahnhofstrasse,
+  Augustinergasse, Niederdorfstrasse, Limmatquai, Hauptbahnhof,
+  Münsterhof, …);
+- excludes 1-frame singletons that would give the teacher no
+  cross-frame signal;
+- keeps the instruction-tuning set focused on destinations the user
+  could realistically ask for in Zurich's old town;
+- pairs cleanly with the **POI-region ablation** (§3) — split the
+  30 into train/test rather than partitioning the full 1,289 by
+  Voronoi distance.
+
+Within each distance band the destination is drawn from this top-30
+pool. So a typical frame yields ≈ 2–3 short-range instructions plus
+the occasional longer one; across the dataset the 80/10/10 split
+holds. This decision is captured in `src/annotate.py` — the
+candidate set is the intersection of "within 1500 m of the frame's
+GPS" and "in the top-30 list".
 
 Every sample is gated by a **closed-loop verifier**: parse the action
 verb from the answer, check `|heading + ACTION_DELTA[verb] −
@@ -716,6 +959,93 @@ Total ≈ **$120–160**, against the **$50 Education credit** — over
 budget. Mitigate by trimming the Street View crawl to the video routes
 and capping annotation samples. Flagged for the budget owner; live spend
 is in `logs/gemini_api.jsonl` (Gemini) and `reference/track_spend.py`.
+
+### 2.10 Annotation run sheet — from accepted frames to a verified dataset
+
+Once `_vlm_test.py` finishes the cos≥0.75 VLM expansion, the teacher
+pass turns the **label-extraction accepted frames** into a **verified
+instruction-tuning dataset**. Six stages, all runnable, **each with its
+own sanity-check viz** so the human catches errors before the next
+stage spends money.
+
+```
+poi_scan_cos0.75.jsonl  ─▶  gps_recovery_full.jsonl       (step 6d)
+                                    │
+                                    ▼
+                            road_snapped.jsonl             (step 7  – HMM)
+                                    │
+                                    ▼
+                            trusted_frames.jsonl           (step 7b – heading QC)
+                                    │
+                                    ├──▶ viz_routes.html                  (7c, eyeball)
+                                    ▼
+                            annotations_strict.jsonl       (step 9  – smoke 5)
+                                    │
+                                    ├──▶ viz/annotate_*.html              (9b, eyeball)
+                                    ▼
+                            annotations_<chosen>.jsonl     (step 9c – full batch)
+                                    │
+                                    ▼
+                            data/sft/{given,implicit,explicit}.jsonl  (9d)
+```
+
+(File names `road_snapped.jsonl` / `trusted_frames.jsonl` replace the
+old `road_snapped.jsonl` / `trusted_frames.jsonl` — same content,
+clearer names. Scripts default to the old names too for back-compat;
+override with `--output road_snapped.jsonl`.)
+
+| # | Code | In | Out | Run | Notes |
+|---|------|----|-----|-----|-------|
+| 6d | `src/gps_recovery.py` | `poi_scan_cos0.75.jsonl`, `frames_n1_l0.npz`, `pois.json` | `gps_recovery_full.jsonl` | `python -m src.gps_recovery --poi-scan poi_scan_cos0.75.jsonl --output gps_recovery_full.jsonl` | Re-runs the F1/F2/F3 filter with the expanded VLM signal. Same DINOv2 cache, same F1 cosine floor, same neighborhood radius — only the `--poi-scan` source changes. ~12 s (no API, no DINOv2 re-embedding — pre-cached matmul only). See §2.5 *The `--poi-scan` lever* for the side-by-side measurement. |
+| 7a | `src/build_walking_graph.py` | `config.POI_BBOX + 300 m margin` | `osm_walking.pkl` | `python -m src.build_walking_graph` | One-time osmnx download of central-Zurich's pedestrian network → pickled MultiDiGraph. Re-run with `--force` to refresh. |
+| 7  | `src/road_snap.py` | `gps_recovery_full.jsonl` + `osm_walking.pkl` | `road_snapped.jsonl` (per-frame `{gps_snapped, gps_raw, segment_id, segment_bearing, segment_length_m, snap_offset_m}`) | `python -m src.road_snap --input gps_recovery_full.jsonl --top-pois 30 --tier 1 --output road_snapped.jsonl` | HMM (Newson-Krumm Viterbi). **Filters input to (`tier=1` AND `place_guess ∈ top-30 POIs`)** so HMM works on the same cohort the teacher annotator will use (§2.7). Sets snapped to `--top-pois 0` to disable the POI filter and snap all VLM-agreed frames. |
+| 7b | `src/heading_qc.py` | `gps_recovery_full.jsonl` + `road_snapped.jsonl` | `trusted_frames.jsonl` | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | Drops frames with `heading_gap < 0.05` (ambiguous front/back) and `\|heading − segment_bearing\| > 60°` (HMM disagrees). The hard heading filter — survivors are the dataset's ground-truth heading. |
+| 7c | `src/viz_routes.py` | `trusted_frames.jsonl` | `viz/routes_trusted_frames.html` | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | Per-video colour-coded polyline of the surviving frames, optional heading arrows. **Inspect before annotating** — every video's polyline should look like a walking path, not a teleporting cloud. |
+| 9  | `src/annotate.py` | `trusted_frames.jsonl` + `pois.json` + `osm_walking.pkl` | `annotations_<variant>.jsonl` (5 rows × 3 dests = 15 (frame,dest) pairs) | `python -m src.annotate --limit 5 --prompt-variant strict` | **Smoke first.** 80/10/10 distance-banded destination sampling, OSM route, Gemini 2.5 Pro CoT+answer, closed-loop verifier (`δ<30°`). ~$0.07. Inspect every row by hand. |
+| 9b | `src/viz_annotate.py` | latest `annotations_*.jsonl` | `viz/annotate_<stem>.html` | `python -m src.viz_annotate --sample 60` | Per (frame, destination): green = passed, red = failed verifier; click for photo + spoken answer + thinking + δ. **The decision point** — if "turn left" answers point the wrong way on the map, regenerate with a different system prompt. |
+| 9c | `src/annotate.py` | as 9 | `annotations_<variant>.jsonl` (full ≈ 5–6 k rows) | `python -m src.annotate --prompt-variant <chosen>` | Full batch with the chosen system prompt. Resume-safe (skips already-done (video, frame, dest)). ≈ $76 on Pro/Vertex. |
+| 9d | `src/derive_variants.py` *(⏳ to write)* | `annotations_<variant>.jsonl` | `data/sft/{given,implicit,explicit}.jsonl` | `python -m src.derive_variants` | One annotation file → three training sets by stripping/keeping pieces: **given** keeps heading in user msg + drops nothing; **implicit** removes the heading line and the `INFERRED_HEADING:` step; **explicit** removes the heading line from the user msg **but keeps** the `INFERRED_HEADING:` step. Same labels, different conditioning. |
+
+**Costs & data shape — annotation summary.**
+
+| Stage | API | Per-frame | Total |
+|-------|----:|----------:|------:|
+| 9   smoke (5 frames × 3 dest = 15 calls) | Pro/Vertex | $0.014/call | ~$0.21 |
+| 9c  full (≈ 2,470 VLM-confirmed × 3 dest = 7,410 calls) | Pro/Vertex | $0.014/call | ~$104 |
+| 9d  derive 3 views (no API) | — | — | $0 |
+
+(Frame count is now grounded: **2,470 strict-trusted (VLM-confirmed)
+frames** from `gps_recovery_full.jsonl` (2026-05-25). HMM + heading
+QC will trim this further — re-baseline when 7b runs. Adding the
+visual-match (DINOv2-only) frames that survive HMM bumps the budget
+proportionally; the cost-controlled default is *VLM-confirmed only*
+into the teacher pass.)
+
+### 2.11 System-prompt variants for the annotation teacher
+
+The annotation teacher prompt is **the single biggest lever** on
+dataset quality — the same image and same destination produce very
+different `<thinking>` and `<answer>` depending on how the prompt is
+written. Four variants live in `src/annotate.py:SYS_PROMPTS`, picked
+with `--prompt-variant`:
+
+| variant | shape | when to use |
+|--------|-------|-------------|
+| **strict** (default) | rigid 6-step CoT with named `INFERRED_HEADING` line | when we want clean explicit-CoT training data; verbatim match for the `*-explicit` training condition |
+| **compact** | one-paragraph CoT, no labelled steps | minimises output tokens (~30 % cheaper); fine if we'll discard the CoT later |
+| **reasoner** | extends `strict` with a `HEADING_REASONING:` step that walks through the landmark geometry | when we suspect the model is *guessing* the heading; forces explicit triangulation in the trace |
+| **scene** | front-loads visible-object enumeration, anchor must be from that list | counter-hallucination bias — answer cannot anchor to anything not enumerated in `<thinking>` |
+
+**Procedure.** Run the 5-frame smoke (`step 9`) with `strict`. Inspect
+the QA map (`step 9b`) — if `<answer>`s read well and verifier δs are
+small, keep `strict` for the full batch. If a recurring failure mode
+appears (vague answers → `compact`; bad heading inference → `reasoner`;
+hallucinated anchors → `scene`), re-run the smoke with that variant
+and re-inspect. Two smoke rounds is normal; the full batch costs 400×
+a smoke round, so it pays to converge on the right prompt first.
+
+The **user message format is identical** across variants, so kept
+annotations from different variants can be mixed safely if needed.
 
 ---
 
@@ -811,9 +1141,9 @@ the `<thinking>` to spell out the `INFERRED_HEADING:` step.
 **Test set** = the held-out split of whichever ablation is running — the
 `saturday_morning` video, or the held-out destination POIs (§3).
 
-Every test frame carries **ground truth** from Phase A: its verified GPS
-and heading, plus the OSM-planned route to each destination (the route's
-first-segment bearing).
+Every test frame carries **ground truth** from the label-extraction
+pipeline: its verified GPS and heading, plus the OSM-planned route to
+each destination (the route's first-segment bearing).
 
 **Procedure.** Feed photo + GPS (+ heading for `*-given`) + nearby POIs
 + route; the model emits `<thinking>` + `<answer>`; the answer is scored
@@ -828,7 +1158,7 @@ instruction-following / output-validity check.
 **(b) Directional accuracy** *(model's verb vs GT geometry)* — the core
 task-correctness metric, a "closed-loop" angular check:
 - *GT:* the frame's heading `h` and the route's first-segment bearing
-  `B`, both known from Phase A and the route planner.
+  `B`, both known from label extraction and the route planner.
 - *Test output:* parse the action verb the model wrote ("turn left",
   "continue ahead", …) out of `<answer>`.
 - *Close the loop:* if the user faces `h` and performs that verb, their
@@ -881,6 +1211,133 @@ for **each** ablation.
 52.9 % PASS / median heading error 20.8° (vs base 99°); the with-compass
 ceiling was 100 %.
 
+### 4.5 Running the 6×2 experiment matrix on Modal
+
+Slide 4/5 of `milestone2/NavLM_milestone2.pptx` defines **6 conditions
+× 2 ablations = 12 evaluation cells**, plus **3 LoRA training runs**
+(one per L-* variant). Everything runs on Modal; results pull back to
+local disk for plotting.
+
+**Code map.**
+
+| File | Role |
+|---|---|
+| `src/eval_metrics.py` | Pure-function scoring: `format_compliance`, `directional_accuracy`, `checkpoint_validity`, `anchor_faithfulness`, `pass_strict`. Unit-tested locally. |
+| `src/eval_split.py`   | Split `annotations_*.jsonl` → `eval_train.jsonl`, `eval_test_video.jsonl`, `eval_test_poi.jsonl`. |
+| `src/derive_variants.py` | One annotation file → `data/sft/{given,implicit,explicit}.jsonl` (each variant strips/keeps the heading line and the `INFERRED_HEADING:` step differently). |
+| `train_modal.py`      | LoRA SFT on one variant (Qwen2.5-VL-7B + LoRA r=16). **Trains AND validates** — 90/10 split, `eval_strategy="epoch"`, val loss saved to `summary.json` + `history.json`. Adapter → `/ckpts/lora_<variant>_r16_e2/` on the `navlm-ckpts` volume. |
+| `eval_modal.py`       | One Modal app, one GPU function: `evaluate_condition(condition, ablation)`. Loads base Qwen (optionally with the matching LoRA adapter), generates per test sample, scores all four metrics, writes per-sample jsonl + per-cell summary.json to `/eval/<run_id>/<condition>__<ablation>/` on the `navlm-eval` volume. |
+| `experiments.py`      | Local orchestrator. Sweeps the full matrix (or any subset). Modes: `train` (LoRAs only), `eval` (assumes adapters exist), `all` (default), `smoke` (`--limit 5` across the board). |
+| `pull_eval.py`        | `modal volume get navlm-eval /<run_id> ./eval_results/<run_id>/` + prints the 6×2 PASS_strict matrix from each cell's `summary.json`. |
+
+**The cells.**
+
+| | ablation = `video`  (hold-out saturday_morning) | ablation = `poi`  (hold-out POI region) |
+|--|---|---|
+| B-given    | base · heading given · no CoT       | base · heading given · no CoT       |
+| B-implicit | base · heading hidden · implicit CoT | base · heading hidden · implicit CoT |
+| B-explicit | base · heading hidden · explicit CoT | base · heading hidden · explicit CoT |
+| L-given    | LoRA `lora_given_*`    | LoRA `lora_given_*`    |
+| L-implicit | LoRA `lora_implicit_*` | LoRA `lora_implicit_*` |
+| L-explicit | LoRA `lora_explicit_*` | LoRA `lora_explicit_*` |
+
+**Run order.**
+
+```powershell
+# ── one-time Modal setup ──────────────────────────────────────
+modal setup
+modal secret create huggingface HF_TOKEN=hf_xxx
+modal volume create navlm-ckpts
+modal volume create navlm-data
+modal volume create navlm-eval
+
+# ── data prep (local) ─────────────────────────────────────────
+python -m src.derive_variants                       # data/sft/{g,i,e}.jsonl
+python -m src.eval_split                            # eval_test_{video,poi}.jsonl
+
+# ── push to Modal volumes ─────────────────────────────────────
+modal volume put navlm-data data/sft /sft
+modal volume put navlm-data data/cities/zurich/eval_test_video.jsonl /eval/eval_test_video.jsonl
+modal volume put navlm-data data/cities/zurich/eval_test_poi.jsonl   /eval/eval_test_poi.jsonl
+modal volume put navlm-data data/cities/zurich/frames               /frames    # full frames cache
+
+# ── smoke test (5 frames per cell, ~$2, ~20 min) ──────────────
+python experiments.py --mode smoke
+
+# ── full sweep ────────────────────────────────────────────────
+python experiments.py --mode all                    # train 3 LoRAs + 12 evals
+python pull_eval.py <run_id>                        # printed by experiments.py
+```
+
+**Cost / runtime estimates (A100-80GB at $3.73/h, A100-40GB at $2.10/h).**
+
+| Stage | GPU | Time | Cost |
+|---|---|---|---|
+| 1 LoRA train  (variant, 2 ep) | A100-80GB | 3–6 h | ~$11–22 |
+| × 3 variants                  | | 9–18 h | ~$33–66 |
+| 1 eval cell  (≈ 200 frames)   | A100-40GB | ~30 min | ~$1 |
+| × 12 cells                    | | ~6 h | ~$12 |
+| Anchor checks (Gemini Pro)    | (Vertex) | — | ~$0.005/cell × 12 ≈ $0.06 |
+| **Full matrix**               | | **~15–24 h** | **~$45–80** |
+
+**Validation built in.** Each `train_modal.run` reports `eval_loss` per
+epoch via Trainer's eval loop (10 % held-out from the *training* split
+— independent of the 12 eval cells, which test generalization). The
+loss curve lands in `/ckpts/lora_<variant>_*/history.json` — pull with
+`modal volume get navlm-ckpts /lora_<variant>_r16_e2 ./` for offline
+plotting.
+
+**Idempotency.** `eval_modal.py` writes one file per (condition,
+ablation) under a single `run_id` directory, so re-runs do not
+clobber prior cells. `train_modal.py` always overwrites its adapter
+(intended — a re-train should replace).
+
+**Anchor metric is the cost knob.** The Gemini call per generated
+answer adds ~$0.005 per cell. Pass `--no-anchor` to `experiments.py`
+or `eval_modal.py` during dev — the other three metrics still produce
+a meaningful comparison.
+
+**Anchor checks use Gemini Flash on AI Studio** (not Pro on Vertex)
+inside the Modal container — yes/no is well within Flash's range, and
+it works with just a `GEMINI_API_KEY` Modal secret (no `gcloud` install
+needed in the image). To enable anchor checks on Modal:
+
+```powershell
+modal secret create gemini GEMINI_API_KEY=AIzaSy...   # one-time
+```
+
+When the secret is missing, `--no-anchor` is the safe default — the
+script falls back to "anchor_ok=False, raw='no GEMINI_API_KEY'" per
+sample so the metric is honest rather than silently inflated.
+
+**Runnability guarantees** (pinned by `tests/test_runnable.py`, 17
+tests, all passing):
+- `derive_variants` writes Qwen2.5-VL chat-template messages with the
+  `{"type": "image"}` placeholder in the user content. Without it the
+  trainer silently runs text-only and the model never attends to the
+  photo — this was a real bug in the first draft of `train_modal.py`.
+- The system prompt + user-message text `eval_modal.py` builds at
+  inference time is **byte-identical** to what `derive_variants`
+  wrote into the SFT files for the matching variant. Drift here
+  silently de-aligns the LoRA from its eval prompt.
+- Image paths in `*.jsonl` are stored **relative** to the frames root
+  (`<video>/<frame_id>.jpg`); the trainer/evaluator resolves against
+  `/data/frames` inside the container. Absolute local Windows paths
+  in SFT files do not break the Linux container.
+- The `extract_anchor` / `extract_checkpoint` regexes are Unicode-
+  aware (so "Grossmünster", "Bürkliplatz" are extracted).
+
+**Dry-run sanity** (no Modal account required):
+```powershell
+python -m pytest tests/test_runnable.py -v       # all 17 should pass
+python -m src.derive_variants --input <fake>.jsonl --output-dir /tmp/sft
+python experiments.py --mode smoke --no-anchor   # prints 5 modal cmds
+```
+The third command is safe to run *without* `modal login` — it stops
+when `modal run` is invoked (which then prompts for auth). If you
+want to see the commands without firing them, swap `subprocess.run`
+for a print stub (see `tests/test_runnable.py` for the pattern).
+
 ---
 
 ## 5. Visualizations
@@ -923,9 +1380,19 @@ Standalone HTML in `viz/`:
 7. Recovered video-frame GPS on the map, **overlaid with the POI region
    polygons (Q8)** — so each frame's area and POI assignment (§3) is
    visible at a glance.
-8. The 8-video routes derived from the images (§2.8).
-9. A Q&A viewer — photo + question + generated answer — to sanity-check
-   the instruction tuning.
+8. **Per-video route map** — coloured polylines, one per video, with
+   optional camera-heading arrows. ✅ built — `src/viz_routes.py` →
+   `viz/routes_<input_stem>.html`. Runs on any per-frame jsonl
+   (`gps_recovery_all.jsonl`, `road_snapped.jsonl`,
+   `trusted_frames.jsonl`). Use `--show-headings` to overlay arrows;
+   `--only <video>` to isolate one route. The sanity check for §2.10
+   step 7c — every video's polyline should look like a walking path.
+9. **Annotation QA viewer** — photo + spoken answer + thinking trace +
+   verifier δ on a Leaflet map, with the OSM route polyline coloured by
+   pass/fail. ✅ built — `src/viz_annotate.py` →
+   `viz/annotate_<stem>.html`. The decision point for §2.10 step 9b —
+   if "turn left" answers point the wrong way on the map, regenerate
+   with a different `SYS_PROMPTS` variant.
 
 ---
 
@@ -953,34 +1420,60 @@ navlm_v2/
 
 ## 7. Roadmap
 
-1. ✅ Scaffold — `config.py`, `src/`, `tests/` (95 pytest tests).
-2. ✅ Phase A modules coded + unit-tested: `download_videos`,
+1. ✅ Scaffold — `config.py`, `src/`, `tests/` (111 pytest tests).
+2. ✅ Label-extraction modules coded + unit-tested: `download_videos`,
    `extract_frames`, `pois`, `poi_scan`, `gemini_api`, `streetview`,
    `dinov2_match`, `gps_recovery`, `geo_check`, `spatial`, `reconcile`,
    `routing`, `road_snap` (stub); plus viz: `poi`, `viz`, `viz_scan`,
    `viz_recovery`, `viz_recovery_grid`; plus `annotate`, `train_modal`.
 3. ✅ OSM POI table (`pois.json`, 1,289 POIs); frame extraction
    (26,034 kept frames).
-4. ✅ POI scan — full run on Gemini 2.5 Pro via Vertex AI
+4. ✅ POI scan — initial run on Gemini 2.5 Pro via Vertex AI
    `--every-n 30` (872 frames, **227 distinct OSM POIs matched**,
    $10.68 of the Education credit). Crawl bbox derived
    (~4.0 × 4.4 km after centroid-clip; viz: `viz/poi_scan_map.html`).
-5. ✅ DINOv2 match pilot — 712 v1 SV images, 55 % of frames matched at
-   cos ≥ 0.60; remaining 45 % flag the SV coverage gap
-   (`viz/dinov2_match_test.html`).
-6. ✅ **GPS recovery (frame-by-frame)** — strict F1/F2/F3 +
-   same-pano cosine-weighted heading + `heading_gap` (§2.5).
-   **258 / 872 accepted (30 %)**, every video 11–82 frames, eval
-   hold-out 28 frames. Viz: `viz/gps_recovery_map.html` +
-   `viz/gps_recovery_grid.html`.
-7. ▶ **Targeted Street View crawl (§2.4)** — buy panos within 150 m
-   of the 227 matched POIs (~800–1,000 panos, ~$22–28) instead of
-   the full 1,915 in the bbox. Iterate based on remaining
-   `dino_weak` rate.
-8. ⏳ **HMM road-snapping** (`src/road_snap.py`) — snap GPS to
-   walking graph, **correct heading** from segment bearing, eliminate
-   route-outlier frames. Produces `phaseA_trusted.jsonl`.
-9. ⏳ 8-video route map + Q&A viewer (§5 items 8, 9).
-10. ⏳ Phase B — routing + Gemini-2.5-Pro annotation (5-sample trial first).
-11. ⏳ Phase C/D — `train_modal.py` LoRA runs + local zero-shot + eval,
-    both ablations (§3 / §4).
+5. ✅ **Targeted Street View crawl** done — 1,108 panos within 150 m
+   of visited POIs × 4 headings = **4,431 crops purchased** (~$31);
+   `data/cities/streetview/zurich/images/`, `meta.jsonl`,
+   `dinov2/sv_v1.npz`.
+6. ✅ DINOv2 match pilot (712 v1 SV images, 55 % matched at cos ≥ 0.60)
+   → DINOv2 re-embed against the full 4,431-crop index produces
+   `sv_v1.npz` and `frames_n1_l0.npz` (26,034 × 768).
+7. ✅ **GPS+heading recovery — initial run** (`gps_recovery_all.jsonl`,
+   `--poi-scan poi_scan.jsonl`, every-30 sample). 324 VLM-confirmed
+   accepted; 16,108 visual-match accepted. Viz:
+   `viz/gps_recovery_map.html` + `viz/gps_recovery_grid.html`.
+8. ✅ **VLM expansion at cos≥0.75** (`_vlm_test.py`) — re-scan the
+   visual-match frames at cos≥0.75 with Pro to give them a VLM signal.
+   **4,019 fresh Pro scans + 82 verbatim copies = 4,101 rows** in
+   `poi_scan_cos0.75.jsonl`, ~$48 total ($33 Education + $15 self-pay
+   after the watchdog billing switch).
+9. ✅ **GPS+heading recovery — full run** with the expanded VLM signal
+   (`gps_recovery_full.jsonl`). VLM-confirmed accepted **324 → 2,470**
+   (~7.6×), visual-match accepted 12,583 (1,631 promoted into the
+   stricter path and rejected as F3 disagree — quality win).
+10. ⏳ **HMM road-snapping** (`src/road_snap.py`) — snap GPS to walking
+    graph, attach segment_bearing. Produces `road_snapped.jsonl`.
+11. ✅ (script) **Heading QC** (`src/heading_qc.py`) — drop
+    ambiguous-heading frames and HMM-disagreers. Produces
+    `trusted_frames.jsonl`.
+12. ✅ (script) **Per-video route map** (`src/viz_routes.py`) —
+    eyeball the surviving frames before annotating.
+13. ✅ (script) **Teacher annotation** (`src/annotate.py`) — 4 system
+    prompt variants (strict/compact/reasoner/scene); 5-frame smoke
+    first, then full batch on Pro/Vertex.
+14. ✅ (script) **Annotation QA viewer** (`src/viz_annotate.py`) —
+    photo + answer + thinking + verifier δ on a Leaflet map; the
+    decision point for which `SYS_PROMPTS` variant to use full-batch.
+15. ✅ (script) `src/derive_variants.py` — derive the three training
+    views (given / implicit / explicit) from one annotation file.
+16. ✅ (script) `src/eval_split.py` — held-out test sets for the two
+    ablations (video hold-out + POI-region hold-out).
+17. ✅ (script) **Modal experiment matrix** — `train_modal.py`
+    (variant-aware LoRA SFT with train+val), `eval_modal.py`
+    (6 conditions × 2 ablations on one Modal app), `experiments.py`
+    (local orchestrator), `pull_eval.py` (results back to disk +
+    PASS_strict matrix). See §4.5 for the full command sequence and
+    costs.
+18. ⏳ Run the smoke matrix on Modal once the teacher annotation pass
+    has produced an `annotations_*.jsonl` of any non-trivial size.
