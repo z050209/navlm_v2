@@ -80,10 +80,11 @@ Later steps depend on earlier ones (a step's *needs* are noted).
 | 6f| **POI + heading distribution charts** for the VLM-agreed cohort | `python -m src.viz_distributions --tier 1 --top-n 30 --prefix vlm_agreed --poi-field place_guess` (also try `--poi-field dino_nearest_name` for the 71-POI geometric view) | step 6d | ✅ — `viz/poi_distribution_vlm_agreed_place_guess.png` (**105 distinct OSM POIs after VLM check**, top 5: Bahnhofstrasse 295 / Augustinergasse 167 / Niederdorfstrasse 137 / Limmatquai 127 / Hauptbahnhof 120) + `viz/heading_rose_vlm_agreed.png` (circular) + `viz/heading_linear_vlm_agreed.png` (10°). N–S camera bias ~55 % matches the Bahnhofstrasse / Limmat walking corridor. Charts embedded in §2.5. |
 | 6c| **VLM expansion** — re-scan visual-match-only frames at cos≥0.75 to make them VLM-confirmed | `python _vlm_test.py --limit 0` → `poi_scan_cos0.75.jsonl` (4,101 rows, ~$48 on Pro/Vertex) | step 6 | ✅ |
 | 6d| **Re-run GPS+heading recovery** using the expanded VLM signal | `python -m src.gps_recovery --poi-scan poi_scan_cos0.75.jsonl --output gps_recovery_full.jsonl` | step 6c | ✅ — VLM-confirmed accepted 324 → 2,470 |
-| 7a| **Build OSM walking-graph pickle** (one-time) | `python -m src.build_walking_graph` → `data/cities/zurich/osm_walking.pkl` | — | ✅ (script) |
-| 7 | **HMM road-snapping** on the VLM-agreed + top-30 POI cohort | `python -m src.road_snap --input gps_recovery_full.jsonl --top-pois 30 --tier 1 --output road_snapped.jsonl` | step 6d + 7a | ✅ (script) |
-| 7b| **Heading QC** — drop ambiguous-heading / HMM-disagree frames | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | step 7 | ✅ (script) |
-| 7c| Per-video route map (sanity check) | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | step 7b | ✅ (script) |
+| 7a| **Build OSM walking-graph pickle** (one-time, ~30 s, hits osmnx Overpass) | `python -m src.build_walking_graph` → `data/cities/zurich/osm_walking.pkl` | — | ✅ (script) |
+| 7 | **HMM road-snapping** on the VLM-agreed + top-30 POI cohort (~1,900 frames) | `python -m src.road_snap --input gps_recovery_full.jsonl --tier 1 --top-pois 30 --poi-field place_guess --output road_snapped.jsonl` | step 6d + 7a | ✅ (script) |
+| 7b| **Heading QC** — three-bearing cross-check (Q1 confidence ∧ Q2 segment ∧ Q3 temporal-difference). See §2.5b for the theory. | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | step 7 | ✅ (script) |
+| 7c| Per-video route map (eyeball: do the polylines trace real walks?) | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | step 7b | ✅ (script) |
+| 7d| Heading-QC diagnostic plots (drop-reasons bar · \|Δseg\| / \|Δtd\| histograms · joint scatter · per-video pass rate) | `python -m src.viz_heading_qc` | step 7b | ✅ (script) |
 | 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
 | 9 | **Annotation smoke** — 5 frames, Gemini 2.5 Pro, picked system prompt | `python -m src.annotate --limit 5 --prompt-variant strict` | step 7b | ✅ (script) |
 | 9b| Annotation QA map — eyeball direction-correctness | `python -m src.viz_annotate --sample 60` | step 9 | ✅ (script) |
@@ -605,13 +606,71 @@ filtering:
 - **Snap GPS** to walkable geometry (removes the small jitter from our
   ±30 m reconciled position).
 - **Attach a segment bearing** to every frame — `heading_qc` then
-  cross-checks the per-frame DINOv2 heading against it, dropping the
-  ~15 % `heading_gap < 0.05` ambiguous frames whose camera heading
-  disagrees with the snapped walking edge.
-- **Reject route outliers**: a frame whose snapped GPS is >50 m from
-  the Viterbi path, or whose heading is >90° off the segment bearing,
-  is the cross-frame disagreement check the per-frame stage cannot
-  see. Filtered out by `heading_qc`.
+  cross-checks the per-frame DINOv2 heading against it (Q2).
+- **Provide neighbouring snapped GPS for temporal-difference (TD)
+  bearings** — `heading_qc`'s Q3 bearing is computed from the snapped
+  positions of frames `t-k` and `t+k`, so it lives downstream of HMM.
+
+### 2.5b Heading QC — three-bearing cross-check (`src/heading_qc.py`)
+
+For each frame `t` in a video's chronological sequence we have **three
+bearings** that should agree (within tolerance) if heading recovery
+is correct. heading_qc keeps a frame only when all three pass.
+
+```
+         heading_recovered          (where the CAMERA points,
+                  ^                  from per-frame DINOv2 same-pano
+                  |                  cosine-weighted mean)
+                  |
+                  x ──►  segment_bearing    (where the EDGE goes,
+                  |                          from HMM road-snap)
+                  |
+                  ▼
+            td_bearing               (where the WALKER actually moves,
+                                      from bearing(gps_snapped[t-k],
+                                                   gps_snapped[t+k]))
+```
+
+When the videographer faces forward while walking forward along the
+street, all three arrows point the same way. Disagreements isolate
+different failure modes:
+
+| Check | Tests | When it fails it means |
+|---|---|---|
+| **Q1** `heading_gap ≥ 0.05`                          | per-frame DINOv2 confidence (top-1 vs 2nd-best margin at the *same* pano) | front/back symmetric building → direction undecidable from this frame alone |
+| **Q2** `\|heading − segment_bearing\| ≤ 60°`         | recovered heading agrees with the snapped OSM edge | per-frame heading wrong, OR HMM snapped to a parallel street one block over |
+| **Q3** `\|heading − td_bearing\| ≤ 60°`              | recovered heading agrees with the walker's actual motion (from neighbour snapped GPS, window=3 frames each side) | camera is rotated off the walking direction — e.g. the videographer turned to look at a landmark while walking past |
+
+**Why three checks, not just one.** Each isolates a different failure
+mode that the others miss:
+- Q2 alone fails the videographer-turned-to-look-at-a-landmark case —
+  the camera and the walking edge disagree, but the camera is "right"
+  about what it sees. Q3 catches this because the walker is moving
+  along the edge.
+- Q3 alone fails the parallel-street-snap case — the walker's GPS-
+  derived motion is along their actual edge, which is fine, but the
+  HMM snapped to a parallel street whose bearing nearly matches.
+  Q2 catches this when the segment bearing is off by more than 60°.
+- Q1 alone fails when both Q2 and Q3 agree on a wrong direction (the
+  same pano's 0° and 180° crops both score high → mean is ambiguous,
+  HMM lined up by chance). Q1 just refuses to trust such a frame.
+
+**Q3 is skipped** when the walker is stationary at `t`
+(`|gps[t+k] − gps[t-k]| < 3 m`) — TD bearing is ill-defined for
+near-zero displacement.
+
+**Why 60° tolerances.** The 4 action verbs (continue, left, right,
+around) bin direction into 90° quadrants. We need the recovered
+heading to land in the right quadrant after the verb is applied; 60°
+leaves a 30° margin on either side, the same margin the closed-loop
+verifier (§2.7) uses. Tighter (e.g. 45°) starts cutting frames whose
+heading is correct but where the segment bearing is averaged over a
+curved street; looser (e.g. 90°) lets ±90° camera rotations slip
+through.
+
+The diagnostics file `data/cities/zurich/heading_qc_diagnostics.jsonl`
+gets the per-frame Q1/Q2/Q3 verdicts + the actual angular deltas;
+`src/viz_heading_qc.py` plots them (see §5 viz 12).
 
 **Cohort scope — HMM runs on the VLM-agreed + top-30 POI subset.**
 By default `src/road_snap.py` uses `--tier 1 --top-pois 30`, meaning
@@ -1001,6 +1060,7 @@ override with `--output road_snapped.jsonl`.)
 | 7  | `src/road_snap.py` | `gps_recovery_full.jsonl` + `osm_walking.pkl` | `road_snapped.jsonl` (per-frame `{gps_snapped, gps_raw, segment_id, segment_bearing, segment_length_m, snap_offset_m}`) | `python -m src.road_snap --input gps_recovery_full.jsonl --top-pois 30 --tier 1 --output road_snapped.jsonl` | HMM (Newson-Krumm Viterbi). **Filters input to (`tier=1` AND `place_guess ∈ top-30 POIs`)** so HMM works on the same cohort the teacher annotator will use (§2.7). Sets snapped to `--top-pois 0` to disable the POI filter and snap all VLM-agreed frames. |
 | 7b | `src/heading_qc.py` | `gps_recovery_full.jsonl` + `road_snapped.jsonl` | `trusted_frames.jsonl` | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | Drops frames with `heading_gap < 0.05` (ambiguous front/back) and `\|heading − segment_bearing\| > 60°` (HMM disagrees). The hard heading filter — survivors are the dataset's ground-truth heading. |
 | 7c | `src/viz_routes.py` | `trusted_frames.jsonl` | `viz/routes_trusted_frames.html` | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | Per-video colour-coded polyline of the surviving frames, optional heading arrows. **Inspect before annotating** — every video's polyline should look like a walking path, not a teleporting cloud. |
+| 7d | `src/viz_heading_qc.py` | `heading_qc_diagnostics.jsonl` (written by step 7b) | 5 PNGs under `viz/heading_qc_*.png` | `python -m src.viz_heading_qc` | Drop-reasons bar (Q1/Q2/Q3 first-fail counting), \|Δseg\| & \|Δtd\| histograms, joint Q2/Q3 scatter, per-video pass rate. The audit for the three-bearing cross-check in §2.5b. |
 | 9  | `src/annotate.py` | `trusted_frames.jsonl` + `pois.json` + `osm_walking.pkl` | `annotations_<variant>.jsonl` (5 rows × 3 dests = 15 (frame,dest) pairs) | `python -m src.annotate --limit 5 --prompt-variant strict` | **Smoke first.** 80/10/10 distance-banded destination sampling, OSM route, Gemini 2.5 Pro CoT+answer, closed-loop verifier (`δ<30°`). ~$0.07. Inspect every row by hand. |
 | 9b | `src/viz_annotate.py` | latest `annotations_*.jsonl` | `viz/annotate_<stem>.html` | `python -m src.viz_annotate --sample 60` | Per (frame, destination): green = passed, red = failed verifier; click for photo + spoken answer + thinking + δ. **The decision point** — if "turn left" answers point the wrong way on the map, regenerate with a different system prompt. |
 | 9c | `src/annotate.py` | as 9 | `annotations_<variant>.jsonl` (full ≈ 5–6 k rows) | `python -m src.annotate --prompt-variant <chosen>` | Full batch with the chosen system prompt. Resume-safe (skips already-done (video, frame, dest)). ≈ $76 on Pro/Vertex. |
