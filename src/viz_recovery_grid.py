@@ -56,6 +56,11 @@ def build():
                          "1 = VLM-confirmed only, the 'VLM-agreed' set "
                          "when combined with the ACCEPTED section; "
                          "2 = visual-match only)")
+    ap.add_argument("--filter-from", type=str, default="",
+                    help="path to another jsonl (e.g. trusted_frames.jsonl); "
+                         "keep only rows whose (video, frame_id) appears "
+                         "in that file. Useful for spot-checking a "
+                         "downstream-filtered cohort.")
     ap.add_argument("--random", action="store_true",
                     help="random sample within each section instead of "
                          "taking the first --limit rows")
@@ -68,6 +73,22 @@ def build():
             if l.strip()]
     if not rows:
         sys.exit(f"no {args.input} — run `python -m src.gps_recovery`")
+
+    if args.filter_from:
+        ff_path = Path(args.filter_from)
+        if not ff_path.is_absolute() and not ff_path.exists():
+            ff_path = config.CITY_DIR / ff_path.name
+        if not ff_path.exists():
+            sys.exit(f"--filter-from file not found: {ff_path}")
+        keys = set()
+        for line in ff_path.open(encoding="utf-8"):
+            if not line.strip():
+                continue
+            d = json.loads(line)
+            keys.add((d["video"], d["frame_id"]))
+        n_pre = len(rows)
+        rows = [r for r in rows if (r["video"], r["frame_id"]) in keys]
+        print(f"filtered by {ff_path.name}: {len(rows)} of {n_pre} rows")
 
     # DINOv2 caches for top-K reconstruction (only top_sv_id is in jsonl)
     cdir = config.CITY_DIR / "dinov2"

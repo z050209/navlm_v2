@@ -76,15 +76,16 @@ Later steps depend on earlier ones (a step's *needs* are noted).
 | 5c| **DINOv2 re-embed** on the full 4,431-crop SV index | `python -m src.dinov2_match --every-n 1` (embeds the full 26,034 video frames) | step 5 | ✅ — `sv_v1.npz` (4431, 768), `frames_n1_l0.npz` (26034, 768) |
 | 6 | **GPS recovery** (strict F1/F2/F3 + same-pano heading) | `python -m src.gps_recovery` | steps 3, 4, 5 | ✅ |
 | 6b| GPS-recovery map + per-frame photo grid (sanity check) | `python -m src.viz_recovery` · `python -m src.viz_recovery_grid` | step 6 | ✅ |
-| 6e| **Sample-50 photo grid** for the new VLM-agreed cohort (eyeball check) | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --output gps_recovery_full_grid_vlm_agreed_50.html --limit 50 --random --seed 42 --tier 1` | step 6d | ✅ — `viz/gps_recovery_full_grid_vlm_agreed_50.html` (50 of 2,470 VLM-agreed + 50 each of 1,432 disagree / 199 unresolved for compare-and-contrast) |
+| 6e| **Sample-50 photo grid** for the new VLM-agreed cohort (eyeball check; sample is BEFORE heading_qc) | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --output gps_recovery_full_grid_vlm_agreed_50.html --limit 50 --random --seed 42 --tier 1` | step 6d | ✅ — `viz/gps_recovery_full_grid_vlm_agreed_50.html` (50 of 2,470 VLM-agreed + 50 each of 1,432 disagree / 199 unresolved). See §2.5c. |
 | 6f| **POI + heading distribution charts** for the VLM-agreed cohort | `python -m src.viz_distributions --tier 1 --top-n 30 --prefix vlm_agreed --poi-field place_guess` (also try `--poi-field dino_nearest_name` for the 71-POI geometric view) | step 6d | ✅ — `viz/poi_distribution_vlm_agreed_place_guess.png` (**105 distinct OSM POIs after VLM check**, top 5: Bahnhofstrasse 295 / Augustinergasse 167 / Niederdorfstrasse 137 / Limmatquai 127 / Hauptbahnhof 120) + `viz/heading_rose_vlm_agreed.png` (circular) + `viz/heading_linear_vlm_agreed.png` (10°). N–S camera bias ~55 % matches the Bahnhofstrasse / Limmat walking corridor. Charts embedded in §2.5. |
 | 6c| **VLM expansion** — re-scan visual-match-only frames at cos≥0.75 to make them VLM-confirmed | `python _vlm_test.py --limit 0` → `poi_scan_cos0.75.jsonl` (4,101 rows, ~$48 on Pro/Vertex) | step 6 | ✅ |
 | 6d| **Re-run GPS+heading recovery** using the expanded VLM signal | `python -m src.gps_recovery --poi-scan poi_scan_cos0.75.jsonl --output gps_recovery_full.jsonl` | step 6c | ✅ — VLM-confirmed accepted 324 → 2,470 |
 | 7a| **Build OSM walking-graph pickle** (one-time, ~30 s, hits osmnx Overpass) | `python -m src.build_walking_graph` → `data/cities/zurich/osm_walking.pkl` | — | ✅ (script) |
 | 7 | **HMM road-snapping** on the VLM-agreed + top-30 POI cohort (~1,900 frames) | `python -m src.road_snap --input gps_recovery_full.jsonl --tier 1 --top-pois 30 --poi-field place_guess --output road_snapped.jsonl` | step 6d + 7a | ✅ (script) |
 | 7b| **Heading QC** — Q1-only (per-frame DINOv2 confidence `heading_gap ≥ 0.05`). See §2.5b for why Q2/Q3 were dropped from the filter. | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | step 7 | ✅ (script) |
-| 7c| Per-video route map (eyeball: do the polylines trace real walks?) | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | step 7b | ✅ (script) |
-| 7d| Heading-QC diagnostic plots (KEPT vs Q1 fail · `heading_gap` histogram · per-video pass rate) | `python -m src.viz_heading_qc` | step 7b | ✅ (script) |
+| 7c| Per-video route map for the **trusted** cohort (eyeball: do the polylines trace real walks?) | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | step 7b | ✅ — `viz/routes_trusted_frames.html` (1,697 frames, 8 videos). See §2.5c. |
+| 7d| Heading-QC diagnostic plots (KEPT vs Q1 fail · `heading_gap` histogram · per-video pass rate) | `python -m src.viz_heading_qc` | step 7b | ✅ — 3 PNGs under `viz/heading_qc_*.png`. See §2.5b. |
+| 7e| **Sample-50 photo grid** for the **trusted** cohort (data sanity check on the actual training input) | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --filter-from trusted_frames.jsonl --output trusted_frames_grid_50.html --limit 50 --random --seed 42` | step 7b | ✅ — `viz/trusted_frames_grid_50.html` (50 of 1,697 trusted). See §2.5c. |
 | 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
 | 9 | **Annotation smoke** — 5 frames, Gemini 2.5 Pro, picked system prompt | `python -m src.annotate --limit 5 --prompt-variant strict` | step 7b | ✅ (script) |
 | 9b| Annotation QA map — eyeball direction-correctness | `python -m src.viz_annotate --sample 60` | step 9 | ✅ (script) |
@@ -738,6 +739,26 @@ temporal-window logic from v2 still apply. Useful for an ablation
 study showing "what does the answer-quality look like when we use
 the stricter motion checks?" — not the default because the default
 should be honest about what evidence we actually have.
+
+### 2.5c Sanity-check HTML for the trusted cohort
+
+Three HTML files in `viz/` are the human-inspectable record of the
+trusted cohort going into annotation. Keep these open in a browser
+when reviewing the dataset; regenerate them after any change to the
+label-extraction pipeline so the docs and the artifacts stay in sync.
+
+| File | What it shows | How to regenerate |
+|---|---|---|
+| **`viz/routes_trusted_frames.html`** | Per-video coloured polylines + heading arrows on a Leaflet map for all **1,697 trusted_frames**. Saturday_morning hold-out is plotted in black so it's visually distinguishable. Click any frame dot for video name, frame_id, heading, heading_gap. **Use this to eyeball that every video's recovered route traces a plausible walking path** (not a teleporting cloud). | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` |
+| **`viz/trusted_frames_grid_50.html`** | Random **50 of 1,697 trusted frames** rendered as the per-frame photo grid: QUERY photo + the 4 compass crops at the matched SV pano + the chosen-direction red outline + heading_gap + VLM info. **Use this to spot-check that DINOv2 actually picked the right pano direction for trusted frames** — pick a row, see what the camera shows, see which of the 4 SV crops it matched. `--filter-from trusted_frames.jsonl` intersects the gps_recovery_full schema with the trusted-frames key set, so the photo-grid rendering still works (the trusted_frames schema is thinner). | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --filter-from trusted_frames.jsonl --output trusted_frames_grid_50.html --limit 50 --random --seed 42` |
+| **`viz/gps_recovery_full_grid_vlm_agreed_50.html`** | Random **50 of 2,470 VLM-agreed** (the cohort **before** heading_qc) — also showing 50 of DISAGREE and 50 of VLM_UNRESOLVED for compare-and-contrast. **Use this to understand what Q1 (and the F1/F2/F3 reconcile gate) rejected.** The DISAGREE section especially is informative: VLM and DINOv2 named different places at the same frame. | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --tier 1 --limit 50 --random --seed 42 --output gps_recovery_full_grid_vlm_agreed_50.html` |
+
+Open each with `file:///C:/Users/z0502/Desktop/cs231n/navlm_v2/viz/<name>.html`.
+
+**Reproducibility.** All three accept `--seed`; the commands above
+pin `--seed 42` so the same 50 frames are sampled every time. Change
+the seed to look at a different draw. The route map (1st file) is
+deterministic — it plots every trusted frame.
 
 **Why 60° tolerances.** The 4 action verbs (continue, left, right,
 around) bin direction into 90° quadrants. We need the recovered
