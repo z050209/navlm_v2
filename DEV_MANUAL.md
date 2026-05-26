@@ -1414,11 +1414,42 @@ bin, excluding borderline cases. It is a discretization-driven tolerance,
 not a deep result: loosen toward 45° for more data, tighten for cleaner
 labels.
 
-**Run 5 samples first.** The annotation module `src/annotate.py` takes a
-`--limit 5` flag; we inspect the 5 (thinking + answer + verifier verdict)
-before the full run. It does the distance-banded destination sampling,
-the closed-loop verifier, and the teacher call
-`call_gemini(model="gemini-2.5-pro")`.
+**Run 5–10 samples first.** The annotation module `src/annotate.py`
+takes a `--limit N` flag; we inspect every annotation (thinking +
+answer + verifier verdict) before the full run. It does the
+distance-banded destination sampling, the closed-loop verifier, and
+the teacher call `call_gemini(model="gemini-2.5-pro")`.
+
+**Smoke run — 10 frames × 3 destinations (2026-05-26)** on
+`trusted_frames.jsonl` with `--prompt-variant strict`:
+
+```
+30 (frame, destination) pairs
+  kept (verifier-pass δ<30°):  22  (73 %)
+  failed:                       8
+verb distribution:  turn around 14 · continue ahead 7 ·
+                    turn right 5 · turn left 4
+δ distribution:     median 21°  min 0°  max 180°
+runtime:            14 min 37 s
+cost:               ~$0.42 visible output ($0.67 incl. hidden
+                    "thinking tokens" — Pro 2.5 burns ~1.7k thinking
+                    tokens per call)
+```
+
+**Two production lessons baked into `annotate.py` after this run:**
+
+1. **`max_tokens` was bumped 2048 → 8192.** First smoke run hit
+   `MAX_TOKENS` on 17 of 30 calls (Pro 2.5's hidden thinking tokens
+   count against the same budget, leaving only ~300 tokens for the
+   visible answer — answers came back empty). Pass rate jumped from
+   17 % → 73 % after the fix.
+2. **`parse_answer` is now truncation-robust.** Falls back to a
+   `STEP 5 ACTION:` line inside `<thinking>` when the `<answer>`
+   block is missing or cut off. Catches the verb even on truncated
+   responses.
+
+Output: `data/cities/zurich/annotations_smoke10.jsonl`. Inspect on
+the map: `viz/annotate_smoke10.html` (`src.viz_annotate`).
 
 ### 2.8 Image ↔ POI indexing & route map
 

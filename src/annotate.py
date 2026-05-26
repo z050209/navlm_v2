@@ -193,18 +193,46 @@ def verify(heading, action, route_bearing, max_delta=30.0):
 
 def parse_answer(raw):
     """Pull `<thinking>...</thinking>` and `<answer>...</answer>` out of
-    the teacher reply. Returns (thinking, answer, action_verb) — verb
-    is the first match of any of the four action verbs in `<answer>`,
-    or None. Pure — unit-tested."""
-    think = re.search(r"<thinking>(.*?)</thinking>", raw, re.S | re.I)
-    answ = re.search(r"<answer>(.*?)</answer>", raw, re.S | re.I)
+    the teacher reply. Returns (thinking, answer, action_verb).
+
+    Robust to truncation: if `</thinking>` is missing (Pro hit
+    MAX_TOKENS mid-thinking), still take everything after `<thinking>`
+    as the thinking text. If `<answer>` is missing entirely, fall
+    back to extracting the action verb from a `STEP 5 ACTION:` line
+    inside `<thinking>` — the strict-prompt CoT commits to the verb
+    there, so even a truncated response often has it.
+
+    Pure — unit-tested."""
+    think = re.search(r"<thinking>(.*?)(?:</thinking>|$)", raw, re.S | re.I)
+    answ = re.search(r"<answer>(.*?)(?:</answer>|$)", raw, re.S | re.I)
     thinking = think.group(1).strip() if think else ""
     answer = answ.group(1).strip() if answ else ""
+
+    # Primary: verb from <answer>
     verb = None
     for v in ACTION_DELTA.keys():
         if re.search(r"\b" + re.escape(v) + r"\b", answer, re.I):
             verb = v
             break
+
+    # Fallback: STEP 5 ACTION line inside <thinking> (strict-prompt CoT)
+    if verb is None and thinking:
+        m = re.search(r"STEP\s*5\s*ACTION\s*[:\-]\s*([^\n.]+)",
+                       thinking, re.I)
+        if m:
+            for v in ACTION_DELTA.keys():
+                if re.search(r"\b" + re.escape(v) + r"\b",
+                              m.group(1), re.I):
+                    verb = v
+                    break
+        # Looser fallback — any of the 4 verbs anywhere in thinking
+        if verb is None:
+            for v in ACTION_DELTA.keys():
+                if re.search(r"\b" + re.escape(v) + r"\b",
+                              thinking, re.I):
+                    verb = v
+                    break
+
     return thinking, answer, verb
 
 
@@ -240,16 +268,17 @@ def _haversine_m(la1, lo1, la2, lo2):
 
 # ── data loading ─────────────────────────────────────────────────────
 def _load_trusted_frames():
-    """phaseA_trusted.jsonl if present, else accepted rows of
-    gps_recovery_all.jsonl as a degraded fallback (so the smoke test
-    can be run before HMM+heading_qc exist)."""
-    trusted = config.CITY_DIR / "phaseA_trusted.jsonl"
-    if trusted.exists():
-        print(f"[annotate] using {trusted.name}", flush=True)
-        return [json.loads(l) for l in trusted.open(encoding="utf-8")
-                if l.strip()]
-    fallback = config.CITY_DIR / "gps_recovery_all.jsonl"
-    print(f"[annotate] {trusted.name} absent — falling back to "
+    """trusted_frames.jsonl if present (the production Q1-filtered
+    cohort); else phaseA_trusted.jsonl (legacy name); else accepted
+    rows of gps_recovery_full.jsonl as a degraded fallback."""
+    for name in ("trusted_frames.jsonl", "phaseA_trusted.jsonl"):
+        p = config.CITY_DIR / name
+        if p.exists():
+            print(f"[annotate] using {p.name}", flush=True)
+            return [json.loads(l) for l in p.open(encoding="utf-8")
+                    if l.strip()]
+    fallback = config.CITY_DIR / "gps_recovery_full.jsonl"
+    print(f"[annotate] no trusted_frames.jsonl — falling back to "
           f"{fallback.name} (accepted rows only)", flush=True)
     out = []
     for line in fallback.open(encoding="utf-8"):
@@ -263,21 +292,34 @@ def _load_trusted_frames():
             "gps": r["gps"], "heading": r.get("heading", 0.0),
             "heading_gap": r.get("heading_gap", 0.0),
             "tier": r.get("tier"),
+            "place_guess": r.get("place_guess", ""),
         })
     return out
 
 
-def _load_point_pois():
-    """POIs that have a single (lat, lon) — destinations the route
-    planner can target. Drops ways/polygons (a route to "Bahnhofstrasse"
-    needs a chosen endpoint, not a polyline)."""
-    pois = json.loads((config.CITY_DIR / "pois.json").read_text(
-        encoding="utf-8"))
-    return [p for p in pois if p.get("lat") and p.get("lon")]
+def _load_top_n_destinations(frames, top_n=30):
+    """Compute the top-N destination POIs from the cohort itself
+    (median (lat, lon) of frames whose place_guess resolves to each
+    POI). This is the same pool §2.7 / §2.5f / viz_poi_route_grid use,
+    so the annotator plans routes only to POIs the videos actually
+    visit. Returns [{name, count, lat, lon}]."""
+    # Re-use the canonical implementation from viz_poi_route_grid so
+    # the top-30 pool is computed identically in annotation and viz.
+    from src.viz_poi_route_grid import top_poi_centroids
+    rows = [{"place_guess": f.get("place_guess", ""),
+             "gps": f["gps"]} for f in frames if f.get("place_guess")]
+    pool = top_poi_centroids(rows, top_n, field="place_guess")
+    print(f"[annotate] destination pool: top-{top_n} POIs from cohort "
+          f"({len(pool)} POIs)", flush=True)
+    for i, p in enumerate(pool, 1):
+        print(f"   {i:2d}.  {p['name']:30s}  {p['count']:4d} frames",
+              flush=True)
+    return pool
 
 
 def _nearby_pois(frame_gps, point_pois, radius_m=300.0, k=10):
-    """Up to k POIs within radius_m of the frame GPS, by haversine."""
+    """Up to k POIs within radius_m of the frame GPS, by haversine.
+    Used to surface 'nearby POIs' in the user_msg context."""
     out = []
     for p in point_pois:
         d = _haversine_m(frame_gps[0], frame_gps[1], p["lat"], p["lon"])
@@ -287,16 +329,19 @@ def _nearby_pois(frame_gps, point_pois, radius_m=300.0, k=10):
     return [p for _, p in out[:k]]
 
 
-def _candidates_for(frame_gps, point_pois, max_m=1500.0):
-    """All point POIs within `max_m` of the frame, as
-    [(name, distance_m, lat, lon, kind_label)] sorted by distance."""
+def _candidates_for(frame_gps, dest_pool, max_m=1500.0, min_m=30.0):
+    """Top-N destination POIs within [min_m, max_m] of the frame.
+    `dest_pool` is the {name, lat, lon, count} list from
+    `_load_top_n_destinations`. Frames where the user is "already at"
+    a POI (dist < min_m) skip that POI — no instruction needed.
+    Returns sorted-by-distance dicts with the same keys + `dist_m`."""
     out = []
-    for p in point_pois:
+    for p in dest_pool:
         d = _haversine_m(frame_gps[0], frame_gps[1], p["lat"], p["lon"])
-        if d <= max_m:
+        if min_m <= d <= max_m:
             out.append({"name": p["name"], "dist_m": d,
                         "lat": p["lat"], "lon": p["lon"],
-                        "kind_label": p.get("kind_label", "")})
+                        "count": p.get("count", 0)})
     out.sort(key=lambda x: x["dist_m"])
     return out
 
@@ -326,11 +371,16 @@ def main():
                 else config.CITY_DIR /
                 f"annotations_{args.prompt_variant}.jsonl")
 
-    # ─── load Phase A + POIs ──────────────────────────────────────
+    # ─── load trusted frames + top-30 destination pool ────────────
     frames = _load_trusted_frames()
-    point_pois = _load_point_pois()
+    dest_pool = _load_top_n_destinations(frames, top_n=30)
+    # nearby-POIs context still uses the full 1,289-POI table
+    nearby_pool = [p for p in json.loads(
+        (config.CITY_DIR / "pois.json").read_text(encoding="utf-8"))
+        if p.get("lat") and p.get("lon")]
     print(f"[annotate] frames available: {len(frames):,}  ·  "
-          f"point POIs: {len(point_pois)}", flush=True)
+          f"destination POIs: {len(dest_pool)}  ·  "
+          f"nearby-context POIs: {len(nearby_pool)}", flush=True)
 
     rng = random.Random(args.seed)
     rng.shuffle(frames)
@@ -371,7 +421,7 @@ def main():
         pbar = tqdm(frames, desc="[annotate]", unit="frame",
                     dynamic_ncols=True)
         for f_idx, frame in enumerate(pbar):
-            cands = _candidates_for(frame["gps"], point_pois)
+            cands = _candidates_for(frame["gps"], dest_pool)
             picks = sample_destinations(
                 [(c["name"], c["dist_m"]) for c in cands],
                 n=args.dest_per_frame, seed=args.seed + f_idx)
@@ -401,7 +451,7 @@ def main():
                              "route_latlon": [frame["gps"],
                                               [d["lat"], d["lon"]]]}
 
-                nearby = _nearby_pois(frame["gps"], point_pois)
+                nearby = _nearby_pois(frame["gps"], nearby_pool)
                 user_msg = build_user_msg(frame, route, nearby,
                                           dest_name, dest_dist_m)
 
@@ -409,7 +459,12 @@ def main():
                     raw = call_gemini(
                         img_path, sys_prompt, user_msg,
                         model=config.GEMINI_ANNOTATE,
-                        max_tokens=2048,
+                        # Pro 2.5's hidden 'thinking tokens' (~1.7k
+                        # avg) count against this budget — 2048 was
+                        # causing 57% MAX_TOKENS truncation on the
+                        # smoke. 8192 leaves comfortable headroom
+                        # for thinking + the 200-token answer.
+                        max_tokens=8192,
                         label=f"annotate_{args.prompt_variant}_"
                               f"{frame['video']}_{frame['frame_id']}")
                 except Exception as e:
