@@ -91,14 +91,32 @@ def recover_frame(query_emb, ref):
 
 
 def main():
-    """End-to-end GPS recovery for the frames in `poi_scan.jsonl`.
+    """End-to-end GPS recovery for ALL extracted frames (DEV_MANUAL
+    §2.5, *GPS recovery for all*).
 
-    For every scan row:
-      DINOv2 top-K SV matches      ->  (g_dino, s_dino) + heading
-      geo_check_from_scan(row)     ->  (g_vlm, vlm_conf, place_name)
-      reconcile.reconcile(...)     ->  accepted? + blended GPS + score
-    Writes one JSON line per frame to
-    `data/cities/zurich/gps_recovery.jsonl` (flushed live, crash-safe).
+    Iterates every frame in the DINOv2 frame cache (typically the
+    `frames_n1_l0.npz` covering all ~22k extracted frames). For each
+    frame two acceptance tiers are possible:
+
+      tier 1 — frame is in `poi_scan.jsonl` (the every-30 VLM sample)
+        F1 cos_dino >= MIN_SIM
+        F2 vlm_gps  is not None
+        F3 exact-name match OR distance(vlm_POI, dino_nearest_POI)
+                                       <= NEIGHBORHOOD_RADIUS_M
+        gps = g_dino  (the SV pano's known coordinates)
+        -> highest-confidence label, the "trustworthy" set the
+        annotator will use directly.
+
+      tier 2 — frame has no VLM signal (the other ~21k frames)
+        F1 cos_dino >= MIN_SIM
+        gps = g_dino
+        -> "DINOv2 candidate"; weaker per-frame confidence but
+        useful in bulk. HMM map-matching (§2.5 next stage) uses
+        route continuity to filter out single-frame errors.
+
+    Each tier records its own `accepted` / `reject_reason`. Headings
+    (cosine-weighted same-pano mean) + heading_gap are computed for
+    every frame regardless of tier.
     """
     import argparse
     import collections
@@ -121,9 +139,21 @@ def main():
                     default=config.RECONCILE_MAX_VAR_M,
                     help="reject if |g_dino - g_vlm| > this in metres "
                          "(filter F3, default config.RECONCILE_MAX_VAR_M)")
-    ap.add_argument("--frame-cache", type=str, default="frames_n30_l0",
-                    help="DINOv2 frame cache name "
-                         "(under data/cities/zurich/dinov2/)")
+    ap.add_argument("--frame-cache", type=str, default="frames_n1_l0",
+                    help="DINOv2 frame cache name (default frames_n1_l0 "
+                         "= all extracted frames; use frames_n30_l0 to "
+                         "rerun only the every-30 VLM-sampled set)")
+    ap.add_argument("--output", type=str, default="gps_recovery_all.jsonl",
+                    help="output filename under data/cities/zurich/ "
+                         "(default keeps the pilot 'gps_recovery.jsonl' "
+                         "untouched)")
+    ap.add_argument("--poi-scan", type=str, default="poi_scan.jsonl",
+                    help="POI-scan jsonl that defines the tier-1 frames "
+                         "(default poi_scan.jsonl, the every-30 sample; "
+                         "use poi_scan_cos0.75.jsonl to fold in the "
+                         "cos>=0.75 VLM expansion — promotes ~4k tier-2 "
+                         "DINOv2-only frames into tier-1 candidates "
+                         "subject to F1/F2/F3)")
     args = ap.parse_args()
 
     # OSM POIs — VLM guess -> GPS lookup + spatial index for the
@@ -177,23 +207,43 @@ def main():
         if pid:
             pano_to_crop_idx[pid].append(i)
 
-    # POI-scan rows (the VLM signal, already computed)
-    scan_path = config.CITY_DIR / "poi_scan.jsonl"
-    scan_rows = [json.loads(l) for l in scan_path.open(encoding="utf-8")
-                 if l.strip()]
+    # POI-scan rows, indexed by (video, frame_id) for tier-1 lookup.
+    # `--poi-scan` lets us swap in the cos>=0.75 expansion file —
+    # promotes ~4 k tier-2 DINOv2 candidates into tier-1 (still gated
+    # by F1+F2+F3, so promotion ≠ acceptance).
+    scan_path = config.CITY_DIR / args.poi_scan
+    if not scan_path.exists():
+        sys.exit(f"poi-scan file not found: {scan_path}")
+    scan_index = {}
+    for line in scan_path.open(encoding="utf-8"):
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        scan_index[(r["video"], r["frame_id"])] = r
+    print(f"[gps_recovery] poi-scan source:        {scan_path.name}")
+    print(f"[gps_recovery] frames in DINOv2 cache: {len(frame_idx)}")
+    print(f"[gps_recovery] VLM-sampled frames (tier-1 candidates): "
+          f"{len(scan_index)}")
 
-    out_path = config.CITY_DIR / "gps_recovery.jsonl"
-    counts = {"accepted": 0, "disagree": 0,
-              "dino_weak": 0, "vlm_unresolved": 0,
-              "no_sv_meta": 0, "no_frame_emb": 0}
+    out_path = config.CITY_DIR / args.output
+    counts = collections.Counter()
 
     with out_path.open("w", encoding="utf-8") as fout:
-        for row in tqdm(scan_rows, desc="[gps_recovery]", unit="frame"):
-            key = (row["video"], row["frame_id"])
-            i = frame_idx.get(key)
-            if i is None:
-                counts["no_frame_emb"] += 1
+        # iterate ALL frames in the cache, sorted for deterministic +
+        # downstream-HMM-friendly ordering (per-video frame sequence).
+        # Frames with cosine < MIN_SIM (or no SV-meta lookup) are
+        # DROPPED at the top of the loop — they have no useful signal
+        # and would only clutter the output / downstream viz.
+        for (video, frame_id), i in tqdm(
+                sorted(frame_idx.items()),
+                desc="[gps_recovery]", unit="frame"):
+            # quick F1 check up-front: drop weak DINOv2 matches before
+            # doing all the per-pano work.
+            sims_top1 = float(np.max(sv_embs @ frame_embs[i]))
+            if sims_top1 < args.min_sim:
+                counts["dropped_dino_weak"] += 1
                 continue
+            row = scan_index.get((video, frame_id))    # None for tier 2
 
             # ── DINOv2 ─────────────────────────────────────────────
             # full cosine vector against all SV crops -> top-K + the
@@ -238,59 +288,62 @@ def main():
                    and same_pano_sims_sorted[0] > 0
                 else 1.0)
 
-            # ── VLM ───────────────────────────────────────────────
-            vlm = geo_check_from_scan(row, pois_map)
+            # ── VLM (only if scan row exists — tier 1) ───────────
+            vlm = (geo_check_from_scan(row, pois_map) if row is not None
+                   else {"gps": None, "confidence": "",
+                         "place_name": "", "reasoning": ""})
 
-            # ── semantic + neighborhood cross-checks ──
+            # ── semantic + neighborhood cross-checks (only meaningful
+            #    when VLM data exists — tier 1).
             dino_nearest = None
             dino_nearest_m = None
-            exact_name_match = False     # diagnostic: VLM name == dino's nearest
-            neighborhood_match = False   # F3 gate: dino's nearest within
-                                         # NEIGHBORHOOD_RADIUS_M of VLM's POI
+            exact_name_match = False     # diagnostic
+            neighborhood_match = False   # F3 gate
             poi_dist_m = None
             if dino_loc is not None:
                 dino_nearest, dino_nearest_m = nearest_poi_m(
                     dino_loc[0], dino_loc[1], poi_index)
-                exact_name_match = name_matches_poi(
-                    vlm["place_name"], dino_nearest)
-                if vlm["place_name"] and dino_nearest:
-                    poi_dist_m = distance_pois_m(
-                        vlm["place_name"], dino_nearest["name"], poi_index)
-                    neighborhood_match = (
-                        poi_dist_m <= config.NEIGHBORHOOD_RADIUS_M)
-            # If the exact name matches, the neighborhood does too.
+                if row is not None:        # only useful when we have a VLM
+                    exact_name_match = name_matches_poi(
+                        vlm["place_name"], dino_nearest)
+                    if vlm["place_name"] and dino_nearest:
+                        poi_dist_m = distance_pois_m(
+                            vlm["place_name"], dino_nearest["name"],
+                            poi_index)
+                        neighborhood_match = (
+                            poi_dist_m <= config.NEIGHBORHOOD_RADIUS_M)
             semantic_match = exact_name_match or neighborhood_match
 
+            tier = 1 if row is not None else 2
             base = {
-                "video": row["video"], "frame_id": row["frame_id"],
+                "video": video, "frame_id": frame_id, "tier": tier,
                 "g_dino": [dino_loc[0], dino_loc[1]] if dino_loc else None,
                 "s_dino": s_dino,
                 "g_vlm": list(vlm["gps"]) if vlm["gps"] else None,
                 "vlm_conf": vlm["confidence"],
-                "place_guess": vlm["place_name"],   # resolved OSM name
-                "vlm_guess_raw": row.get("guess", ""),   # what VLM said
-                "reasoning": vlm["reasoning"][:240],
+                "place_guess": vlm["place_name"],          # resolved OSM
+                "vlm_guess_raw": row.get("guess", "") if row else "",
+                "reasoning": vlm["reasoning"][:240] if row else "",
                 "dino_nearest_name": (dino_nearest["name"]
                                        if dino_nearest else ""),
                 "dino_nearest_m": dino_nearest_m,
-                "poi_dist_m": poi_dist_m,   # vlm-POI <-> dino-nearest-POI
+                "poi_dist_m": poi_dist_m,
                 "exact_name_match": exact_name_match,
                 "neighborhood_match": neighborhood_match,
-                "semantic_match": semantic_match,   # F3 gate
+                "semantic_match": semantic_match,          # F3 gate
                 "top_sv_id": top_id,
                 "heading": heading, "heading_spread": spread,
-                "heading_gap": heading_gap,                 # A: per-frame
+                "heading_gap": heading_gap,
                 "same_pano_heading_count": same_pano_heading_count,
             }
 
-            # ── reconcile_strict — F1, F2, F3 (semantic OR spatial) ──
-            if dino_loc is None:                        # SV meta missing
-                base.update({"accepted": False, "score": s_dino,
-                             "variance_m": None, "gps": None,
-                             "reject_reason": "no_sv_meta",
-                             "spatial_match": None})
-                counts["no_sv_meta"] += 1
-            else:
+            # ── decision: tier 1 uses full F1/F2/F3; tier 2 is F1 only
+            if dino_loc is None:
+                # SV pano matched but its meta entry is missing
+                # (shouldn't happen with a clean meta.jsonl); drop too.
+                counts["dropped_no_sv_meta"] += 1
+                continue
+            if tier == 1:
                 r = reconcile.reconcile_strict(
                     (dino_loc[0], dino_loc[1]), s_dino,
                     vlm["gps"], vlm["confidence"],
@@ -303,18 +356,41 @@ def main():
                     "gps": list(r["gps"]) if r["gps"] else None,
                     "reject_reason": r["reject_reason"],
                 })
-                bucket = "accepted" if r["accepted"] else r["reject_reason"]
-                counts[bucket] = counts.get(bucket, 0) + 1
+                bucket = ("t1_accepted" if r["accepted"]
+                          else f"t1_{r['reject_reason']}")
+                counts[bucket] += 1
+            else:                                       # tier 2 — DINOv2 only
+                # F1 was already enforced at the top of the loop, so any
+                # tier-2 frame reaching here passes F1 -> accepted.
+                base.update({"accepted": True, "score": s_dino,
+                             "variance_m": None,
+                             "gps": [dino_loc[0], dino_loc[1]],
+                             "reject_reason": "",
+                             "spatial_match": None})
+                counts["t2_accepted"] += 1
 
             fout.write(json.dumps(base, ensure_ascii=False) + "\n")
             fout.flush()
 
     print(f"[gps_recovery] wrote {out_path}")
     print(f"[gps_recovery] reconcile_strict | min_sim={args.min_sim} "
-          f"| max_var_m={args.max_var_m}")
+          f"| max_var_m={args.max_var_m} | "
+          f"neighborhood_m={config.NEIGHBORHOOD_RADIUS_M}")
     total = sum(counts.values())
-    for k, v in counts.items():
-        print(f"  {k:18s} {v:4d}  ({100 * v / max(1, total):.0f}%)")
+    written = total - counts.get("dropped_dino_weak", 0) \
+                    - counts.get("dropped_no_sv_meta", 0)
+    # tier breakdown
+    order = ["t1_accepted", "t1_disagree", "t1_dino_weak",
+             "t1_vlm_unresolved", "t1_no_sv_meta",
+             "t2_accepted",
+             "dropped_dino_weak", "dropped_no_sv_meta"]
+    for k in order:
+        v = counts.get(k, 0)
+        if v:
+            print(f"  {k:22s} {v:6d}  ({100 * v / max(1, total):4.1f}%)")
+    print(f"  {'TOTAL FRAMES SEEN':22s} {total:6d}")
+    print(f"  {'WRITTEN TO OUTPUT':22s} {written:6d}  "
+          f"(rows in {out_path.name})")
 
 
 if __name__ == "__main__":

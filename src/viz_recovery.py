@@ -19,12 +19,23 @@ VIDEO_COLORS = ["#4477AA", "#EE6677", "#228833", "#CCBB44",
 
 
 def build():
+    import argparse
     import folium
+    ap = argparse.ArgumentParser(description="GPS recovery folium map")
+    ap.add_argument("--input", type=str, default="gps_recovery_all.jsonl",
+                    help="input jsonl under data/cities/zurich/ "
+                         "(default 'gps_recovery_all.jsonl'; use "
+                         "'gps_recovery.jsonl' for the pilot's 872-frame set)")
+    ap.add_argument("--output", type=str,
+                    default="gps_recovery_all_map.html",
+                    help="output filename under viz/")
+    args = ap.parse_args()
+
     rows = [json.loads(l) for l in
-            (config.CITY_DIR / "gps_recovery.jsonl").open(encoding="utf-8")
+            (config.CITY_DIR / args.input).open(encoding="utf-8")
             if l.strip()]
     if not rows:
-        sys.exit("no gps_recovery.jsonl — run `python -m src.gps_recovery`")
+        sys.exit(f"no {args.input} — run `python -m src.gps_recovery`")
 
     videos = sorted({r["video"] for r in rows})
     vcolor = {v: VIDEO_COLORS[i % len(VIDEO_COLORS)]
@@ -92,19 +103,45 @@ def build():
 
         if r.get("accepted"):
             cnt["accepted"] += 1
-            popup = folium.Popup(
-                f"<b>{v}/{r['frame_id']}</b><br>"
-                f"reconciled: <b>"
-                f"{r['gps'][0]:.5f}, {r['gps'][1]:.5f}</b><br>"
-                f"score: {r['score']:.3f} &nbsp;&middot;&nbsp; "
-                f"variance: {r['variance_m']:.0f} m<br>"
-                f"DINOv2 cos: {r['s_dino']:.3f} &rarr; "
-                f"{r['g_dino'][0]:.5f}, {r['g_dino'][1]:.5f}<br>"
-                f"VLM ({r['vlm_conf']}): {r['place_guess']} &rarr; "
-                f"{r['g_vlm'][0]:.5f}, {r['g_vlm'][1]:.5f}<br>"
-                f"heading: {r['heading']:.0f}&deg; "
-                f"(spread {r['heading_spread']:.0f}&deg;)",
-                max_width=380)
+            # Tier-aware popup: tier-2 has no VLM data (g_vlm, variance,
+            # place_guess all None). Render a smaller, simpler popup for
+            # tier-2 to avoid TypeError on None formatting.
+            heading_s = f"{(r.get('heading') or 0):.0f}"
+            spread_s  = f"{(r.get('heading_spread') or 0):.0f}"
+            if r.get("tier") == 2:
+                popup_html = (
+                    f"<b>{v}/{r['frame_id']}</b> &nbsp;"
+                    f"<span style='color:#888;'>(tier 2 &mdash; "
+                    f"DINOv2 only)</span><br>"
+                    f"gps: <b>{r['gps'][0]:.5f}, {r['gps'][1]:.5f}</b>"
+                    f" (= g_dino)<br>"
+                    f"DINOv2 cos: <b>{r['s_dino']:.3f}</b><br>"
+                    f"heading: {heading_s}&deg; &nbsp; "
+                    f"<b>heading_gap:</b> "
+                    f"{(r.get('heading_gap') or 0):.2f}<br>"
+                    f"nearest OSM: <i>"
+                    f"{r.get('dino_nearest_name') or '-'}</i> "
+                    f"@ {(r.get('dino_nearest_m') or 0):.0f} m"
+                )
+            else:    # tier 1
+                popup_html = (
+                    f"<b>{v}/{r['frame_id']}</b> &nbsp;"
+                    f"<span style='color:#1f3a68;'>(tier 1 &mdash; "
+                    f"DINOv2 + VLM)</span><br>"
+                    f"gps: <b>{r['gps'][0]:.5f}, "
+                    f"{r['gps'][1]:.5f}</b><br>"
+                    f"score: {(r.get('score') or 0):.3f} "
+                    f"&middot; variance: "
+                    f"{(r.get('variance_m') or 0):.0f} m<br>"
+                    f"DINOv2 cos: {r['s_dino']:.3f} &rarr; "
+                    f"{r['g_dino'][0]:.5f}, "
+                    f"{r['g_dino'][1]:.5f}<br>"
+                    f"VLM ({r.get('vlm_conf', '?')}): "
+                    f"{r.get('place_guess', '-')}<br>"
+                    f"heading: {heading_s}&deg; "
+                    f"(spread {spread_s}&deg;)"
+                )
+            popup = folium.Popup(popup_html, max_width=380)
             folium.CircleMarker(
                 location=r["gps"], radius=4, color=col,
                 fill=True, fill_opacity=0.85, weight=1,
@@ -216,7 +253,7 @@ def build():
     """
     m.get_root().html.add_child(folium.Element(legend))
 
-    out = config.VIZ_DIR / "gps_recovery_map.html"
+    out = config.VIZ_DIR / args.output
     out.parent.mkdir(parents=True, exist_ok=True)
     m.save(str(out))
     print(f"wrote {out}")

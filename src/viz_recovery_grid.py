@@ -15,7 +15,9 @@ Grouped into three sections: ACCEPTED / DISAGREE / VLM UNRESOLVED.
 """
 
 import argparse
+import collections
 import json
+import math
 import sys
 from pathlib import Path
 from urllib.parse import quote
@@ -24,7 +26,6 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config                                # noqa: E402
-from src.gps_recovery import cosine_topk     # noqa: E402
 
 
 def _file_url(p):
@@ -36,15 +37,37 @@ def build():
         description="Per-frame photo grid for GPS-recovery sanity check")
     ap.add_argument("--limit", type=int, default=30,
                     help="cap rows per section (0 = all)")
-    ap.add_argument("-k", type=int, default=3,
-                    help="show top-K SV matches per frame")
+    ap.add_argument("--input", type=str, default="gps_recovery_all.jsonl",
+                    help="input jsonl under data/cities/zurich/ "
+                         "(default 'gps_recovery_all.jsonl'; pilot is "
+                         "'gps_recovery.jsonl')")
+    ap.add_argument("--output", type=str,
+                    default="gps_recovery_all_grid.html",
+                    help="output filename under viz/")
+    ap.add_argument("--frame-cache", type=str, default="frames_n1_l0",
+                    help="DINOv2 frame cache name (must match the "
+                         "gps_recovery input)")
+    ap.add_argument("--min-sim", type=float, default=0.0,
+                    help="filter rows by s_dino >= this (default 0 = "
+                         "no filter; the input is already filtered to "
+                         "cos>=MIN_SIM at gps_recovery time)")
+    ap.add_argument("--tier", type=int, choices=[0, 1, 2], default=0,
+                    help="filter rows by tier (default 0 = no filter; "
+                         "1 = VLM-confirmed only, the 'VLM-agreed' set "
+                         "when combined with the ACCEPTED section; "
+                         "2 = visual-match only)")
+    ap.add_argument("--random", action="store_true",
+                    help="random sample within each section instead of "
+                         "taking the first --limit rows")
+    ap.add_argument("--seed", type=int, default=42,
+                    help="random seed for --random (default 42)")
     args = ap.parse_args()
 
     rows = [json.loads(l) for l in
-            (config.CITY_DIR / "gps_recovery.jsonl").open(encoding="utf-8")
+            (config.CITY_DIR / args.input).open(encoding="utf-8")
             if l.strip()]
     if not rows:
-        sys.exit("no gps_recovery.jsonl — run `python -m src.gps_recovery`")
+        sys.exit(f"no {args.input} — run `python -m src.gps_recovery`")
 
     # DINOv2 caches for top-K reconstruction (only top_sv_id is in jsonl)
     cdir = config.CITY_DIR / "dinov2"
@@ -52,12 +75,26 @@ def build():
     sv_embs = sv_cache["embs"]
     sv_ids = [Path(p).stem for p in sv_cache["paths"]]
 
-    fcache = np.load(cdir / "frames_n30_l0.npz", allow_pickle=True)
+    fcache = np.load(cdir / f"{args.frame_cache}.npz", allow_pickle=True)
     frame_embs = fcache["embs"]
     frame_paths = [Path(p) for p in fcache["paths"]]
     frame_idx = {(p.parent.name, p.stem): i for i, p in enumerate(frame_paths)}
 
     sv_dir = config.STREETVIEW_DIR / "images"
+
+    # SV meta — id -> {pano_id, compass_angle} — needed to group crops
+    # by pano (so we can show all 4 compass crops at top-1's pano).
+    sv_meta_path = config.STREETVIEW_DIR / "meta.jsonl"
+    sv_meta = {}
+    for line in sv_meta_path.open(encoding="utf-8"):
+        m = json.loads(line)
+        sv_meta[m["id"]] = {"pano_id": m.get("pano_id", ""),
+                            "heading": m.get("compass_angle", 0)}
+    pano_to_crops = collections.defaultdict(list)
+    for j, sid in enumerate(sv_ids):
+        pid = sv_meta.get(sid, {}).get("pano_id", "")
+        if pid:
+            pano_to_crops[pid].append(j)
 
     sections = [
         ("ACCEPTED", "accepted", "good",
@@ -82,22 +119,37 @@ def build():
             f'<div class="cell q"><img src="{_file_url(fpath)}" loading="lazy">'
             f'<div class="label"><b>QUERY</b><br>'
             f'{r["video"]}/{r["frame_id"]}<br>'
-            f'heading: {r.get("heading") or 0:.0f}&deg;</div></div>'
+            f'heading: <b>{r.get("heading") or 0:.0f}&deg;</b></div></div>'
         ]
-        # top-K SV matches recomputed from the cached embeddings
+        # All 4 compass crops at top-1's PANO — the heading decision is
+        # made from these. Sorted N→E→S→W; the highest-cosine crop is
+        # highlighted in red (this is the direction DINOv2 picked).
         key = (r["video"], r["frame_id"])
+        crops = []
         if key in frame_idx:
-            idx, sims = cosine_topk(
-                frame_embs[frame_idx[key]], sv_embs, k=args.k)
-            for j, s in zip(idx, sims):
-                sv_id = sv_ids[int(j)]
-                sv_path = sv_dir / f"{sv_id}.jpg"
-                cls = "good" if s > 0.75 else ("ok" if s >= 0.60 else "bad")
+            sims_all = sv_embs @ frame_embs[frame_idx[key]]
+            top_idx = int(np.argmax(sims_all))
+            top_pano = sv_meta.get(sv_ids[top_idx], {}).get("pano_id", "")
+            crop_js = pano_to_crops.get(top_pano, [])
+            crops = sorted(
+                ((sv_meta[sv_ids[j]]["heading"], float(sims_all[j]), j)
+                 for j in crop_js),
+                key=lambda t: t[0])
+            best_cos = max((c for _, c, _ in crops), default=0.0)
+            for h_deg, cos, j in crops:
+                sv_path = sv_dir / f"{sv_ids[j]}.jpg"
+                is_best = abs(cos - best_cos) < 1e-9
+                cls = "good" if cos > 0.75 else ("ok" if cos >= 0.60 else "bad")
+                star = " &#9733;" if is_best else ""
+                # red outline on the chosen direction
+                style = (' style="outline: 3px solid #d62728; '
+                         'outline-offset: -3px;"' if is_best else '')
                 cells.append(
                     f'<div class="cell">'
-                    f'<img src="{_file_url(sv_path)}" loading="lazy">'
-                    f'<div class="label">{sv_id[:24]}<br>'
-                    f'<span class="{cls}">cos {float(s):.3f}</span></div>'
+                    f'<img src="{_file_url(sv_path)}" loading="lazy"{style}>'
+                    f'<div class="label">heading <b>{int(h_deg):03d}&deg;</b>'
+                    f'{star}<br>'
+                    f'<span class="{cls}">cos {cos:.3f}</span></div>'
                     f'</div>')
 
         guess = r.get("vlm_guess_raw", "")
@@ -143,6 +195,30 @@ def build():
         else:
             hg_cls = "bad"
 
+        # ── heading calculation, showing the math for this frame ──
+        if crops:
+            sum_sin = sum(cos * math.sin(math.radians(h))
+                          for h, cos, _ in crops)
+            sum_cos = sum(cos * math.cos(math.radians(h))
+                          for h, cos, _ in crops)
+            h_calc = (math.degrees(math.atan2(sum_sin, sum_cos)) + 360) % 360
+            terms = "&nbsp;+&nbsp;".join(
+                f"{cos:.2f}&middot;<i>e<sup>i{int(h):03d}&deg;</sup></i>"
+                for h, cos, _ in crops)
+            heading_block = (
+                f'<div class="calc"><b>heading calc</b> &mdash; '
+                f'atan2(&Sigma; w&middot;sin&theta;, &Sigma; w&middot;cos&theta;) '
+                f'over the 4 crops above:<br>'
+                f'&nbsp;&nbsp;weights {terms}<br>'
+                f'&nbsp;&nbsp;&Sigma; w&middot;sin&theta; = {sum_sin:+.3f}'
+                f' &nbsp;&middot;&nbsp; &Sigma; w&middot;cos&theta; = '
+                f'{sum_cos:+.3f}<br>'
+                f'&nbsp;&nbsp;heading = atan2({sum_sin:+.3f}, '
+                f'{sum_cos:+.3f}) = <b>{h_calc:.0f}&deg;</b></div>'
+            )
+        else:
+            heading_block = ''
+
         info = (
             f'<div class="info">'
             f'<div><b>VLM guess:</b> "{guess}" &nbsp;'
@@ -155,13 +231,12 @@ def build():
             f' &nbsp; threshold {config.NEIGHBORHOOD_RADIUS_M:.0f} m</div>'
             f'<div><b>variance |g_dino &minus; g_vlm|:</b> {var_m:.0f} m'
             f' &nbsp; <b>spatial (&le;150 m):</b> {spa}</div>'
-            f'<div><b>heading:</b> {heading:.0f}&deg; '
-            f' &nbsp; <b>spread (top-K):</b> '
-            f'{(spread if spread is None else f"{spread:.0f}") }&deg;'
+            f'<div><b>heading:</b> {heading:.0f}&deg;'
             f' &nbsp; <b>same-pano gap:</b> '
             f'<span class="{hg_cls}">'
             f'{(hgap if hgap is None else f"{hgap:.2f}")}</span>'
             f' (of {npano} crops)</div>'
+            f'{heading_block}'
             f'<div>{f3}</div>'
             f'<div class="reason"><i>{r.get("reasoning", "")}</i></div>'
             f'</div>'
@@ -170,9 +245,19 @@ def build():
 
     body = []
     counts = {}
+    rng = None
+    if args.random:
+        import random as _rand
+        rng = _rand.Random(args.seed)
     for title, anchor, cls, desc, predicate in sections:
-        matching = [r for r in rows if predicate(r)]
+        matching = [r for r in rows if predicate(r)
+                    and r.get("s_dino", 0) >= args.min_sim
+                    and (args.tier == 0
+                         or r.get("tier") == args.tier)]
         total = len(matching)
+        if rng is not None:
+            matching = matching[:]      # copy before shuffling
+            rng.shuffle(matching)
         shown = matching[:args.limit] if args.limit else matching
         counts[title] = (len(shown), total)
         body.append(
@@ -217,6 +302,9 @@ h1 {{ color: #1a1a1a; }}
 .info {{ font-size: 12px; color: #333; flex-grow: 1;
          padding: 4px 10px; max-width: 520px; line-height: 1.5; }}
 .info b {{ color: #1a1a1a; }}
+.info .calc {{ background: #f0f4fa; border-left: 3px solid #1f3a68;
+               padding: 4px 8px; margin: 6px 0; font-family:
+               "Consolas", monospace; font-size: 11px; line-height: 1.5; }}
 .info .reason {{ margin-top: 4px; color: #666; }}
 .good {{ color: #2d7d2d; font-weight: bold; }}
 .ok   {{ color: #b58900; }}
@@ -224,16 +312,27 @@ h1 {{ color: #1a1a1a; }}
 </style></head><body>
 <h1>GPS recovery sanity check</h1>
 <div class="intro">
-{summary_line} &nbsp;|&nbsp; top-{args.k} SV per frame
-&middot; cosine colour:
+{summary_line} &nbsp;|&nbsp; right side: <b>all 4 compass crops at
+top-1's pano</b>, sorted N&rarr;E&rarr;S&rarr;W; the highest-cosine
+crop is outlined in red &mdash; that's the direction the per-frame
+heading is computed from.<br>
+Cosine colour:
 <span class="good">&gt;0.75 strong</span> /
 <span class="ok">&ge;0.60 matched</span> /
 <span class="bad">&lt;0.60 weak</span>
+<br><br>
+<b>Heading formula</b> (cosine-weighted circular mean of the 4
+compass crops):
+&nbsp;<code>heading = atan2( &Sigma; cos<sub>i</sub>&middot;sin&theta;<sub>i</sub>,
+ &nbsp; &Sigma; cos<sub>i</sub>&middot;cos&theta;<sub>i</sub> )</code>
+&nbsp; where &theta;<sub>i</sub>&in;&#123;0&deg;,90&deg;,180&deg;,270&deg;&#125;
+and cos<sub>i</sub> is the cosine similarity of the query against that crop.
+Each row's info panel shows the worked numbers for that frame.
 <br><br><b>Jump:</b> {toc}
 </div>
 {''.join(body)}
 </body></html>"""
-    out = config.VIZ_DIR / "gps_recovery_grid.html"
+    out = config.VIZ_DIR / args.output
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     print(f"wrote {out}")
