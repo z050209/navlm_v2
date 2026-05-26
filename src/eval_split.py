@@ -1,0 +1,112 @@
+"""Build the held-out evaluation sets for the two ablations (slide 4).
+
+Reads annotations_<variant>.jsonl (the verifier-passed Phase B output)
+and produces TWO held-out test files:
+
+  eval_test_video.jsonl   — rows from the saturday_morning video only
+                            (new footage; "video / camera generalization")
+  eval_test_poi.jsonl     — rows whose destination POI sits in the
+                            held-out POI region (new destinations;
+                            "POI generalization")
+
+For the POI ablation the held-out POI list lives in `config.HOLDOUT_POIS`
+(if absent, the default is the 20 % of point POIs furthest from the
+centroid of all visited POIs — a clean spatial split). Training data
+becomes "everything not in the test set" — that filtering happens in
+src/derive_variants.py.
+
+  python -m src.eval_split                           # default annotations
+  python -m src.eval_split --input annotations_strict.jsonl
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import config                                  # noqa: E402
+
+DEFAULT_HOLDOUT_POIS = getattr(config, "HOLDOUT_POIS", set())
+
+
+def _holdout_pois(point_pois, frac=0.2):
+    """Spatial holdout: the 20 % furthest POIs from the visited centroid.
+    Deterministic — same input, same output."""
+    if not point_pois:
+        return set()
+    lats = [p["lat"] for p in point_pois]
+    lons = [p["lon"] for p in point_pois]
+    clat, clon = sum(lats) / len(lats), sum(lons) / len(lons)
+    scored = sorted(point_pois,
+                    key=lambda p: (p["lat"] - clat) ** 2
+                                 + (p["lon"] - clon) ** 2,
+                    reverse=True)
+    k = max(1, int(len(scored) * frac))
+    return {p["name"] for p in scored[:k]}
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    ap.add_argument("--input", default=None,
+                    help="annotations*.jsonl; default = latest in CITY_DIR")
+    ap.add_argument("--video", default=config.HOLDOUT_VIDEO,
+                    help=f"held-out video (default {config.HOLDOUT_VIDEO})")
+    ap.add_argument("--holdout-frac", type=float, default=0.2,
+                    help="POI fraction for the POI ablation (default 0.2)")
+    args = ap.parse_args()
+
+    if args.input:
+        in_path = Path(args.input)
+    else:
+        cand = sorted(config.CITY_DIR.glob("annotations*.jsonl"))
+        if not cand:
+            sys.exit("[eval_split] no annotations*.jsonl found in "
+                     f"{config.CITY_DIR}")
+        in_path = cand[-1]
+    print(f"[eval_split] in:  {in_path.name}", flush=True)
+
+    records = [json.loads(l) for l in in_path.open(encoding="utf-8")
+               if l.strip()]
+    records = [r for r in records if r.get("accepted")]
+    print(f"[eval_split] verifier-passed annotations: {len(records)}",
+          flush=True)
+
+    point_pois = [p for p in json.loads(
+        (config.CITY_DIR / "pois.json").read_text(encoding="utf-8"))
+        if p.get("lat") and p.get("lon")]
+    holdout = DEFAULT_HOLDOUT_POIS or _holdout_pois(
+        point_pois, args.holdout_frac)
+    print(f"[eval_split] holdout POIs: {len(holdout)} "
+          f"(first 8: {sorted(list(holdout))[:8]})", flush=True)
+
+    video_path = config.CITY_DIR / "eval_test_video.jsonl"
+    poi_path = config.CITY_DIR / "eval_test_poi.jsonl"
+    train_path = config.CITY_DIR / "eval_train.jsonl"
+
+    n_v = n_p = n_t = 0
+    with video_path.open("w", encoding="utf-8") as fv, \
+            poi_path.open("w", encoding="utf-8") as fp, \
+            train_path.open("w", encoding="utf-8") as ft:
+        for r in records:
+            line = json.dumps(r, ensure_ascii=False) + "\n"
+            in_video = r["video"] == args.video
+            in_poi = r["dest_name"] in holdout
+            if in_video:
+                fv.write(line); n_v += 1
+            if in_poi:
+                fp.write(line); n_p += 1
+            # train set = neither the holdout video nor the holdout POI
+            if not in_video and not in_poi:
+                ft.write(line); n_t += 1
+
+    print(f"[eval_split] eval_test_video: {n_v} -> {video_path.name}",
+          flush=True)
+    print(f"[eval_split] eval_test_poi:   {n_p} -> {poi_path.name}",
+          flush=True)
+    print(f"[eval_split] eval_train:      {n_t} -> {train_path.name}",
+          flush=True)
+
+
+if __name__ == "__main__":
+    main()
