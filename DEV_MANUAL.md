@@ -82,9 +82,9 @@ Later steps depend on earlier ones (a step's *needs* are noted).
 | 6d| **Re-run GPS+heading recovery** using the expanded VLM signal | `python -m src.gps_recovery --poi-scan poi_scan_cos0.75.jsonl --output gps_recovery_full.jsonl` | step 6c | ✅ — VLM-confirmed accepted 324 → 2,470 |
 | 7a| **Build OSM walking-graph pickle** (one-time, ~30 s, hits osmnx Overpass) | `python -m src.build_walking_graph` → `data/cities/zurich/osm_walking.pkl` | — | ✅ (script) |
 | 7 | **HMM road-snapping** on the VLM-agreed + top-30 POI cohort (~1,900 frames) | `python -m src.road_snap --input gps_recovery_full.jsonl --tier 1 --top-pois 30 --poi-field place_guess --output road_snapped.jsonl` | step 6d + 7a | ✅ (script) |
-| 7b| **Heading QC** — three-bearing cross-check (Q1 confidence ∧ Q2 segment ∧ Q3 temporal-difference). See §2.5b for the theory. | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | step 7 | ✅ (script) |
+| 7b| **Heading QC** — Q1-only (per-frame DINOv2 confidence `heading_gap ≥ 0.05`). See §2.5b for why Q2/Q3 were dropped from the filter. | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | step 7 | ✅ (script) |
 | 7c| Per-video route map (eyeball: do the polylines trace real walks?) | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | step 7b | ✅ (script) |
-| 7d| Heading-QC diagnostic plots (drop-reasons bar · \|Δseg\| / \|Δtd\| histograms · joint scatter · per-video pass rate) | `python -m src.viz_heading_qc` | step 7b | ✅ (script) |
+| 7d| Heading-QC diagnostic plots (KEPT vs Q1 fail · `heading_gap` histogram · per-video pass rate) | `python -m src.viz_heading_qc` | step 7b | ✅ (script) |
 | 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
 | 9 | **Annotation smoke** — 5 frames, Gemini 2.5 Pro, picked system prompt | `python -m src.annotate --limit 5 --prompt-variant strict` | step 7b | ✅ (script) |
 | 9b| Annotation QA map — eyeball direction-correctness | `python -m src.viz_annotate --sample 60` | step 9 | ✅ (script) |
@@ -611,53 +611,133 @@ filtering:
   bearings** — `heading_qc`'s Q3 bearing is computed from the snapped
   positions of frames `t-k` and `t+k`, so it lives downstream of HMM.
 
-### 2.5b Heading QC — three-bearing cross-check (`src/heading_qc.py`)
+### 2.5b Heading QC — per-frame DINOv2 confidence (Q1 only)
 
-For each frame `t` in a video's chronological sequence we have **three
-bearings** that should agree (within tolerance) if heading recovery
-is correct. heading_qc keeps a frame only when all three pass.
+heading_qc keeps a frame iff its per-frame DINOv2 heading is
+unambiguous at the matched Street View pano:
 
 ```
-         heading_recovered          (where the CAMERA points,
-                  ^                  from per-frame DINOv2 same-pano
-                  |                  cosine-weighted mean)
-                  |
-                  x ──►  segment_bearing    (where the EDGE goes,
-                  |                          from HMM road-snap)
-                  |
-                  ▼
-            td_bearing               (where the WALKER actually moves,
-                                      from bearing(gps_snapped[t-k],
-                                                   gps_snapped[t+k]))
+Q1   heading_gap >= 0.05    (default; tighten with --min-gap)
+
+     where heading_gap = (best_cos - 2nd_best_cos) / best_cos,
+     computed at the 4 compass crops of the matched SV pano.
 ```
 
-When the videographer faces forward while walking forward along the
-street, all three arrows point the same way. Disagreements isolate
-different failure modes:
+heading_gap measures how confidently DINOv2 picked one of the 4 SV
+directions (N/E/S/W) at the matched pano. **High gap** → one direction
+clearly dominates → the cosine-weighted circular mean used as the
+recovered heading is trustworthy. **Low gap** (< 0.05) → two
+near-equal cosines (typically a front/back-symmetric facade where
+the building looks roughly the same in opposite directions) → the
+heading is essentially a coin flip; drop the frame.
 
-| Check | Tests | When it fails it means |
-|---|---|---|
-| **Q1** `heading_gap ≥ 0.05`                          | per-frame DINOv2 confidence (top-1 vs 2nd-best margin at the *same* pano) | front/back symmetric building → direction undecidable from this frame alone |
-| **Q2** `\|heading − segment_bearing\| ≤ 60°`         | recovered heading agrees with the snapped OSM edge | per-frame heading wrong, OR HMM snapped to a parallel street one block over |
-| **Q3** `\|heading − td_bearing\| ≤ 60°`              | recovered heading agrees with the walker's actual motion (from neighbour snapped GPS, window=3 frames each side) | camera is rotated off the walking direction — e.g. the videographer turned to look at a landmark while walking past |
+**What was tried before and dropped (history).** The first two
+iterations of heading_qc also enforced two motion-based checks:
 
-**Why three checks, not just one.** Each isolates a different failure
-mode that the others miss:
-- Q2 alone fails the videographer-turned-to-look-at-a-landmark case —
-  the camera and the walking edge disagree, but the camera is "right"
-  about what it sees. Q3 catches this because the walker is moving
-  along the edge.
-- Q3 alone fails the parallel-street-snap case — the walker's GPS-
-  derived motion is along their actual edge, which is fine, but the
-  HMM snapped to a parallel street whose bearing nearly matches.
-  Q2 catches this when the segment bearing is off by more than 60°.
-- Q1 alone fails when both Q2 and Q3 agree on a wrong direction (the
-  same pano's 0° and 180° crops both score high → mean is ambiguous,
-  HMM lined up by chance). Q1 just refuses to trust such a frame.
+  - Q2: `|recovered − segment_bearing| ≤ 60°` (camera vs the HMM-snapped OSM edge)
+  - Q3: `|recovered − td_bearing| ≤ 60°` (camera vs the bearing
+        derived from neighbouring snapped GPS,
+        `bearing(gps_snapped[t-3], gps_snapped[t+3])`)
 
-**Q3 is skipped** when the walker is stationary at `t`
-(`|gps[t+k] − gps[t-k]| < 3 m`) — TD bearing is ill-defined for
-near-zero displacement.
+Both Q2 and Q3 silently assume the videographer is in continuous
+forward walking — camera aligned with the next OSM edge, with the
+walker actually moving along that edge during the t−3..t+3 window.
+**Neither assumption survives contact with the data.** Two reasons:
+
+1. **The cohort is pHash-deduped at extraction.** Visually similar
+   consecutive 1-fps frames collapse to one, so the surviving rows
+   are scenically-distinct moments rather than a temporally-continuous
+   sequence. On the 2,028-frame top-30 cohort the median real-time
+   span of the t−3..t+3 window is **32.5 s** (p90 = 176 s, max =
+   761 s). A bearing computed across "where I was 30 s ago" vs "where
+   I'll be 30 s from now" has no defensible relationship to the
+   walker's facing at t. Even shrinking the window to k=1 with a
+   temporal-budget gate left a large fraction of frames with no
+   usable td signal; the rest had 3 m of net displacement that could
+   equally well have come from "walked straight 30 s" or "stopped
+   25 s then walked 5 s".
+
+2. **These are walking-tour videos.** A defining behaviour of the
+   genre is pausing at landmarks to film them from multiple angles —
+   the walker stops, rotates the camera left to film a facade, then
+   right to film the next, then resumes walking. Every stop-and-look
+   frame has a *correct* per-frame camera heading that bears no
+   relationship to the nearest OSM walking edge. Q2 wrongly flagged
+   these as "DINOv2 must be wrong, since camera doesn't agree with
+   the edge". Q3 had the same flaw plus the temporal-sparsity
+   problem above.
+
+The decision sequence on the same 2,028-frame top-30 cohort:
+
+| heading_qc version | kept | what changed |
+|---|---:|---|
+| v1: Q1 ∧ Q2 ∧ Q3 (no gating)                | 691 (34 %) | Q2/Q3 spuriously rejected stop-and-look + temporally-isolated frames |
+| v2: Q1 ∧ (motion-gated Q2) ∧ (motion-gated Q3) | 1,169 (58 %) | Motion gate skipped Q2/Q3 when walker stationary or no TD signal; still falsely failed some moving stop-and-look frames |
+| **v3 (current): Q1 only**                   | **1,697 (84 %)** | Drop Q2/Q3 from the hard filter entirely; they cannot be made reliable on a pHash-deduped cohort |
+
+Q1 alone catches what it can catch reliably — the symmetric-pano
+ambiguity that *is* a per-frame DINOv2 failure mode and that *doesn't*
+need a temporal context to detect. Frames with `heading_gap ≥ 0.05`
+are kept; their per-frame heading is good enough for the teacher
+annotator's purposes. Frames with `heading_gap < 0.05` are dropped
+because there is no per-pano evidence to pick a direction.
+
+**Measured on 2026-05-26** (`gps_recovery_full.jsonl` →
+`road_snap --tier 1 --top-pois 30` → `heading_qc`):
+
+```
+N considered (the HMM-snapped, top-30 cohort):  2,028 frames
+  dropped Q1 (heading_gap < 0.05):                331  (16 %)
+  KEPT → trusted_frames.jsonl:                  1,697  (84 %)
+
+heading_gap distribution:
+  median = 0.127     p25 = 0.072     p75 = 0.219
+```
+
+Per-video kept counts (held-out `saturday_morning` in **bold**):
+
+| video | considered | kept | pass |
+|---|---:|---:|---:|
+| looks_perfect    |  582 | 484 | 83 % |
+| most_elegant     |  256 | 232 | 91 % |
+| hidden_streets   |  286 | 221 | 77 % |
+| old_town_limmat  |  228 | 196 | 86 % |
+| most_famous      |  209 | 183 | 88 % |
+| **saturday_morning** |  172 | **149** | 87 % |
+| zurich_main      |  168 | 143 | 85 % |
+| bahnhofstrasse   |  127 |  89 | 70 % |
+| **total** | **2,028** | **1,697** | **84 %** |
+
+Pass rates land in a narrow 70–91 % band across videos including the
+eval hold-out — Q1 is not systematically biased against any one
+video's footage.
+
+**Drop-reasons bar** (KEPT vs Q1 fail):
+
+![heading_qc drop reasons](viz/heading_qc_dropreasons.png)
+
+**heading_gap histogram** — anything left of the red `0.05` line is
+dropped. The mass left of it is small and concentrated near 0, which
+is exactly where the symmetric-facade cases live:
+
+![heading_qc gap histogram](viz/heading_qc_gap_hist.png)
+
+**Per-video pass rate:**
+
+![heading_qc per-video pass rate](viz/heading_qc_pervideo.png)
+
+**HMM road-snap stays in the pipeline** (step 7 in §2.10) — its
+snapped GPS and `segment_id` are passed through to
+`trusted_frames.jsonl` because downstream annotation viz benefits
+from the smoothed positions. It just no longer feeds a heading
+filter.
+
+**Re-enabling Q2/Q3 for an ablation.** They can be put back as hard
+filters with `--use-q2 --use-q3`; in that mode the motion gate and
+temporal-window logic from v2 still apply. Useful for an ablation
+study showing "what does the answer-quality look like when we use
+the stricter motion checks?" — not the default because the default
+should be honest about what evidence we actually have.
 
 **Why 60° tolerances.** The 4 action verbs (continue, left, right,
 around) bin direction into 90° quadrants. We need the recovered
@@ -1121,9 +1201,9 @@ override with `--output road_snapped.jsonl`.)
 | 6d | `src/gps_recovery.py` | `poi_scan_cos0.75.jsonl`, `frames_n1_l0.npz`, `pois.json` | `gps_recovery_full.jsonl` | `python -m src.gps_recovery --poi-scan poi_scan_cos0.75.jsonl --output gps_recovery_full.jsonl` | Re-runs the F1/F2/F3 filter with the expanded VLM signal. Same DINOv2 cache, same F1 cosine floor, same neighborhood radius — only the `--poi-scan` source changes. ~12 s (no API, no DINOv2 re-embedding — pre-cached matmul only). See §2.5 *The `--poi-scan` lever* for the side-by-side measurement. |
 | 7a | `src/build_walking_graph.py` | `config.POI_BBOX + 300 m margin` | `osm_walking.pkl` (UTM-projected) | `python -m src.build_walking_graph` | One-time osmnx download of central-Zurich's pedestrian network, projected to UTM 32N for fast cKDTree nearest-node lookup. Run on 2026-05-25: **17,996 nodes / 48,218 edges, 7.7 MB**. Re-run with `--force` to refresh. |
 | 7  | `src/road_snap.py` | `gps_recovery_full.jsonl` + `osm_walking.pkl` | `road_snapped.jsonl` (per-frame `{gps_snapped, gps_raw, segment_id, segment_bearing, segment_length_m, snap_offset_m}`) | `python -m src.road_snap --input gps_recovery_full.jsonl --tier 1 --top-pois 30 --poi-field place_guess --output road_snapped.jsonl` | HMM (Newson-Krumm Viterbi). **Filters input to (`tier=1` AND `place_guess ∈ top-30 POIs`)** so HMM works on the same cohort the teacher annotator will use (§2.7). Run on 2026-05-25: 2,470 VLM-agreed → 2,028 after top-30 → **2,028 snapped in 2 min 28 s**. Set `--top-pois 0` to disable the POI filter and snap all 2,470 VLM-agreed frames. |
-| 7b | `src/heading_qc.py` | `gps_recovery_full.jsonl` + `road_snapped.jsonl` | `trusted_frames.jsonl` + `heading_qc_diagnostics.jsonl` | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | Three-bearing cross-check (§2.5b): Q1 `heading_gap≥0.05` ∧ Q2 `\|Δseg\|≤60°` ∧ Q3 `\|Δtd\|≤60°`. Run on 2026-05-25: 2,028 considered → **691 kept (34 %)**; Q1 fail 331, Q2 fail 499, Q3 fail 507 (first-fail counting). saturday_morning hold-out kept 61. |
+| 7b | `src/heading_qc.py` | `gps_recovery_full.jsonl` + `road_snapped.jsonl` | `trusted_frames.jsonl` + `heading_qc_diagnostics.jsonl` | `python -m src.heading_qc --input gps_recovery_full.jsonl --snapped road_snapped.jsonl --output trusted_frames.jsonl` | Q1-only filter (§2.5b): `heading_gap ≥ 0.05`. Q2/Q3 were tried and dropped — pHash-deduped frames have no reliable temporal continuity to support motion-based checks; stop-and-look frames are real and should not be filtered. Run on 2026-05-26: 2,028 considered → **1,697 kept (84 %)**; Q1 fail 331. saturday_morning hold-out kept **149**. |
 | 7c | `src/viz_routes.py` | `trusted_frames.jsonl` | `viz/routes_trusted_frames.html` | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | Per-video colour-coded polyline of the surviving frames, optional heading arrows. **Inspect before annotating** — every video's polyline should look like a walking path, not a teleporting cloud. |
-| 7d | `src/viz_heading_qc.py` | `heading_qc_diagnostics.jsonl` (written by step 7b) | 5 PNGs under `viz/heading_qc_*.png` | `python -m src.viz_heading_qc` | Drop-reasons bar (Q1/Q2/Q3 first-fail counting), \|Δseg\| & \|Δtd\| histograms, joint Q2/Q3 scatter, per-video pass rate. The audit for the three-bearing cross-check in §2.5b. |
+| 7d | `src/viz_heading_qc.py` | `heading_qc_diagnostics.jsonl` (written by step 7b) | 3 PNGs under `viz/heading_qc_*.png` | `python -m src.viz_heading_qc` | KEPT vs Q1 fail bar, `heading_gap` histogram with the 0.05 line, per-video pass rate. The audit for the Q1 filter in §2.5b. |
 | 9  | `src/annotate.py` | `trusted_frames.jsonl` + `pois.json` + `osm_walking.pkl` | `annotations_<variant>.jsonl` (5 rows × 3 dests = 15 (frame,dest) pairs) | `python -m src.annotate --limit 5 --prompt-variant strict` | **Smoke first.** 80/10/10 distance-banded destination sampling, OSM route, Gemini 2.5 Pro CoT+answer, closed-loop verifier (`δ<30°`). ~$0.07. Inspect every row by hand. |
 | 9b | `src/viz_annotate.py` | latest `annotations_*.jsonl` | `viz/annotate_<stem>.html` | `python -m src.viz_annotate --sample 60` | Per (frame, destination): green = passed, red = failed verifier; click for photo + spoken answer + thinking + δ. **The decision point** — if "turn left" answers point the wrong way on the map, regenerate with a different system prompt. |
 | 9c | `src/annotate.py` | as 9 | `annotations_<variant>.jsonl` (full ≈ 5–6 k rows) | `python -m src.annotate --prompt-variant <chosen>` | Full batch with the chosen system prompt. Resume-safe (skips already-done (video, frame, dest)). ≈ $76 on Pro/Vertex. |
