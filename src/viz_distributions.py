@@ -45,16 +45,31 @@ def load_rows(path, tier, accepted_only):
     return rows
 
 
-def plot_poi_bar(rows, out_path, top_n=30):
-    """Horizontal bar chart of POI -> frame-count. Uses
-    `dino_nearest_name` as the POI label (the OSM POI nearest the
-    matched Street View pano)."""
+POI_FIELD_TITLES = {
+    "place_guess":       "VLM-named OSM POI (place_guess)",
+    "dino_nearest_name": "DINOv2-nearest OSM POI (dino_nearest_name)",
+    "vlm_guess_raw":     "VLM raw guess (vlm_guess_raw, pre-OSM-resolution)",
+}
+
+
+def plot_poi_bar(rows, out_path, top_n=30, field="place_guess"):
+    """Horizontal bar chart of POI -> frame-count.
+
+    `field` picks which POI column to count:
+      place_guess        — the OSM POI the VLM named (after alias
+                           resolution). The user-facing answer to
+                           "what POIs did the VLM check identify?".
+      dino_nearest_name  — the OSM POI nearest the matched SV pano
+                           (geometric, ignores the VLM).
+      vlm_guess_raw      — the VLM's free-text guess BEFORE OSM
+                           resolution (more strings, includes misses).
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    counts = collections.Counter(r.get("dino_nearest_name", "") or "—"
-                                  for r in rows)
+    counts = collections.Counter((r.get(field) or "—") for r in rows)
+    counts.pop("—", None)
     common = counts.most_common(top_n)
     names = [n for n, _ in common][::-1]            # bottom -> top
     vals = [c for _, c in common][::-1]
@@ -63,7 +78,7 @@ def plot_poi_bar(rows, out_path, top_n=30):
     distinct = len(counts)
 
     h = max(4, 0.28 * len(names) + 1.0)
-    fig, ax = plt.subplots(figsize=(8, h))
+    fig, ax = plt.subplots(figsize=(9, h))
     bars = ax.barh(names, vals, color="#2a9d8f", edgecolor="#1d6a5d")
     for bar, v in zip(bars, vals):
         ax.text(v + max(vals) * 0.005, bar.get_y() + bar.get_height() / 2,
@@ -71,7 +86,7 @@ def plot_poi_bar(rows, out_path, top_n=30):
     ax.set_xlabel(f"frame count (top {top_n} of {distinct} POIs; "
                   f"shown {shown}/{total} = {100*shown/total:.0f}%)")
     ax.set_title(f"POI distribution — {len(rows)} VLM-agreed frames\n"
-                 f"(POI = DINOv2-nearest OSM POI to the matched SV pano)")
+                 f"({POI_FIELD_TITLES.get(field, field)})")
     ax.set_axisbelow(True)
     ax.grid(axis="x", linestyle=":", color="#aaa", alpha=0.5)
     fig.tight_layout()
@@ -151,6 +166,11 @@ def main():
                     help="filter rows by tier (default 1 = VLM-agreed only)")
     ap.add_argument("--top-n", type=int, default=30,
                     help="POIs to show in the bar chart")
+    ap.add_argument("--poi-field", default="place_guess",
+                    choices=list(POI_FIELD_TITLES.keys()),
+                    help="which column to count: place_guess (VLM-named "
+                         "OSM, default), dino_nearest_name (geometric), "
+                         "or vlm_guess_raw (pre-resolution)")
     ap.add_argument("--bin-deg", type=int, default=15,
                     help="heading bin width in degrees (rose plot)")
     ap.add_argument("--prefix", default="vlm_agreed",
@@ -167,10 +187,13 @@ def main():
     viz_dir = config.VIZ_DIR
     viz_dir.mkdir(parents=True, exist_ok=True)
 
-    poi_path = viz_dir / f"poi_distribution_{args.prefix}.png"
-    distinct, total = plot_poi_bar(rows, poi_path, top_n=args.top_n)
+    poi_path = (viz_dir /
+                f"poi_distribution_{args.prefix}_{args.poi_field}.png")
+    distinct, total = plot_poi_bar(rows, poi_path,
+                                    top_n=args.top_n,
+                                    field=args.poi_field)
     print(f"[viz_distributions] {distinct} distinct POIs across "
-          f"{total} sightings -> {poi_path}")
+          f"{total} sightings (column={args.poi_field}) -> {poi_path}")
 
     rose_path = viz_dir / f"heading_rose_{args.prefix}.png"
     rmax, rsum = plot_heading_rose(rows, rose_path, bin_deg=args.bin_deg)
