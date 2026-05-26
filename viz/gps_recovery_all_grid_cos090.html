@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>NavLM v2 - GPS recovery sanity check</title>
+<style>
+body { font-family: Arial, sans-serif; background: #f5f5f5;
+        margin: 16px; }
+h1 { color: #1a1a1a; }
+.intro { background: #e9edf4; padding: 10px 14px; border-radius: 6px;
+          margin-bottom: 16px; font-size: 13px; }
+.divider { padding: 12px 14px; color: white; font-weight: bold;
+            margin: 22px 0 10px 0; border-radius: 6px; font-size: 15px; }
+.divider .desc { font-weight: normal; font-size: 12px; margin-top: 4px;
+                  opacity: 0.95; }
+.divider.good { background: #2d7d2d; }
+.divider.bad  { background: #cc3333; }
+.divider.warn { background: #9933cc; }
+.row { display: flex; gap: 8px; margin-bottom: 10px; background: white;
+        padding: 8px; border-radius: 6px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        align-items: flex-start; }
+.cell { text-align: center; flex-shrink: 0; }
+.cell img { width: 210px; height: auto; border-radius: 4px; }
+.cell.q img { border: 3px solid #1f3a68; }
+.cell:not(.q) img { border: 2px solid #ccc; }
+.label { font-size: 11px; color: #555; margin-top: 4px; }
+.info { font-size: 12px; color: #333; flex-grow: 1;
+         padding: 4px 10px; max-width: 520px; line-height: 1.5; }
+.info b { color: #1a1a1a; }
+.info .calc { background: #f0f4fa; border-left: 3px solid #1f3a68;
+               padding: 4px 8px; margin: 6px 0; font-family:
+               "Consolas", monospace; font-size: 11px; line-height: 1.5; }
+.info .reason { margin-top: 4px; color: #666; }
+.good { color: #2d7d2d; font-weight: bold; }
+.ok   { color: #b58900; }
+.bad  { color: #cc3333; }
+</style></head><body>
+<h1>GPS recovery sanity check</h1>
+<div class="intro">
+ACCEPTED: <b>0/0</b> &nbsp;|&nbsp; DISAGREE: <b>0/0</b> &nbsp;|&nbsp; VLM UNRESOLVED: <b>0/0</b> &nbsp;|&nbsp; right side: <b>all 4 compass crops at
+top-1's pano</b>, sorted N&rarr;E&rarr;S&rarr;W; the highest-cosine
+crop is outlined in red &mdash; that's the direction the per-frame
+heading is computed from.<br>
+Cosine colour:
+<span class="good">&gt;0.75 strong</span> /
+<span class="ok">&ge;0.60 matched</span> /
+<span class="bad">&lt;0.60 weak</span>
+<br><br>
+<b>Heading formula</b> (cosine-weighted circular mean of the 4
+compass crops):
+&nbsp;<code>heading = atan2( &Sigma; cos<sub>i</sub>&middot;sin&theta;<sub>i</sub>,
+ &nbsp; &Sigma; cos<sub>i</sub>&middot;cos&theta;<sub>i</sub> )</code>
+&nbsp; where &theta;<sub>i</sub>&in;&#123;0&deg;,90&deg;,180&deg;,270&deg;&#125;
+and cos<sub>i</sub> is the cosine similarity of the query against that crop.
+Each row's info panel shows the worked numbers for that frame.
+<br><br><b>Jump:</b> <a href="#accepted" class="good">jump to ACCEPTED</a> &nbsp;&middot;&nbsp; <a href="#disagree" class="bad">jump to DISAGREE</a> &nbsp;&middot;&nbsp; <a href="#vlm_unresolved" class="warn">jump to VLM UNRESOLVED</a>
+</div>
+<div id="accepted" class="divider good">ACCEPTED &mdash; showing 0 of 0<div class="desc">Trustworthy frames — DINOv2 ≥ 0.6, VLM resolved, F3 (semantic OR ≤150 m) passed.</div></div><div id="disagree" class="divider bad">DISAGREE &mdash; showing 0 of 0<div class="desc">Both signals available but pointing to different places (>150 m apart AND OSM name mismatch).</div></div><div id="vlm_unresolved" class="divider warn">VLM UNRESOLVED &mdash; showing 0 of 0<div class="desc">DINOv2 matched but the VLM's raw guess didn't resolve to any OSM POI — these names may be real places missing from our OSM table.</div></div>
+</body></html>
