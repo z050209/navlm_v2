@@ -86,7 +86,7 @@ Later steps depend on earlier ones (a step's *needs* are noted).
 | 7c| Per-video route map for the **trusted** cohort (eyeball: do the polylines trace real walks?) | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` | step 7b | ✅ — `viz/routes_trusted_frames.html` (1,697 frames, 8 videos). See §2.5c. |
 | 7d| Heading-QC diagnostic plots (KEPT vs Q1 fail · `heading_gap` histogram · per-video pass rate) | `python -m src.viz_heading_qc` | step 7b | ✅ — 3 PNGs under `viz/heading_qc_*.png`. See §2.5b. |
 | 7e| **Sample-50 photo grid** for the **trusted** cohort (data sanity check on the actual training input) | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --filter-from trusted_frames.jsonl --output trusted_frames_grid_50.html --limit 50 --random --seed 42` | step 7b | ✅ — `viz/trusted_frames_grid_50.html` (50 of 1,697 trusted). See §2.5c. |
-| 7f| **Per-video route comparison** (recovered walk dark→light gradient vs OSM ideal shortest path, overlaid per video) | `python -m src.viz_route_compare` | step 7 + 7a | ✅ — `viz/route_compare_per_video.html` (8 toggleable per-video layers; 2,028 frames in, OSM shortest-path overlay via osm_walking.pkl). See §2.5d. |
+| 7f| **Per-video route comparison + POI grid context** (recovered walk dark→light gradient vs OSM ideal per video, with the 30 POI destination markers always-on and the 435 POI-pair routes available as a toggleable background) | `python -m src.viz_route_compare` | step 7 + 7a + 7b | ✅ — `viz/route_compare_per_video.html` (8 per-video layers + 30 POI markers + 435 POI-pair routes; all toggleable). See §2.5d. |
 | 7g| **Complete POI-pair route grid** (C(30,2) = 435 OSM shortest paths overlaid across the top-30 destinations — heatmaps the main corridors) | `python -m src.viz_poi_route_grid --input trusted_frames.jsonl --top-n 30 --output viz/poi_route_grid.html` | step 7b + 7a | ✅ — `viz/poi_route_grid.html` (30 ranked markers + 435 viridis_r-coloured routes). See §2.5f. |
 | 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
 | 9 | **Annotation smoke** — 5 frames, Gemini 2.5 Pro, picked system prompt | `python -m src.annotate --limit 5 --prompt-variant strict` | step 7b | ✅ (script) |
@@ -788,9 +788,22 @@ Markers per video:
 - red pin = end frame
 - blue pin = middle waypoint used by the OSM shortest path
 
-The LayerControl (top right of the map) toggles videos on/off; the
-legend (top left) shows each video's dark/base/light gradient swatches
-+ frame count + OSM node count.
+**Plus two POI-grid layers** (the same content as §2.5f's standalone
+`viz/poi_route_grid.html` overlaid into this map for context):
+
+- **top-30 POI destination pool** — 30 ranked markers with name
+  labels. Default **ON** — useful context for every video; lets you
+  see at a glance which destinations any video walked past.
+- **435 POI-pair OSM routes** — the complete C(30,2) grid as faded
+  thin lines, coloured short→long by `viridis_r`. Default **OFF**
+  (toggle in the layer control) so per-video lines stay readable
+  when you first open the page. Turn it on to see the full
+  "tour-route" graph the annotator can sample from.
+
+The LayerControl (top right of the map) toggles videos / POI markers
+/ POI route grid independently; the legend (top left) shows each
+video's dark/base/light gradient swatches + frame count + OSM node
+count, and notes which layers are on by default.
 
 What you can spot in this view:
 - segments where the recovered polyline jumps far off the OSM graph

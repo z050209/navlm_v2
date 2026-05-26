@@ -33,12 +33,17 @@ Comparing the two polylines per video answers:
 
 import argparse
 import collections
+import itertools
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config                                  # noqa: E402
+from src.viz_poi_route_grid import (           # noqa: E402
+    _osm_path_latlon as _osm_path_pair,
+    top_poi_centroids,
+)
 
 VIDEO_COLORS = {
     "bahnhofstrasse":   "#e6194B",
@@ -127,7 +132,96 @@ def _osm_path_latlon(G, start_latlon, mid_latlon, end_latlon,
     return [_node_latlon(n) for n in nodes]
 
 
-def build_map(per_video, G, is_projected, to_latlon, to_proj):
+def _add_poi_grid_layers(m, poi_rows, G, is_projected, to_latlon,
+                          to_proj, top_n=30):
+    """Add two layers to the map: (a) top-N POI markers labelled by
+    rank + name (default ON), (b) all C(N,2) OSM shortest paths
+    between the POIs as a faded background heatmap (default OFF, so
+    the per-video lines stay readable when the user opens the page)."""
+    import folium
+    import matplotlib.cm as cm
+    import matplotlib.colors as mcolors
+
+    pois = top_poi_centroids(poi_rows, top_n, field="place_guess")
+    if not pois:
+        print("[viz_route_compare] no POI rows available for the grid "
+              "layer (skipped)", flush=True)
+        return
+
+    # ─── 435-route background (off by default — toggle to enable)
+    routes_fg = folium.FeatureGroup(
+        name=f"top-{len(pois)} POI route grid ({len(pois)*(len(pois)-1)//2} "
+             f"OSM paths)  [off by default]",
+        show=False)
+    pairs = list(itertools.combinations(range(len(pois)), 2))
+    print(f"[viz_route_compare] computing POI-pair grid "
+          f"({len(pairs)} paths) …", flush=True)
+    lengths = []
+    paths = []
+    for i, j in pairs:
+        a, b = pois[i], pois[j]
+        path = _osm_path_pair(G, (a["lat"], a["lon"]),
+                               (b["lat"], b["lon"]),
+                               to_latlon, to_proj, is_projected)
+        if not path or len(path) < 2:
+            continue
+        # rough length for colouring (sum of haversine segments — close
+        # enough for visual sorting)
+        import math
+        R = 6_371_000.0
+        L = 0.0
+        for (la1, lo1), (la2, lo2) in zip(path, path[1:]):
+            p1, p2 = math.radians(la1), math.radians(la2)
+            dphi = math.radians(la2 - la1)
+            dlam = math.radians(lo2 - lo1)
+            a_ = (math.sin(dphi / 2) ** 2
+                  + math.cos(p1) * math.cos(p2) * math.sin(dlam / 2) ** 2)
+            L += 2 * R * math.asin(math.sqrt(a_))
+        lengths.append(L)
+        paths.append((pois[i]["name"], pois[j]["name"], path, L))
+    if paths:
+        lmin, lmax = min(lengths), max(lengths)
+        cmap = cm.get_cmap("viridis_r")
+        for name_a, name_b, path, L in paths:
+            frac = (L - lmin) / max(1.0, lmax - lmin)
+            folium.PolyLine(
+                path, color=mcolors.to_hex(cmap(frac)),
+                weight=2, opacity=0.15,
+                tooltip=f"{name_a} → {name_b}  ({L:.0f} m)",
+            ).add_to(routes_fg)
+    routes_fg.add_to(m)
+    print(f"[viz_route_compare] POI grid: {len(paths)} paths added "
+          f"(toggle on in the layer control)", flush=True)
+
+    # ─── POI markers (default ON — useful context for every video)
+    pois_fg = folium.FeatureGroup(
+        name=f"top-{len(pois)} POIs (destination pool)", show=True)
+    counts = [p["count"] for p in pois]
+    cmax, cmin = max(counts), min(counts)
+    rank_cmap = cm.get_cmap("Reds")
+    for rank, p in enumerate(pois, 1):
+        frac = (p["count"] - cmin) / max(1.0, cmax - cmin)
+        fill = mcolors.to_hex(rank_cmap(0.35 + 0.55 * frac))
+        folium.CircleMarker(
+            [p["lat"], p["lon"]], radius=7, color="#000",
+            weight=1, fill=True, fill_color=fill, fill_opacity=0.95,
+            tooltip=f"#{rank}  {p['name']}  ({p['count']} frames)",
+        ).add_to(pois_fg)
+        folium.map.Marker(
+            [p["lat"], p["lon"]],
+            icon=folium.DivIcon(
+                icon_size=(140, 18), icon_anchor=(-8, 8),
+                html=(f'<div style="font:11px/1.1 system-ui;'
+                      f'color:#222;background:rgba(255,255,255,0.88);'
+                      f'padding:1px 4px;border:1px solid #888;'
+                      f'border-radius:3px;display:inline-block;">'
+                      f'{rank}. {p["name"]}</div>')),
+        ).add_to(pois_fg)
+    pois_fg.add_to(m)
+
+
+def build_map(per_video, G, is_projected, to_latlon, to_proj,
+              poi_rows=None, top_n=30):
     import folium
 
     W, S, E, N = config.POI_BBOX
@@ -135,6 +229,14 @@ def build_map(per_video, G, is_projected, to_latlon, to_proj):
                    tiles="cartodbpositron")
     folium.Rectangle(bounds=[[S, W], [N, E]],
                      color="#000", weight=1, fill=False).add_to(m)
+
+    # POI grid layers — added FIRST so they sit beneath the per-video
+    # polylines in z-order (the routes layer is off by default; the
+    # POI markers are on so each per-video map has destination
+    # context).
+    if poi_rows:
+        _add_poi_grid_layers(m, poi_rows, G, is_projected, to_latlon,
+                              to_proj, top_n=top_n)
 
     summary = []
     for video, rows in sorted(per_video.items()):
@@ -220,10 +322,14 @@ def build_map(per_video, G, is_projected, to_latlon, to_proj):
         'background:white;padding:8px 12px;border:1px solid #888;'
         'font:13px/1.4 system-ui;max-width:380px">'
         '<b>Per-video route comparison</b><br>'
-        '<span style="color:#888">━ ━ ━</span> OSM ideal '
-        '(shortest path start→mid→end)<br>'
-        '<span style="color:#444">━━━</span> recovered (actual walk) — '
-        '<i>dark→light = start→end</i><br>'
+        '<span style="color:#888">━ ━ ━</span> OSM ideal per video '
+        '(shortest start→mid→end, video hue)<br>'
+        '<span style="color:#444">━━━</span> recovered walk '
+        '— <i>dark→light = start→end</i><br>'
+        '<span style="color:#c0392b">●</span> top-30 POI destination '
+        'pool (always-on layer)<br>'
+        '<span style="color:#888">grid</span> 435 POI-pair OSM routes '
+        '(toggle <i>OFF by default</i>)<br>'
         '<br>'
         + "<br>".join(legend_chips)
         + '</div>')
@@ -245,6 +351,15 @@ def main():
                                 "route_compare_per_video.html"))
     ap.add_argument("--only", default="",
                     help="render only one video (dataset name)")
+    ap.add_argument("--poi-input",
+                    default=str(config.CITY_DIR / "trusted_frames.jsonl"),
+                    help="jsonl whose place_guess column ranks the top-N "
+                         "destination POIs to overlay (default: "
+                         "trusted_frames.jsonl — same 30 POIs the "
+                         "annotator will use). Pass --no-poi-grid to skip.")
+    ap.add_argument("--poi-top-n", type=int, default=30)
+    ap.add_argument("--no-poi-grid", action="store_true",
+                    help="skip the POI grid layers entirely")
     args = ap.parse_args()
 
     def _resolve(p):
@@ -295,7 +410,30 @@ def main():
         to_proj = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
         print(f"[viz_route_compare] graph CRS: {crs}", flush=True)
 
-    m = build_map(per_video, G, is_projected, to_latlon, to_proj)
+    # Load POI-cohort rows (separate from per_video — typically the
+    # trusted_frames.jsonl with `place_guess` and `gps`).
+    poi_rows = []
+    if not args.no_poi_grid:
+        poi_path = _resolve(args.poi_input)
+        if poi_path.exists():
+            for line in poi_path.open(encoding="utf-8"):
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                if r.get("accepted") is False:
+                    continue
+                if r.get("gps") is None:
+                    continue
+                poi_rows.append(r)
+            print(f"[viz_route_compare] POI grid source: {poi_path.name} "
+                  f"({len(poi_rows)} rows)", flush=True)
+        else:
+            print(f"[viz_route_compare] POI grid source not found: "
+                  f"{poi_path} — skipping POI grid", flush=True)
+
+    m = build_map(per_video, G, is_projected, to_latlon, to_proj,
+                  poi_rows=poi_rows if poi_rows else None,
+                  top_n=args.poi_top_n)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     m.save(str(out))
