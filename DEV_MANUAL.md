@@ -88,6 +88,7 @@ Later steps depend on earlier ones (a step's *needs* are noted).
 | 7e| **Sample-50 photo grid** for the **trusted** cohort (data sanity check on the actual training input) | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --filter-from trusted_frames.jsonl --output trusted_frames_grid_50.html --limit 50 --random --seed 42` | step 7b | ✅ — `viz/trusted_frames_grid_50.html` (50 of 1,697 trusted). See §2.5c. |
 | 7f| **Per-video route comparison + POI grid context** (recovered walk dark→light gradient vs OSM ideal per video, with the 30 POI destination markers always-on and the 435 POI-pair routes available as a toggleable background) | `python -m src.viz_route_compare` | step 7 + 7a + 7b | ✅ — `viz/route_compare_per_video.html` (8 per-video layers + 30 POI markers + 435 POI-pair routes; all toggleable). See §2.5d. |
 | 7g| **Complete POI-pair route grid** (C(30,2) = 435 OSM shortest paths overlaid across the top-30 destinations — heatmaps the main corridors) | `python -m src.viz_poi_route_grid --input trusted_frames.jsonl --top-n 30 --output viz/poi_route_grid.html` | step 7b + 7a | ✅ — `viz/poi_route_grid.html` (30 ranked markers + 435 viridis_r-coloured routes). See §2.5f. |
+| 7h| **Heading-direction sanity check** (split-pane: map of N frames + heading arrows ⟷ scrollable photo gallery with per-card compass) | `python -m src.viz_heading_check --n 30 --seed 42` | step 7b | ✅ — `viz/heading_check.html` (30 random trusted frames; click any card to fly the map). See §2.5c. |
 | 8 | other visualizations | `python -m src.poi --map` · `python -m src.viz` | varies | ✅/⏳ |
 | 9 | **Annotation smoke** — 5 frames, Gemini 2.5 Pro, picked system prompt | `python -m src.annotate --limit 5 --prompt-variant strict` | step 7b | ✅ (script) |
 | 9b| Annotation QA map — eyeball direction-correctness | `python -m src.viz_annotate --sample 60` | step 9 | ✅ (script) |
@@ -456,9 +457,10 @@ relative — without a floor an argmax always returns *something*).
 > v1 (178 panos × 4 headings). The script embeds both sets (CLS-token,
 > cached to `data/cities/zurich/dinov2/*.npz`), computes top-K cosine,
 > prints the top-1 distribution, and writes an HTML grid
-> `viz/dinov2_match_test.html` partitioned by `--min-sim` (default 0.60)
-> — **MATCHED** rows (top-1 ≥ threshold, sorted desc) and **NO MATCH**
-> rows.
+> an HTML grid partitioned by `--min-sim` (default 0.60) —
+> **MATCHED** rows (top-1 ≥ threshold, sorted desc) and **NO MATCH**
+> rows. (The pilot HTML was 27 MB and was cleaned up; re-generate
+> locally if you want to inspect.)
 >
 > **How the pilot was actually run** (reproducible):
 >
@@ -754,6 +756,7 @@ label-extraction pipeline so the docs and the artifacts stay in sync.
 | **`viz/routes_trusted_frames.html`** | Per-video coloured polylines + heading arrows on a Leaflet map for all **1,697 trusted_frames**. Saturday_morning hold-out is plotted in black so it's visually distinguishable. Click any frame dot for video name, frame_id, heading, heading_gap. **Use this to eyeball that every video's recovered route traces a plausible walking path** (not a teleporting cloud). | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` |
 | **`viz/trusted_frames_grid_50.html`** | Random **50 of 1,697 trusted frames** rendered as the per-frame photo grid: QUERY photo + the 4 compass crops at the matched SV pano + the chosen-direction red outline + heading_gap + VLM info. **Use this to spot-check that DINOv2 actually picked the right pano direction for trusted frames** — pick a row, see what the camera shows, see which of the 4 SV crops it matched. `--filter-from trusted_frames.jsonl` intersects the gps_recovery_full schema with the trusted-frames key set, so the photo-grid rendering still works (the trusted_frames schema is thinner). | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --filter-from trusted_frames.jsonl --output trusted_frames_grid_50.html --limit 50 --random --seed 42` |
 | **`viz/gps_recovery_full_grid_vlm_agreed_50.html`** | Random **50 of 2,470 VLM-agreed** (the cohort **before** heading_qc) — also showing 50 of DISAGREE and 50 of VLM_UNRESOLVED for compare-and-contrast. **Use this to understand what Q1 (and the F1/F2/F3 reconcile gate) rejected.** The DISAGREE section especially is informative: VLM and DINOv2 named different places at the same frame. | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --tier 1 --limit 50 --random --seed 42 --output gps_recovery_full_grid_vlm_agreed_50.html` |
+| **`viz/heading_check.html`** | **Heading-direction sanity check, split-pane**: interactive Leaflet map of N=30 random trusted frames with their heading arrows (left), scrollable photo gallery (right) with photo + compass widget + GPS/heading/place_guess/HMM-edge-bearing per card. Click a card to fly the map to that frame and flash its marker. Quick way to scan "does the recovered heading match what the photo shows?" — the symmetric-pano flips (~180° wrong) jump out because the compass needle points the opposite way from the photo's view. | `python -m src.viz_heading_check --n 30 --seed 42` |
 
 Open each with `file:///C:/Users/z0502/Desktop/cs231n/navlm_v2/viz/<name>.html`.
 
@@ -1882,24 +1885,20 @@ Standalone HTML in `viz/`:
      = clean crawl bbox + 300 m (centroid-clipped, recommended);
      grey dashed = raw scan bbox + 300 m.
    - Run: `python -m src.viz_scan`.
-3. **DINOv2 match grid** — v2 video frames matched against the 712 v1
-   Street View images, rows sorted by top-1 cosine descending and
-   split MATCHED / NO MATCH at the `--min-sim` threshold (default
-   0.60). ✅ built — `src/dinov2_match.py` →
-   `viz/dinov2_match_test.html`. The grid is the visual sanity check
-   for "is the existing SV reference set sufficient for our routes?".
-   Run: `python -m src.dinov2_match --every-n 40 --min-sim 0.60`.
-4. **GPS-recovery map** — every reconciled frame on a Leaflet map,
-   coloured by video for accepted; toggleable layers for `disagree`,
-   `dino_weak`, `vlm_unresolved`. ✅ built — `src/viz_recovery.py` →
-   `viz/gps_recovery_map.html`.
-5. **GPS-recovery per-frame photo grid** — for each frame: QUERY photo
+3. **DINOv2 match grid** *(pilot run, kept only as a script)* — v2
+   video frames matched against the v1 712 SV images; sanity check
+   for the pilot. ✅ script — `src/dinov2_match.py`. The current
+   production index is 4,431 SV crops (§2.4 run-table row 5); the
+   pilot HTML was 27 MB and was cleaned up — re-generate locally with
+   `python -m src.dinov2_match --every-n 40 --min-sim 0.60` if needed.
+4. **GPS-recovery per-frame photo grid** — for each frame: QUERY photo
    + the **4 compass crops at top-1's pano** (the heading-decision
    evidence), with the chosen direction red-outlined; info panel with
    POI-to-POI distance, F3 outcome, `heading_gap`, and the **worked
-   atan2 heading calculation** for that frame. ✅ built —
-   `src/viz_recovery_grid.py` → `viz/gps_recovery_grid.html`.
-   Sections: ACCEPTED / DISAGREE / VLM UNRESOLVED.
+   atan2 heading calculation** for that frame. ✅ built — see
+   `viz/trusted_frames_grid_50.html` (50 of 1,697 trusted) and
+   `viz/gps_recovery_full_grid_vlm_agreed_50.html` (50 of 2,470
+   VLM-agreed, pre-heading_qc). See §2.5c.
 6. Bought Street View panos highlighted on the map.
 7. Recovered video-frame GPS on the map, **overlaid with the POI region
    polygons (Q8)** — so each frame's area and POI assignment (§3) is
@@ -1965,8 +1964,10 @@ navlm_v2/
    `sv_v1.npz` and `frames_n1_l0.npz` (26,034 × 768).
 7. ✅ **GPS+heading recovery — initial run** (`gps_recovery_all.jsonl`,
    `--poi-scan poi_scan.jsonl`, every-30 sample). 324 VLM-confirmed
-   accepted; 16,108 visual-match accepted. Viz:
-   `viz/gps_recovery_map.html` + `viz/gps_recovery_grid.html`.
+   accepted; 16,108 visual-match accepted. (Old per-pilot maps were
+   cleaned up; see `viz/routes_trusted_frames.html` and
+   `viz/gps_recovery_full_grid_vlm_agreed_50.html` for the current
+   equivalents.)
 8. ✅ **VLM expansion at cos≥0.75** (`_vlm_test.py`) — re-scan the
    visual-match frames at cos≥0.75 with Pro to give them a VLM signal.
    **4,019 fresh Pro scans + 82 verbatim copies = 4,101 rows** in
