@@ -2750,6 +2750,136 @@ when done: `modal volume get navlm-ckpts /lora_given_r16_e2 ./`.
 | navlm-eval app (zero-shot runs) | https://modal.com/apps/z050209/main/navlm-eval |
 | Storage volumes | https://modal.com/storage/z050209/main/navlm-data |
 
+### 4.4d First measured runs on Modal — smoke + sweeps in flight (2026-05-29)
+
+The first attempts surfaced two real production gotchas worth
+recording so the next person doesn't relearn them.
+
+**Gotcha 1 — Git Bash mangled the Modal volume destination paths.**
+Windows Git Bash's MSYS path-conversion rewrote leading `/eval/...`
+and `/sft/...` to `C:/Program Files/Git/eval/...` before
+`modal volume put` saw them. Files landed at the wrong path on the
+volume; container couldn't find them. Fix: prepend
+`MSYS_NO_PATHCONV=1` to every modal volume command on Windows:
+
+```powershell
+$env:MSYS_NO_PATHCONV = "1"      # PowerShell
+# or
+MSYS_NO_PATHCONV=1 modal volume put ...   # Git Bash
+```
+
+The session ran with this enabled from that point onward. The old
+mangled `C:` directory still sits on the `navlm-data` volume root
+(harmless dead weight; can be deleted via the Modal UI).
+
+**Gotcha 2 — frames volume only had test frames at first.** I
+staged only the 406 frames referenced by `eval_test_{video,poi}.jsonl`
+to the volume, which made the zero-shot smoke succeed but caused
+the SFT training to fail on the very first batch:
+`RuntimeError: batch contained no resolvable images`. Fix: rebuild
+the staging dir to include the 1,087 training-set frames too — total
+694 unique frames (some overlap between train and test), 300 MB,
+~2 min upload.
+
+**Smoke result — B-given × video, 20 frames, no anchor check
+(2026-05-29 01:18 PT):**
+
+```
+condition       N    format     dir    ckpt  anchor    PASS
+B-given        20    90.00%  10.00%  100.00%  100.00%  10.00%
+median_delta: 90° — typically a full quadrant off the right direction
+```
+
+Base Qwen2.5-VL-7B with heading explicitly given picks the wrong
+verb 90 % of the time — actively worse than random (random would be
+~25 % for 4 verbs). This is the floor the LoRA needs to beat in §4.4c.
+Smoke cost ~$0.30 / ~10 min wall-time on A100-40GB.
+
+#### The 7 ablations currently in flight — exact commands
+
+After the smoke validated the pipeline, **7 Modal app invocations
+were fired**: 6 zero-shot eval cells (3 base conditions × 2
+ablations) + 1 SFT training run. The commands, with the right
+working directory and `MSYS_NO_PATHCONV` set, are:
+
+```powershell
+cd C:\Users\z0502\Desktop\cs231n\navlm_v2
+$env:MSYS_NO_PATHCONV = "1"
+
+# ───── 6 zero-shot eval cells ─────────────────────────────────────
+# Each `--condition all` invocation runs B-given, B-implicit,
+# B-explicit in the same Modal function (3 cells in one cold start);
+# fired twice — once per ablation.
+python -m modal run eval_modal.py --condition all --ablation video --no-anchor
+python -m modal run eval_modal.py --condition all --ablation poi   --no-anchor
+
+# Total: 3 conditions × 176 video frames + 3 conditions × 483 poi
+# frames = 528 + 1,449 = 1,977 base-model inferences.
+# ~3 h wall-time, ~$6 on A100-40GB.
+
+# ───── 1 SFT training (L-given variant) ──────────────────────────
+python -m modal run train_modal.py --variant given
+# A100-80GB, 1,087 training rows × 2 epochs at lr=2e-4. ~3-6 h, ~$22.
+# Output: navlm-ckpts:/lora_given_r16_e2/{adapter_model.safetensors,
+# adapter_config.json, summary.json, history.json}.
+```
+
+Tally: **2 eval calls + 1 train call = 3 Modal app invocations**;
+they expand to **6 eval cells + 1 SFT run = 7 ablations** in the
+matrix slot sense.
+
+| # | Ablation slot | Modal app | Wall-time est. | Cost est. |
+|---|---|---|---:|---:|
+| 1 | B-given × video | navlm-eval | ~45 min | ~$1.5 |
+| 2 | B-implicit × video | navlm-eval (same call) | ~45 min | ~$1.5 |
+| 3 | B-explicit × video | navlm-eval (same call) | ~45 min | ~$1.5 |
+| 4 | B-given × poi | navlm-eval | ~2 h | ~$4 |
+| 5 | B-implicit × poi | navlm-eval (same call) | ~2 h | ~$4 |
+| 6 | B-explicit × poi | navlm-eval (same call) | ~2 h | ~$4 |
+| 7 | L-given SFT training | navlm-train | ~3-6 h | ~$22 |
+| | **total** | | **~6-8 h** | **~$38** |
+
+(Cells 1-3 share one cold start; cells 4-6 share another. Total of
+2 cold-starts + 1 training cold-start = 3 Modal invocations on the
+user's billing account.)
+
+**What's NOT in this round:** the 3 L-* eval cells (need the SFT to
+finish first), the L-implicit and L-explicit SFT runs (will fire
+after L-given's behaviour is verified), and the anchor-faithfulness
+metric (`--no-anchor` was passed to all 6 zero-shot cells to keep
+the smoke cheap; can be re-run later with the Gemini Flash anchor
+check enabled if the directional / format / checkpoint numbers
+look promising).
+
+#### Where results go
+
+```
+navlm-eval  →  /<run_id>/B-given__video/{per_sample.jsonl, summary.json}
+                          B-implicit__video/...
+                          B-explicit__video/...
+                          (same triple under .../...__poi/...)
+
+navlm-ckpts →  /lora_given_r16_e2/
+                    ├── adapter_config.json
+                    ├── adapter_model.safetensors      ← the LoRA weights
+                    ├── summary.json  (variant, lr, r, alpha,
+                    │                   n_train, n_val, final_eval_loss)
+                    └── history.json  (per-step loss + per-epoch eval_loss)
+```
+
+Pull back to disk when done:
+
+```powershell
+$env:MSYS_NO_PATHCONV = "1"
+python pull_eval.py <run_id>            # also prints the 6×2 PASS matrix
+modal volume get navlm-ckpts /lora_given_r16_e2 ./
+```
+
+Live dashboards:
+
+- <https://modal.com/apps/z050209/main/navlm-eval>
+- <https://modal.com/apps/z050209/main/navlm-train>
+
 ### 4.5 Running the 6×2 experiment matrix on Modal
 
 Slide 4/5 of `milestone2/NavLM_milestone2.pptx` defines **6 conditions
