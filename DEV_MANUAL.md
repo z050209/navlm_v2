@@ -3601,6 +3601,92 @@ level**, so the metrics become enforceable at eval time too.
 | **Fire L-implicit + L-explicit SFT + their 4 eval cells** | Completes the 6×2 matrix. L-explicit is the slide-4 main result (the "compass-free" condition that has to infer heading from the photo) | ~$60 |
 | **Fire the 3 missing B-* × poi cells** | Completes the zero-shot baseline row of the matrix | ~$8 |
 
+#### 4.7.7 Mid-attempt expansion — adding the iconic POIs the frame-count filter dropped
+
+A side audit (during attempt 1, after the first L-given results) showed
+that of the 27 hand-curated **iconic Zurich POIs** in `src/poi.py:
+CANDIDATE_POIS`, only 11 made it into the current 30-POI destination
+pool. The other 16 (Grossmünster, Fraumünster, St. Peter,
+Bellevueplatz, Sechseläutenplatz, Bürkliplatz, Polyterrasse, Rathaus,
+Stadthaus, Opernhaus, Kunsthaus, Landesmuseum, Globus, Jelmoli,
+Paradeplatz, Zürichsee) were either *missing entirely* (no video
+walked past) or *had VLM-agreed frames but lost out* to busy old-town
+streets in the top-N frame-count ranking.
+
+The "tourist would actually ask for these" landmarks were absent
+from the dataset. Audit by `gps_recovery_full.jsonl tier=1 accepted`
+counts:
+
+| Famous POI | VLM-agreed frames | status |
+|---|---:|---|
+| Grossmünster | 22 | ✓ added in expansion |
+| Bellevue (= Bellevueplatz) | 19 | ✓ added |
+| Sechseläutenplatz | 16 | ✓ added |
+| St. Peterhofstatt (= St. Peter area) | 15 | ✓ added |
+| Grossmünsterplatz | 13 | ✓ added |
+| Fraumünster | 12 | ✓ added |
+| Landesmuseum | 6 | ✓ added |
+| Stadthaus | 3 | borderline — under min_count=5 |
+| Bürkliplatz / Zürichsee / St. Peter | 1 each | borderline |
+| Paradeplatz / Rathaus / Opernhaus / Kunsthaus / Polyterrasse / Globus / Jelmoli | 0 | videos never showed them |
+
+**Decision: union 7 famous POIs (≥5 frames) into the destination pool.**
+The expanded pool becomes 30 (frame-count top) + 7 (famous-with-evidence) = **37 distinct POIs**.
+
+**Implemented in `src/road_snap.py`:**
+
+```python
+# new constant — the 27 iconic POIs from src/poi.py rendered as the
+# OSM-canonical names that appear in gps_recovery's place_guess
+FAMOUS_OSM_NAMES = {
+    'Zürich Hauptbahnhof', 'Hauptbahnhof', 'Lindenhof', 'Paradeplatz',
+    'Münsterhof', 'Fraumünster', 'Grossmünster', 'Grossmünsterplatz',
+    'St. Peter', 'St. Peterhofstatt', 'Bellevue', 'Bellevueplatz',
+    'Sechseläutenplatz', 'Bürkliplatz', 'Quaibrücke', 'Münsterbrücke',
+    'Rathausbrücke', 'Rathaus', 'Stadthaus', 'Opernhaus', 'Kunsthaus',
+    'Landesmuseum', 'Schweizerisches Nationalmuseum', 'Polyterrasse',
+    'Globus', 'Jelmoli', 'Bahnhofstrasse', 'Niederdorfstrasse',
+    'Limmatquai', 'Rennweg', 'Limmat', 'Zürichsee',
+}
+
+# new --include-famous flag (default ON) + --famous-min-count (default 5)
+pool = top_n_pois ∪ {famous in FAMOUS_OSM_NAMES with count ≥ min_count}
+```
+
+**Cohort growth:**
+
+```
+                    before     after expansion
+  road_snapped       2,028     2,131   (+103)
+  trusted_frames     1,697     1,796   (+99 after Q1)
+```
+
+Per-video deltas — `most_famous` (+24) and `saturday_morning` (+30)
+got the most lift because those two videos walk past more of the
+newly-added churches/squares.
+
+**Annotation cost — incremental, no re-doing.** The current
+`annotations_strict.jsonl` (already ~5,000 rows on the OLD 1,697-frame
+cohort) does NOT get re-annotated. `src/annotate.py` is resume-safe:
+on a second invocation against the bigger `trusted_frames.jsonl` it
+skips every `(video, frame_id, dest_name)` already in the output and
+processes only the new ~99 frames × 3 destinations ≈ **~297 fresh
+Pro calls, ~$6.50, ~4 h**.
+
+**Watchdog wiring.** `_watchdog_annotate_incremental.py` polls the
+main annotation log every 90 s for the `=== annotation summary ===`
+marker; when it fires, it runs the same `python -m src.annotate
+--limit 0 --prompt-variant strict --seed 42` command. Resume logic
+in annotate.py handles the deduplication automatically. Currently
+running as bg task; will fire ~1 h from now when the main batch
+finishes.
+
+**What this buys:** the destination pool now contains the
+tourist-iconic landmarks (Grossmünster, Fraumünster, etc.) that
+would have been embarrassing to omit from a "navigate-to-POI"
+benchmark. Attempt 2's L-given retrain will use the expanded
+pool (~1,796 source frames × 3 destinations from 37 POIs).
+
 ---
 
 ## 5. Visualizations

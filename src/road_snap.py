@@ -146,6 +146,39 @@ def top_n_pois(rows, n, field="place_guess"):
     return [name for name, _ in common]
 
 
+# The 27 canonical "iconic" Zurich POIs from src/poi.py:CANDIDATE_POIS,
+# expressed as the OSM-canonical names that actually appear in the
+# `place_guess` column of gps_recovery_full.jsonl. Some entries have
+# multiple acceptable spellings because OSM has either a longer or a
+# nearby-feature variant (e.g. St. Peter the church resolves via the
+# adjacent square St. Peterhofstatt; Lake Zurich is "Zürichsee").
+FAMOUS_OSM_NAMES = {
+    # stations / hills / squares / churches / bridges
+    "Zürich Hauptbahnhof", "Hauptbahnhof",
+    "Lindenhof", "Paradeplatz", "Münsterhof",
+    "Fraumünster", "Grossmünster", "Grossmünsterplatz",
+    "St. Peter", "St. Peterhofstatt",
+    "Bellevueplatz", "Bellevue", "Sechseläutenplatz", "Bürkliplatz",
+    "Quaibrücke", "Münsterbrücke", "Rathausbrücke",
+    # civic / culture / stores
+    "Rathaus", "Stadthaus", "Opernhaus", "Kunsthaus",
+    "Landesmuseum", "Schweizerisches Nationalmuseum",
+    "Polyterrasse", "Globus", "Jelmoli",
+    # streets / water
+    "Bahnhofstrasse", "Niederdorfstrasse", "Limmatquai", "Rennweg",
+    "Limmat", "Zürichsee",
+}
+
+
+def famous_pois_with_evidence(rows, min_count=1, field="place_guess"):
+    """Famous POIs (from CANDIDATE_POIS) that show up in `rows` at
+    least `min_count` times. Returns the OSM names (the form that
+    appears in the rows' `field`)."""
+    import collections
+    counts = collections.Counter((r.get(field) or "") for r in rows)
+    return [n for n in sorted(FAMOUS_OSM_NAMES) if counts.get(n, 0) >= min_count]
+
+
 def _node_latlon(graph, node, to_latlon_xform):
     """Return (lat, lon) for a node, regardless of whether the graph is
     in lat/lon (EPSG:4326) or projected. For projected graphs we use
@@ -275,6 +308,21 @@ def main():
                          "the top-N most common (default 30; "
                          "matches the §2.7 destination pool). "
                          "0 = no POI filter.")
+    ap.add_argument("--include-famous", action="store_true", default=True,
+                    help="ALSO include any of the 27 iconic POIs "
+                         "(from src/poi.py:CANDIDATE_POIS) that have "
+                         "at least --famous-min-count VLM-agreed "
+                         "frames. Default ON — restores famous POIs "
+                         "(Grossmünster, Fraumünster, etc.) that the "
+                         "top-N frame-count filter would otherwise "
+                         "drop. Use --no-include-famous to disable.")
+    ap.add_argument("--no-include-famous", dest="include_famous",
+                    action="store_false")
+    ap.add_argument("--famous-min-count", type=int, default=5,
+                    help="minimum VLM-agreed frames for a famous POI "
+                         "to be added (default 5 — gives meaningful "
+                         "per-POI statistics; lower to 1 to include "
+                         "every famous POI with any evidence at all).")
     ap.add_argument("--poi-field", default="place_guess",
                     help="which column to use for the top-N filter "
                          "(default place_guess; alt: dino_nearest_name)")
@@ -313,9 +361,29 @@ def main():
         top = set(top_n_pois(rows, args.top_pois, field=args.poi_field))
         print(f"[road_snap] top-{args.top_pois} {args.poi_field}: "
               f"{sorted(top)[:6]}...", flush=True)
-        rows = [r for r in rows if (r.get(args.poi_field) or "") in top]
-        print(f"[road_snap] after top-{args.top_pois} POI filter: "
-              f"{len(rows):,} frames", flush=True)
+
+        # Union the iconic 27 famous POIs (src/poi.py:CANDIDATE_POIS)
+        # that have at least --famous-min-count VLM-agreed frames.
+        # This restores famous landmarks (Grossmünster, Fraumünster,
+        # St. Peter, Bellevueplatz, Sechseläutenplatz, Landesmuseum,
+        # Grossmünsterplatz, …) that the raw top-N frame-count filter
+        # would otherwise drop because they appear less often than
+        # busy old-town streets.
+        pool = set(top)
+        if args.include_famous:
+            famous = set(famous_pois_with_evidence(
+                rows, min_count=args.famous_min_count,
+                field=args.poi_field))
+            added = sorted(famous - top)
+            pool |= famous
+            print(f"[road_snap] +famous (>= {args.famous_min_count} "
+                  f"frames, not in top-{args.top_pois}): "
+                  f"{len(added)} POIs added — {added}",
+                  flush=True)
+        rows = [r for r in rows if (r.get(args.poi_field) or "") in pool]
+        print(f"[road_snap] after pool filter (top {args.top_pois} + "
+              f"famous): {len(rows):,} frames "
+              f"({len(pool)} distinct POIs)", flush=True)
 
     with graph_path.open("rb") as f:
         G = pickle.load(f)
