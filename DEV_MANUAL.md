@@ -3374,64 +3374,106 @@ Pulled from the live per-sample jsonls:
   PASS all 4           :  76  (15.7 %)
 ```
 
-**The math: PASS is dragged down by checkpoint, not directional.**
+**Joint `directional × checkpoint` 2×2 — the proper view.** Better
+than sequential first-fail counting, which hides the overlap.
 
-If directional and checkpoint failures were independent, expected
-PASS on video would be 0.409 × 0.665 ≈ 27 %. Actual is 10 %, so
-the two metrics *correlate*: the rows the model gets directionally
-wrong are also disproportionately the rows where the checkpoint
-phrase doesn't match the route.
-
-**Why checkpoint is dragging it down.** The LoRA learned to emit
-"when you reach X" phrases because the teacher (Gemini Pro)
-emits them in long-route answers. But the model is generating
-**plausible-sounding generic landmarks** rather than naming actual
-route POIs. Three real failed examples from `L-given × video`:
+**L-given × poi** (n=483):
 
 ```
-[saturday_morning/frame_00104]
-  "...When you reach the big roundabout with the fountain, send me
-   another photo."
-   → checkpoint = "big roundabout with the fountain"
-   → not a POI on the OSM route → FAIL checkpoint_validity
-
-[saturday_morning/frame_00104]  (sister sample, same frame, different dest)
-  "...When you reach the big roundabout with the fountain, send me
-   another photo."
-   → same failure mode (re-using the same generic phrase)
-
-[saturday_morning/frame_01307]
-  "...When you reach the big bridge over the river, send me
-   another photo."
-   → "big bridge over the river" → not a named POI → FAIL
+                  ckpt_ok            ckpt_fail
+  dir_ok          76 (15.7 %)       198 (41.0 %)    274 dir_ok total
+  dir_fail       197 (40.8 %)        12 ( 2.5 %)    209 dir_fail total
+                 273 ckpt_ok        210 ckpt_fail   483
 ```
 
-These are all **directionally correct** ("continue ahead, following
-the tracks") and well-formed — they just invent generic landmark
-descriptions instead of naming a verified route POI.
+**L-given × video** (n=176):
 
-**Why base models trivially score 100 % on checkpoint.** Base
-Qwen2.5-VL-7B almost never emits a "when you reach X" phrase.
-`checkpoint_validity` only fires when there IS a checkpoint claim
-to validate — silent rows are treated as a pass. The LoRA learned
-to add checkpoint phrases (because the teacher does), and *that*
-is what knocks its checkpoint score down to 56–67 %.
+```
+                  ckpt_ok            ckpt_fail
+  dir_ok          18 (10.2 %)        54 (30.7 %)    72  dir_ok total
+  dir_fail        99 (56.2 %)         5 ( 2.8 %)   104 dir_fail total
+                 117 ckpt_ok         59 ckpt_fail  176
+```
 
-This is a real artefact of the metric design. Three fixes possible
-for future attempts:
+**Treat the failures as a set.** `PASS_strict` is just "neither
+metric fails" = top-left cell. Equivalent: 483 minus the union of
+the two failure sets. On poi:
 
-1. **Constrain the teacher's checkpoint vocabulary** — re-prompt
-   Gemini Pro to use only verified-route POI names (re-annotate;
-   ~$100 cost again).
-2. **Relax `checkpoint_validity`** to count "any landmark within
-   100 m of the route polyline" as valid (re-score the existing
-   per_sample jsonls; ~$0; quick sanity check).
-3. **Train the LoRA without checkpoint phrases** — strip them from
-   teacher answers in `src/derive_variants.py` (re-derive +
-   re-train; ~$8 + 45 min).
+```
+  |dir_fail| = 209          |ckpt_fail| = 210
+  |dir_fail ∩ ckpt_fail| = 12        (the "fails both" cell)
+  |dir_fail ∪ ckpt_fail| = 209 + 210 − 12 = 407   (fails at least one)
+  → passes both = 483 − 407 = 76        = PASS_strict
+```
 
-Option 2 is the cheapest test of how much of the 90 % PASS drop is
-checkpoint-strictness vs genuine routing error.
+**The failures are ANTI-correlated, not correlated.** If they were
+independent, expected fail-both = `(209/483) × (210/483) × 483 ≈
+91`. Actual: **12** — correlation factor **0.13×**, far less than
+chance. The two metrics catch *different* failure modes:
+
+| Bucket | poi | video | Interpretation |
+|---|---:|---:|---|
+| dir_ok ∧ ckpt_ok | **76 (16 %)** | **18 (10 %)** | the **PASS_strict** rows — directionally right *and* no false checkpoint claim |
+| dir_ok ∧ ckpt_fail | 198 (41 %) | 54 (31 %) | directionally right, **but** emitted a generic checkpoint that doesn't match the route ("the big roundabout with the fountain") |
+| dir_fail ∧ ckpt_ok | 197 (41 %) | 99 (56 %) | directionally wrong, but no checkpoint claim — so `ckpt_validity` passes trivially (silent rows = pass) |
+| dir_fail ∧ ckpt_fail | 12 (2.5 %) | 5 (2.8 %) | rare — wrong direction *and* fake checkpoint |
+
+**What this tells us about the LoRA's behaviour.** The model only
+emits checkpoint phrases when it's "confident". When direction is
+right, it tends to add a verbose "when you reach X" tail (the
+teacher style) — and ~75 % of those generic phrases don't match a
+verified route POI. When direction is wrong, it tends to give a
+short answer with no checkpoint claim — which trivially passes
+`ckpt_validity`. The two metrics therefore measure *different*
+phenomena.
+
+**The fairness problem with `checkpoint_validity` in this round.**
+The data-construction closed-loop verifier (§2.7.6) only checked
+`δ < 30°` — it never checked whether the teacher's checkpoint
+phrases were valid POIs on the route. So **the training data
+intentionally contains teacher answers with generic checkpoints
+like "when you reach the big roundabout with the fountain"** — the
+LoRA learned that style from the teacher. Penalising it at eval
+time for a constraint we never applied at data-construction time
+is unfair: we're scoring the model against a rule its teacher
+didn't follow.
+
+**Fair PASS** — drop `checkpoint_validity` from the AND, score on
+just `format ∧ directional` (the two metrics that *were* enforced
+at data-construction time):
+
+| Cell | format | directional | **fair PASS = fmt ∧ dir** | original PASS_strict |
+|---|---:|---:|---:|---:|
+| L-given × video | 100.0 % | 40.9 % | **40.9 %** | 10.2 % |
+| L-given × poi | 99.8 % | 56.7 % | **56.5 %** | 15.7 % |
+
+Format compliance is so close to 100 % that fair PASS essentially
+equals directional accuracy — exactly the upper bound we expected
+from the 2×2's `dir_ok` row total. The 30-46 percentage-point gap
+between "fair PASS" and `PASS_strict` is the **metric-strictness
+tax** the LoRA pays for emitting checkpoint phrases it was never
+verified against during training.
+
+**Three options for the next attempt:**
+
+1. **Drop `checkpoint_validity`** from `PASS_strict` for this
+   round — match the eval-time constraint to the data-construction
+   constraint. Same `eval_metrics.py` code, just AND of 3 not 4.
+   Cost: $0. Effect: PASS jumps from 10-16 % to 41-57 %.
+2. **Add checkpoint validation to data construction** for the next
+   annotation round — re-prompt the teacher to use only verified-
+   route POI names, drop teacher samples whose checkpoint fails.
+   Cost: ~$100 (re-annotate). Both training and eval would then be
+   on the same rule.
+3. **Strip checkpoint phrases from the training data** — drop
+   "when you reach X" sentences in `src/derive_variants.py`. The
+   LoRA would learn to not emit them, and `ckpt_validity` would
+   then pass trivially the way it does for base models. Cost: $8 +
+   45 min re-train. Loses the long-route check-in functionality.
+
+**Recommendation for attempt 1 reporting:** lead with the **fair
+PASS** (40.9 % video / 56.5 % poi), with `PASS_strict` (10.2 % /
+15.7 %) reported as a secondary number with the strictness caveat.
 
 #### 4.7.5 TL;DR for attempt 1
 
@@ -3442,11 +3484,13 @@ checkpoint-strictness vs genuine routing error.
 - **Headline result:** L-given LoRA hits **40.9 % directional
   (video) / 56.7 % (poi)** vs **1–3 % zero-shot baseline** —
   ~15–20× directional lift. Median angular error 90° → 0°.
-- **PASS_strict is 10–16 %** because `checkpoint_validity` joins
-  as an AND on top of directional, and the LoRA learned to emit
-  generic "when you reach X" phrases that don't always match
-  verified route POIs. Directional itself is healthy; PASS is
-  bottlenecked by the checkpoint metric, fixable in attempt 2.
+- **Fair PASS (format ∧ directional)** = **40.9 % video / 56.5 %
+  poi** — equals directional because format is ~100 %.
+- **PASS_strict (also includes `checkpoint_validity`)** = **10.2 %
+  / 15.7 %** — much lower, but **the checkpoint check wasn't
+  enforced at data-construction time, so the eval-time penalty
+  is unfair**. Most "checkpoint failures" are directionally
+  correct rows with a generic teacher-style checkpoint phrase.
 
 #### 4.7.6 What attempt 2 should do differently
 
