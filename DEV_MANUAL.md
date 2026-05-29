@@ -1361,98 +1361,312 @@ the route are reconciled exactly here: an absolute route bearing minus
 the recovered camera heading. A frame without a trustworthy heading
 cannot be turned into a relative instruction and is not used.
 
-### 2.7 Instruction-tuning annotation
+### 2.7 Instruction-tuning annotation — process, filtering, design
 
-The teacher VLM (**Gemini 2.5 Pro**) is given a frame + its GPS +
-heading + nearby POIs + the planned route, and produces `<thinking>`
-(6 labelled reasoning steps) + `<answer>` (2–4 TTS-friendly sentences,
-relative verbs anchored to a visible object).
+The teacher VLM (**Gemini 2.5 Pro** on Vertex AI) is given a frame +
+its GPS + heading + the planned route + nearby POIs, and produces
+`<thinking>` (6 labelled reasoning steps including an
+`INFERRED_HEADING` line) + `<answer>` (2–4 TTS-friendly sentences,
+relative verbs anchored to a visible object). Per-sample cost is
+**~$0.022** all-in (~$0.014 visible output + ~$0.008 of hidden
+"thinking" tokens Pro 2.5 burns internally). End-to-end implemented
+in `src/annotate.py`.
 
-**How each frame's samples are formed (Q6).** Per frame we draw **3
-destination POIs**, sampled by a **distance-band distribution** so most
-prompts are realistic short-range walks:
+#### 2.7.1 Inputs
 
-| Walking distance to destination | Share of the 3 |
-|---------------------------------|----------------|
-| ≤ 500 m (a few minutes)         | **80 %** |
-| 500–1000 m                      | **10 %** |
-| 1000–1500 m                     | **10 %** |
+| Source | What it carries | Used for |
+|---|---|---|
+| `trusted_frames.jsonl` (1,697 rows) | frame GPS, recovered heading, `place_guess`, `segment_id` | per-frame state — the user's "I am here, facing this way" |
+| top-30 POI pool (computed from the same file) | name + median GPS + frame-count rank | destination candidates (see §2.7.2) |
+| `pois.json` (1,289 entries) | name, geometry | "nearby POIs" context in the user message (radius 300 m, top-8) |
+| `osm_walking.pkl` (UTM 32N) | walking graph | `plan_route(start, dest)` → distance + first-segment bearing |
+| `frames/<video>/<frame_id>.jpg` | the photo | the visual input to Pro |
 
-**Destination pool — the top-30 POIs from the VLM-agreed cohort.**
-Rather than drawing destinations from the full 1,289 OSM POIs (most
-of which the videos never visit), or from all 105 VLM-resolved POIs
-(which has a long tail of 1-frame entries), we draw from the **top
-30 by frame count** in
-`viz/poi_distribution_vlm_agreed_place_guess.png` (§2.5). That set:
+Frames are loaded via `_load_trusted_frames()` (looks for
+`trusted_frames.jsonl` first, then `phaseA_trusted.jsonl`, then falls
+back to accepted rows of `gps_recovery_full.jsonl`).
 
-- captures the places the videos actually walk past (Bahnhofstrasse,
-  Augustinergasse, Niederdorfstrasse, Limmatquai, Hauptbahnhof,
-  Münsterhof, …);
-- excludes 1-frame singletons that would give the teacher no
-  cross-frame signal;
-- keeps the instruction-tuning set focused on destinations the user
-  could realistically ask for in Zurich's old town;
-- pairs cleanly with the **POI-region ablation** (§3) — split the
-  30 into train/test rather than partitioning the full 1,289 by
-  Voronoi distance.
+#### 2.7.2 Destination sampling — 80 / 10 / 10 with fallback bias
 
-Within each distance band the destination is drawn from this top-30
-pool. So a typical frame yields ≈ 2–3 short-range instructions plus
-the occasional longer one; across the dataset the 80/10/10 split
-holds. This decision is captured in `src/annotate.py` — the
-candidate set is the intersection of "within 1500 m of the frame's
-GPS" and "in the top-30 list".
+Per frame we sample **N = 3 destinations** from the **top-30 POI
+pool** restricted to `30 m ≤ haversine_distance ≤ 1500 m` (skips
+"you're already there" and "too far to walk"). Sampling is biased
+across three distance bands:
 
-Every sample is gated by a **closed-loop verifier**: parse the action
-verb from the answer, check `|heading + ACTION_DELTA[verb] −
-route_bearing| < 30°`. Samples that fail are dropped.
+| Distance band | Target share | Rationale |
+|---|---:|---|
+| ≤ 500 m (a few minutes) | **80 %** | the realistic "tourist asks for the next landmark" case — bulk of the dataset |
+| 500–1000 m | **10 %** | medium-range walks across the old town |
+| 1000–1500 m | **10 %** | cross-town routes that exercise multi-turn instructions |
 
-**Why 30° (Q5).** The 4 action verbs discretize heading into **4 bins of
-90°** (`ACTION_DELTA = {ahead 0, left −90, right +90, around 180}`); the
-boundary between "continue ahead" and a turn sits at ±45° — half a bin.
-A sample is "correct" if the required turn lands inside its verb's bin,
-i.e. within 45°. **30° is that 45° half-bin minus a ~15° safety margin**
-— it accepts a sample only when it sits comfortably inside the right
-bin, excluding borderline cases. It is a discretization-driven tolerance,
-not a deep result: loosen toward 45° for more data, tighten for cleaner
-labels.
+The pool source — top-30 by `place_guess` frequency in the
+VLM-agreed cohort (Bahnhofstrasse, Augustinergasse, Niederdorfstrasse,
+…; full list in §2.5f) — was chosen over the full 1,289-POI OSM
+table because: (a) it's the places the videos actually walk past; (b)
+it excludes 1-frame singletons that would give the teacher no
+cross-frame signal; (c) it pairs cleanly with the §3 POI-region
+ablation (split 30 into train/test).
 
-**Run 5–10 samples first.** The annotation module `src/annotate.py`
-takes a `--limit N` flag; we inspect every annotation (thinking +
-answer + verifier verdict) before the full run. It does the
-distance-banded destination sampling, the closed-loop verifier, and
-the teacher call `call_gemini(model="gemini-2.5-pro")`.
+**Algorithm** (`src/annotate.py:DIST_BANDS`, `sample_destinations`,
+lines 58 + 161–186):
 
-**Smoke run — 10 frames × 3 destinations (2026-05-26)** on
-`trusted_frames.jsonl` with `--prompt-variant strict`:
+```python
+DIST_BANDS = [(0, 500, 0.80), (500, 1000, 0.10), (1000, 1500, 0.10)]
+
+def sample_destinations(candidates, n=3, seed=0):
+    rng = random.Random(seed)
+    by_band = [[c for c in candidates if lo <= c[1] < hi]
+               for lo, hi, _ in DIST_BANDS]
+    weights = [share for _, _, share in DIST_BANDS]
+    pool    = sorted(candidates, key=lambda c: c[1])
+    chosen, used = [], set()
+    for _ in range(n):
+        band = rng.choices(range(len(DIST_BANDS)), weights=weights)[0]
+        opts = [c for c in by_band[band] if c[0] not in used]
+        if not opts:                                 # ← FALLBACK
+            opts = [c for c in pool if c[0] not in used]   # nearest unused
+        if not opts:
+            break
+        pick = rng.choice(opts)
+        chosen.append(pick)
+        used.add(pick[0])
+    return chosen
+```
+
+**The fallback clause** is the key design choice: when the random
+draw picks a band but the frame's candidate set has *no* unused POI
+in that band, the algorithm falls back to the **nearest unused
+candidate** from any band rather than skipping the slot. The result:
+
+- Every frame always emits 3 destinations even when geometry doesn't
+  support a perfect band draw (e.g., a frame deep in old-town has all
+  30 POIs clustered within 500 m, so the 1000–1500 m band is empty
+  for it).
+- The dataset's *measured* distribution drifts toward shorter
+  distances on those frames.
+
+**Measured distribution on the in-progress run** (2,722 of ~5,091
+rows so far, 2026-05-28):
+
+| Band | Target | Actual | Δ |
+|---|---:|---:|---:|
+| ≤ 500 m | 80 % | **83.9 %** | +3.9 % |
+| 500–1000 m | 10 % | **11.4 %** | +1.4 % |
+| 1000–1500 m | 10 % | **4.7 %** | −5.3 % |
+| > 1500 m | 0 % | 0 % | 0 |
+
+**Design decision: we accept the fallback bias.** The ≤ 500 m
+slight over-shoot and the 1000–1500 m under-shoot reflect the
+genuine geography of the cohort (top-30 POIs clustered inside the
+old town, ~1 km × 1 km). The alternatives — *skip the slot* (some
+frames would emit only 2 destinations) or *widen the pool to top-50
+to include farther-out POIs* (dilutes the "places that actually
+appear in the videos" property) — both have downsides we judged
+worse than the slight band drift. The training set is still
+dominated by short-range walks (the realistic case) with enough
+mid- and long-range coverage to teach multi-turn instructions.
+
+#### 2.7.3 User-message construction
+
+For every (frame, destination) pair, `build_user_msg` writes a short
+prompt:
+
+```
+My GPS: 47.37498, 8.53696
+My camera heading: 220° (0=N, 90=E)
+Destination: Grossmünster (a few blocks, first-segment bearing 130°)
+Walking-route distance: 480 m
+Nearby POIs:
+- Bahnhofstrasse
+- St. Peter
+- Münsterhof
+- ...
+Tell me what to do, in 2-4 spoken sentences, anchored to something
+I can actually see in the photo.
+```
+
+The heading line is included in the *training base*; downstream
+`src/derive_variants.py` strips it to produce the `implicit` and
+`explicit` variants (see §2.10 step 9d).
+
+#### 2.7.4 System prompt — 4 selectable variants
+
+`src/annotate.py:SYS_PROMPTS` defines four candidate teacher prompts;
+`--prompt-variant` picks one. The production run used `strict`
+(rigid 6-step CoT with named `INFERRED_HEADING` line — closest to
+the v1 navlm_ss prompt, and the format the L-explicit LoRA will
+learn). Alternatives:
+
+| variant | shape | use case |
+|---|---|---|
+| **strict** *(default, production)* | rigid 6-step CoT with named INFERRED_HEADING line | trains the explicit-CoT LoRA cleanly |
+| compact | paragraph CoT, no labelled steps | cheaper output tokens; loses explicit heading step |
+| reasoner | extends strict with a HEADING_REASONING block | use if the model is *guessing* heading instead of triangulating |
+| scene | front-loads visible-object enumeration, anchor must be from that list | counter-hallucination bias |
+
+The **user-message format is identical** across variants, so kept
+annotations from different variants can be mixed safely if needed.
+
+#### 2.7.5 The Pro call
+
+```python
+raw = call_gemini(
+    img_path, sys_prompt, user_msg,
+    model="gemini-2.5-pro",
+    max_tokens=8192,           # see §2.7.6 for why
+    label=f"annotate_{variant}_{video}_{frame_id}")
+```
+
+Backend: `vertex` (OAuth via gcloud, billed to project
+`cs231n-navlm-2026` on `My Billing Account 2`). Every call logged to
+`logs/gemini_api.jsonl` with prompt + output token counts, cost,
+finish reason, and the **full response text** for forensic inspection.
+
+#### 2.7.6 Closed-loop verifier — what defines a "kept" sample
+
+After the call, `parse_answer` extracts `<thinking>`, `<answer>`,
+and the **action verb** (one of `continue ahead` / `turn left` /
+`turn right` / `turn around`). The verifier is a pure geometric
+self-consistency check:
+
+```python
+ACTION_DELTA = {"continue ahead": 0, "turn left": -90,
+                "turn right":   90,  "turn around": 180}
+
+δ = abs( angle_diff( heading + ACTION_DELTA[verb], route_bearing ) )
+sample is KEPT iff verb is recognised AND δ < 30°.
+```
+
+Three numbers are known *before* Pro is even called:
+
+- `heading` — recovered camera direction (from `trusted_frames.jsonl`)
+- `route_bearing` — first-segment bearing of the OSM walking path to
+  the destination (from `routing.plan_route`)
+- `verb` — Pro's pick from the 4 action verbs
+
+If the user faces `heading` and performs `verb`, their new heading is
+`heading + ACTION_DELTA[verb]`. For the instruction to be *correct*,
+that new heading must point toward where they actually need to go
+(`route_bearing`). The verifier measures the gap and drops the sample
+when it's too large.
+
+**Why 30°.** The 4 verbs partition heading into **4 bins of 90°**;
+the boundary between "ahead" and a turn sits at ±45°. 30° = the 45°
+half-bin minus a 15° safety margin. Tighter (e.g., 20°) starts
+cutting samples whose heading is correct but where the segment
+bearing was computed from a slightly curved street; looser (e.g.,
+45°) lets borderline cases through. The 30° default is a
+discretization-driven tolerance, not a deep result; tunable via
+`--max-delta`.
+
+**Truncation-robust parsing.** `parse_answer` is forgiving of two
+real failure modes seen in the smoke:
+
+- `</thinking>` / `</answer>` closing tags missing — accepts
+  everything up to end-of-string
+- `<answer>` block missing entirely — falls back to extracting the
+  verb from a `STEP 5 ACTION:` line inside `<thinking>`, then any
+  of the 4 verbs anywhere in `<thinking>`
+
+Without these, a Pro response truncated mid-thinking (next section)
+would silently drop the sample.
+
+#### 2.7.7 max_tokens — the production gotcha
+
+The first smoke (`max_tokens=2048`) had **17 / 30 calls hit
+`MAX_TOKENS` mid-thinking**, producing empty `<answer>` blocks and a
+17 % pass rate. Investigation: Pro 2.5 burns an average of **~1,700
+"thinking tokens" per call** (hidden internal reasoning that counts
+against the same output budget). At 2048 total we had only ~300
+tokens left for the visible answer — usually not enough.
+
+`max_tokens` was bumped to **8192** (Pro 2.5 supports up to 65 536
+output). After the bump, pass rate jumped from 17 % → 73 % on the
+exact same 10 frames. The full production run uses 8192.
+
+#### 2.7.8 Output schema
+
+`data/cities/zurich/annotations_<variant>.jsonl`, one row per
+(frame, destination) pair. Fields:
+
+```jsonc
+{
+  "video":            "looks_perfect",
+  "frame_id":         "frame_00493",
+  "gps":              [47.37498, 8.53696],
+  "heading":          0.0,
+  "heading_gap":      0.21,
+  "dest_name":        "Niederdorfstrasse",
+  "dest_gps":         [47.37596, 8.54403],
+  "dest_dist_m":      386,
+  "route_bearing":    0,
+  "route_distance_m": 480,
+  "route_latlon":     [...],
+  "nearby_pois":      ["Bahnhofstrasse", "St. Peter", ...],
+  "prompt_variant":   "strict",
+  "raw_response":     "<thinking>...</thinking>\n<answer>...</answer>",
+  "thinking":         "STEP 1 SCENE: ...",
+  "answer":           "Continue straight ahead, following the tram tracks...",
+  "action":           "continue ahead",
+  "verifier_delta":   0.0,
+  "accepted":         true
+}
+```
+
+The full row (incl. `raw_response`, `thinking`, `route_latlon`) is
+written **regardless of pass/fail** so downstream debugging can see
+exactly what Pro said when the verifier dropped a sample.
+
+#### 2.7.9 Resume + reproducibility
+
+The script is **resume-safe**: at startup it reads any existing
+output file into a `(video, frame_id, dest_name)` set and skips
+those tuples. Crash or kill anytime; rerun with the same args and it
+picks up. Frame iteration order is **`random.Random(--seed)`
+shuffled** (default seed 42), so the same seed produces the same
+sample sequence across runs.
+
+#### 2.7.10 Cost + runtime envelope
+
+| Stage | Calls | $/call (incl. thinking) | Runtime | Total |
+|---|---:|---:|---:|---:|
+| 10-frame smoke | 30 | $0.022 | 14 min | $0.67 |
+| Full annotation (1,697 frames × 3) | 5,091 | $0.022 | ~17–22 h serial | ~$112 |
+| Re-runs / re-annotations | varies | $0.022 | varies | resume-safe |
+
+The full run is **serial** — no parallelism yet. Vertex Pro 2.5
+gives ~50–60 RPM per project headroom; a future `--workers N` flag
+could 3× throughput, not yet needed.
+
+#### 2.7.11 Smoke result (10 frames, 2026-05-26)
 
 ```
 30 (frame, destination) pairs
   kept (verifier-pass δ<30°):  22  (73 %)
-  failed:                       8
+  failed verifier:              8
 verb distribution:  turn around 14 · continue ahead 7 ·
-                    turn right 5 · turn left 4
+                    turn right  5 · turn left 4
 δ distribution:     median 21°  min 0°  max 180°
 runtime:            14 min 37 s
-cost:               ~$0.42 visible output ($0.67 incl. hidden
-                    "thinking tokens" — Pro 2.5 burns ~1.7k thinking
-                    tokens per call)
+cost:               ~$0.67 (incl. hidden thinking tokens)
 ```
-
-**Two production lessons baked into `annotate.py` after this run:**
-
-1. **`max_tokens` was bumped 2048 → 8192.** First smoke run hit
-   `MAX_TOKENS` on 17 of 30 calls (Pro 2.5's hidden thinking tokens
-   count against the same budget, leaving only ~300 tokens for the
-   visible answer — answers came back empty). Pass rate jumped from
-   17 % → 73 % after the fix.
-2. **`parse_answer` is now truncation-robust.** Falls back to a
-   `STEP 5 ACTION:` line inside `<thinking>` when the `<answer>`
-   block is missing or cut off. Catches the verb even on truncated
-   responses.
 
 Output: `data/cities/zurich/annotations_smoke10.jsonl`. Inspect on
 the map: `viz/annotate_smoke10.html` (`src.viz_annotate`).
+
+#### 2.7.12 Mid-run snapshot of the full batch (2026-05-28)
+
+In-progress run on all 1,697 trusted frames, prompt `strict`,
+`--seed 42`. 2,722 of ~5,091 rows written so far (53 %). Pass rate
+running at **57 %** (vs 73 % on the curated smoke) — the full sweep
+covers harder frames (more distant destinations, more symmetric-
+pano headings that slipped through Q1). On track for ~2,900 kept
+samples by completion, comfortably enough for the 3-variant LoRA
+training in §4.
+
+Output written live to `data/cities/zurich/annotations_strict.jsonl`.
+Inspect any time without disturbing the run; rows are appended
+atomically.
 
 ### 2.8 Image ↔ POI indexing & route map
 
