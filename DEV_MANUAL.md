@@ -756,7 +756,119 @@ label-extraction pipeline so the docs and the artifacts stay in sync.
 | **`viz/routes_trusted_frames.html`** | Per-video coloured polylines + heading arrows on a Leaflet map for all **1,697 trusted_frames**. Saturday_morning hold-out is plotted in black so it's visually distinguishable. Click any frame dot for video name, frame_id, heading, heading_gap. **Use this to eyeball that every video's recovered route traces a plausible walking path** (not a teleporting cloud). | `python -m src.viz_routes --input trusted_frames.jsonl --show-headings --output viz/routes_trusted_frames.html` |
 | **`viz/trusted_frames_grid_50.html`** | Random **50 of 1,697 trusted frames** rendered as the per-frame photo grid: QUERY photo + the 4 compass crops at the matched SV pano + the chosen-direction red outline + heading_gap + VLM info. **Use this to spot-check that DINOv2 actually picked the right pano direction for trusted frames** — pick a row, see what the camera shows, see which of the 4 SV crops it matched. `--filter-from trusted_frames.jsonl` intersects the gps_recovery_full schema with the trusted-frames key set, so the photo-grid rendering still works (the trusted_frames schema is thinner). | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --filter-from trusted_frames.jsonl --output trusted_frames_grid_50.html --limit 50 --random --seed 42` |
 | **`viz/gps_recovery_full_grid_vlm_agreed_50.html`** | Random **50 of 2,470 VLM-agreed** (the cohort **before** heading_qc) — also showing 50 of DISAGREE and 50 of VLM_UNRESOLVED for compare-and-contrast. **Use this to understand what Q1 (and the F1/F2/F3 reconcile gate) rejected.** The DISAGREE section especially is informative: VLM and DINOv2 named different places at the same frame. | `python -m src.viz_recovery_grid --input gps_recovery_full.jsonl --tier 1 --limit 50 --random --seed 42 --output gps_recovery_full_grid_vlm_agreed_50.html` |
-| **`viz/heading_check.html`** | **Heading-direction sanity check, split-pane**: interactive Leaflet map of N=30 random trusted frames with their heading arrows (left), scrollable photo gallery (right) with photo + compass widget + GPS/heading/place_guess/HMM-edge-bearing per card. Click a card to fly the map to that frame and flash its marker. Quick way to scan "does the recovered heading match what the photo shows?" — the symmetric-pano flips (~180° wrong) jump out because the compass needle points the opposite way from the photo's view. | `python -m src.viz_heading_check --n 30 --seed 42` |
+| **`viz/heading_check.html`** | **Heading-direction sanity check, split-pane**: interactive Leaflet map of N=30 random trusted frames with their heading arrows (left), scrollable photo gallery (right) with photo + compass widget + GPS/heading/place_guess/HMM-edge-bearing per card. Click a card to fly the map to that frame and flash its marker. Quick way to scan "does the recovered heading match what the photo shows?" — the symmetric-pano flips (~180° wrong) jump out because the compass needle points the opposite way from the photo's view. Worked example + problem statement in §2.5c.1 below. | `python -m src.viz_heading_check --n 30 --seed 42` |
+
+#### 2.5c.1 Heading-check viz — what it does and why it exists
+
+**The problem.** Per-frame DINOv2 recovers a heading by cosine-
+weighted averaging over the 4 compass crops at the matched Street
+View pano (§2.5). Q1 (`heading_gap ≥ 0.05`) drops the easy
+ambiguous cases — symmetric facades where the best and 2nd-best
+crops score nearly the same — but **a confidently-wrong heading
+can still slip through** when one direction's cosine is just barely
+higher than the symmetric opposite (the front/back flip pattern).
+There is no purely-automated way to catch these post-Q1: the data
+itself looks consistent (high gap → "trustworthy"), only the human
+looking at the photo can see "actually this view is north-facing,
+not south-facing as the number says".
+
+`viz/heading_check.html` is the **human-in-the-loop verification
+tool** for that residual error. It puts the photo *next to* a
+compass widget showing the recovered heading on the same row, so a
+mismatch is visible in one glance.
+
+**Layout** — split-pane HTML, ~600 KB self-contained (base64 photos
++ CDN Leaflet):
+
+```
+┌─────────────────────────────────┬─────────────────────────────────────┐
+│                                 │  [photo, 220×160] │ place_guess:    │
+│                                 │                   │   Bahnhofstrasse│
+│   ┌─────┐                       │                   │ heading: 0°     │
+│   │ N   │ Leaflet map           │                   │ heading_gap 0.21│
+│   │ │   │ (OSM tiles, POI_BBOX  │                   │ GPS: 47.37..    │
+│   │ │   │ rectangle, all N=30   │  ┌──────┐         │ HMM bearing: 5° │
+│   │ ●─→ │ frames as coloured    │  │  N   │         │                 │
+│   │ ●─→ │ dots + 25 m heading   │  │  │   │ compass │                 │
+│   │ ●   │ arrows in the video's │  │  │   │ widget  │                 │
+│   │     │ colour)               │  │ ●─→  │ (red    │                 │
+│   │     │                       │  │      │ needle  │                 │
+│   │     │ Click a card on the   │  └──────┘ in video │                 │
+│   │     │ right → map flies to  │           colour)  │                 │
+│   │     │ that frame & opens    │  ─────────────────────────────────  │
+│   │     │ its tooltip.          │  [photo, 220×160] │ place_guess: …  │
+│   │     │                       │                   │ heading: …      │
+│   └─────┘                       │   …               │ …               │
+│                                 │                                     │
+└─────────────────────────────────┴─────────────────────────────────────┘
+   ←————— map: ~58 % width ——————→ ←————— gallery: ~42 % width ——————→
+                                          (scrollable, one card per frame)
+```
+
+**What the human checks, per card.** Three pieces of data are
+co-located:
+
+| What | Where on the card | What you compare it to |
+|---|---|---|
+| The actual photo | Left (220 × 160 thumbnail) | The compass widget — does the *view direction* visible in the photo match the *needle direction* on the compass? |
+| The recovered heading | Compass needle pointing 0–360°, drawn in the video's colour | The photo — N-facing should show what you'd expect for that GPS spot |
+| Metadata (place_guess, heading number, heading_gap, HMM segment bearing) | Right of the compass | The numbers themselves — high `heading_gap` (e.g. 0.21) should give you more confidence the heading is right; low (e.g. 0.06) less |
+
+**Two worked-example cards** showing the failure modes the check
+catches:
+
+```
+─────────────────────────────────────────────────────────────────────
+  ┌──────────────────┐    ●──────────┐   place_guess: Bahnhofstrasse
+  │                  │    │  N       │   heading:     0° ↑
+  │   [tram tracks   │    │  │       │   heading_gap: 0.21
+  │    going N down  │    │  │       │   GPS:         47.37498, 8.53696
+  │    a long        │    │  ●─→     │   HMM edge:    5°
+  │    boulevard]    │    │ E        │
+  │                  │    └──────────┘   ✅  PHOTO ↔ COMPASS AGREE
+  └──────────────────┘                       Camera shows N-facing
+                                              tracks; compass says N.
+─────────────────────────────────────────────────────────────────────
+  ┌──────────────────┐    ●──────────┐   place_guess: Niederdorfstrasse
+  │                  │    │  N       │   heading:     180° ↓
+  │   [view of an    │    │  │       │   heading_gap: 0.07  ← only just
+  │    old-town      │    │  │       │   GPS:         47.37596, 8.54403   passed Q1
+  │    facade that's │    │  ●       │   HMM edge:    0°
+  │    clearly the   │    │  │       │
+  │    N-facing one] │    │  ▼       │   ❌  PHOTO SAYS N,  COMPASS SAYS S
+  │                  │    │  S       │       This is a front/back flip
+  └──────────────────┘    └──────────┘       — symmetric-facade Q1
+                                              didn't catch.  Discard or
+                                              note for a tighter Q1
+                                              (--min-gap 0.10).
+─────────────────────────────────────────────────────────────────────
+```
+
+**Workflow.** Open the file (`file:///…/viz/heading_check.html`),
+scroll the gallery on the right, and for each card spend ~2 seconds
+on the photo-vs-compass match. Flag any obvious flips. Click the
+card to fly the map to that frame's GPS — useful for "what street is
+this on?" context. A 30-frame pass takes ~2 minutes; a 60-frame
+pass takes ~5.
+
+**What it lets you decide.** After scanning N=30 frames:
+
+- 0 flips → trusted_frames cohort is clean; full annotation can
+  proceed at the current `--min-gap 0.05` Q1 threshold.
+- 1–2 flips (≈ 5–10 %) → acceptable noise; the per-sample verifier
+  (§2.7.6) will drop the wrong-heading frames at annotation time.
+- More than 5 flips (≈ 17 %+) → tighten Q1 first: re-run
+  `python -m src.heading_qc --min-gap 0.10` and re-render the
+  check. Cuts ~30 % more frames but the survivors are cleaner.
+
+**What it does NOT do.** It is **not** a hard filter — it doesn't
+write a new `*.jsonl` excluding flagged frames. Discoveries from the
+visual scan feed back into `--min-gap` or into per-frame manual
+blocklists (not implemented yet). The closed-loop verifier at
+annotation time (§2.7.6) is the automated filter that *does* drop
+wrong-heading samples downstream, but it pays per-Pro-call to
+discover them. Catching them with the eyeball check first is the
+order-of-magnitude cheaper option.
 
 Open each with `file:///C:/Users/z0502/Desktop/cs231n/navlm_v2/viz/<name>.html`.
 
