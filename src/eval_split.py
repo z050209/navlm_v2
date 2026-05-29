@@ -72,13 +72,31 @@ def main():
     print(f"[eval_split] verifier-passed annotations: {len(records)}",
           flush=True)
 
-    point_pois = [p for p in json.loads(
-        (config.CITY_DIR / "pois.json").read_text(encoding="utf-8"))
-        if p.get("lat") and p.get("lon")]
+    # Restrict the holdout-POI computation to the POIs that ACTUALLY
+    # appear as destinations in the data (typically the top-30 from
+    # the production pool — see §2.7.2). Picking 20 % of those gives
+    # 6 held-out destinations, vs. 257 obscure POIs you get if you
+    # compute over all 1,289 pois.json entries (most of which never
+    # appear in any sample). Centroid GPS of each used POI is its
+    # median (lat, lon) across samples where it was the destination.
+    dest_centroids = {}
+    for r in records:
+        dest_centroids.setdefault(r["dest_name"], []).append(
+            tuple(r["dest_gps"]))
+    used_dest_pois = []
+    for name, pts in dest_centroids.items():
+        lats = sorted(p[0] for p in pts)
+        lons = sorted(p[1] for p in pts)
+        used_dest_pois.append({"name": name,
+                                "lat": lats[len(lats) // 2],
+                                "lon": lons[len(lons) // 2]})
     holdout = DEFAULT_HOLDOUT_POIS or _holdout_pois(
-        point_pois, args.holdout_frac)
-    print(f"[eval_split] holdout POIs: {len(holdout)} "
-          f"(first 8: {sorted(list(holdout))[:8]})", flush=True)
+        used_dest_pois, args.holdout_frac)
+    print(f"[eval_split] destinations used in data: {len(used_dest_pois)}",
+          flush=True)
+    print(f"[eval_split] holdout POIs ({len(holdout)} = "
+          f"{100*args.holdout_frac:.0f}% spatial outliers): "
+          f"{sorted(holdout)}", flush=True)
 
     video_path = config.CITY_DIR / "eval_test_video.jsonl"
     poi_path = config.CITY_DIR / "eval_test_poi.jsonl"
