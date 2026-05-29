@@ -2626,6 +2626,130 @@ python experiments.py --mode eval `
 python pull_eval.py <run_id_printed_by_above>
 ```
 
+### 4.4c SFT training — one variant in detail (L-given), with a real row
+
+Each `L-*` condition is **one LoRA-r16 adapter** fine-tuned on the
+matching variant of the training set. The three variants share the
+same images and the same teacher answer; they differ only in what
+text is shown to the model and in whether the `INFERRED_HEADING:`
+step is kept in the assistant's `<thinking>`. See §2.7.9 and
+`src/derive_variants.py` for the rewrite rules.
+
+#### Inputs to `train_modal.py --variant given`
+
+| Volume | Path | Contents |
+|---|---|---|
+| `navlm-data` | `/sft/given.jsonl` | the training rows (1,087 currently) |
+| `navlm-data` | `/frames/<video>/<frame_id>.jpg` | the frame photos |
+| `navlm-ckpts` | (output) `/ckpts/lora_given_r16_e2/` | the trained adapter + `summary.json` + `history.json` |
+| secret `huggingface` | env `HF_TOKEN` | for the Qwen2.5-VL-7B download |
+
+#### One real training row (the actual shape the trainer reads)
+
+This is `head -n 1 data/sft/given.jsonl`, pretty-printed:
+
+```text
+image_rel: most_famous/frame_00024.jpg
+variant:   given
+
+— system —
+You are a Zurich-local walking-tour guide. You give SPOKEN directions
+to a tourist who has sent you a phone photo of what they currently
+see plus their GPS, camera heading, and destination. Reply with
+<thinking>...</thinking><answer>...</answer>; the answer is 2-4 short
+sentences, no compass words, no numbers, no GPS, anchored to a
+visible object.
+
+— user —
+[IMAGE placeholder — the JPG at /frames/most_famous/frame_00024.jpg]
+My GPS: 47.37154, 8.54187
+My camera heading: 295° (0=N, 90=E)         ← present for L-given,
+                                              stripped for L-implicit
+                                              and L-explicit
+Destination: Weggengasse (first-segment bearing 0°)
+Walking-route distance: 0 m
+Nearby POIs:
+- Weinplatz
+- Rathausbrücke
+- Storchen
+- Römische Bäder
+- Weggengasse
+- Schwanengasse
+- Schipfe
+- Schlüsselgasse
+Tell me what to do, in 2-4 spoken sentences, anchored to something
+I can actually see in the photo.
+
+— assistant —
+<thinking>
+STEP 1 SCENE: The photo shows a narrow cobblestone alley in Zurich's
+old town, with restaurants and shops on either side and people
+walking up a slight incline.
+STEP 2 LANDMARKS: The prominent signs for "Restaurant Zum Königstuhl"
+and "esso" are visible, placing the user on the street Schipfe,
+looking up Schlüsselgasse.
+STEP 3 INFERRED_HEADING: The user is on Schipfe looking up           ← STEP 3 line
+Schlüsselgasse, which runs northwest; this matches the provided        kept for L-given
+camera heading of 295°.                                                & L-explicit;
+STEP 4 ROUTE: The destination Weggengasse is to the north (bearing     dropped for
+0°), which is a 65° right turn from the current heading of 295°.       L-implicit.
+STEP 5 ACTION: turn right.
+STEP 6 ANCHOR: the glowing 'esso' sign.
+</thinking>
+<answer>
+Okay, turn right at the glowing 'esso' sign on the building to your
+right. Walk along this street for a short distance to find
+Weggengasse.
+</answer>
+```
+
+The image is spliced in by `processor.apply_chat_template(...)` —
+the `{"type": "image"}` placeholder in the user content is what tells
+Qwen2.5-VL where to put the vision tokens. Without it, the model
+trains text-only and never attends to the photo (this was the bug
+fixed in commit `5cdfa2b`).
+
+#### How the three variants differ, on the SAME row
+
+| | user message | assistant `<thinking>` | assistant `<answer>` |
+|---|---|---|---|
+| `given` | heading line **kept** | STEP 3 INFERRED_HEADING **kept** | unchanged |
+| `implicit` | heading line **stripped** | STEP 3 INFERRED_HEADING **dropped** | unchanged |
+| `explicit` | heading line **stripped** | STEP 3 INFERRED_HEADING **kept** (model must learn to commit to a heading without being told one) | unchanged |
+
+#### Running the L-given training cell
+
+```powershell
+# one-time setup (done):
+#   modal setup
+#   modal secret create huggingface HF_TOKEN=hf_...
+#   modal volume create navlm-data navlm-ckpts navlm-eval
+#   modal volume put navlm-data data/sft         /sft
+#   modal volume put navlm-data cache/eval_frames /frames
+#
+# (the MSYS_NO_PATHCONV=1 env var matters on Windows / Git Bash so
+# the leading-slash destinations aren't mangled to C:/Program Files/Git/...)
+
+# fire one variant — runs on A100-80GB for ~3-6h, ~$22, all logged
+# to https://modal.com/apps/z050209/main/navlm-train
+$env:MSYS_NO_PATHCONV = "1"
+python -m modal run train_modal.py --variant given
+```
+
+Per-epoch eval loss is reported via Trainer; the adapter and
+`history.json` (per-step loss + per-epoch eval_loss) land in the
+`navlm-ckpts` volume at `/ckpts/lora_given_r16_e2/`. Pull locally
+when done: `modal volume get navlm-ckpts /lora_given_r16_e2 ./`.
+
+#### Modal dashboard URLs (live runs visible here)
+
+| What | URL |
+|---|---|
+| All your apps | https://modal.com/apps/z050209 |
+| navlm-train app (this run) | https://modal.com/apps/z050209/main/navlm-train |
+| navlm-eval app (zero-shot runs) | https://modal.com/apps/z050209/main/navlm-eval |
+| Storage volumes | https://modal.com/storage/z050209/main/navlm-data |
+
 ### 4.5 Running the 6×2 experiment matrix on Modal
 
 Slide 4/5 of `milestone2/NavLM_milestone2.pptx` defines **6 conditions
