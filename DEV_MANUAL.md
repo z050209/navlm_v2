@@ -2521,6 +2521,111 @@ for **each** ablation.
 52.9 % PASS / median heading error 20.8° (vs base 99°); the with-compass
 ceiling was 100 %.
 
+### 4.4b The 6 zero-shot experiments — run plan
+
+The three **B-\*** (base-Qwen2.5-VL-7B, no LoRA) conditions don't
+need any training; they just need the test data + the base model
+downloaded on Modal. Each B-* condition is run once per ablation
+(2 ablations = 6 cells total). Firing all 6 produces the zero-shot
+baseline column of the §4.2 table; the L-\* rows come later after
+the SFT runs.
+
+Test data: produced by `src/eval_split.py` from
+`annotations_strict.jsonl` (§3.7).
+
+| # | Condition | Ablation | Test file | N test rows | What the model sees in the user msg | What it must output | Time on A100-40GB | Cost |
+|---|---|---|---|---:|---|---|---:|---:|
+| 1 | **B-given** | video | `eval_test_video.jsonl` | 176 | photo + GPS + **heading** + dest + nearby POIs | `<thinking>` + `<answer>` (verb ∈ {ahead, left, right, around}, anchored to visible object) | ~30 s/frame ≈ **~90 min** | ~$3 |
+| 2 | **B-given** | poi | `eval_test_poi.jsonl` | 483 | same shape | same | ~30 s/frame ≈ **~4 h** | ~$9 |
+| 3 | **B-implicit** | video | `eval_test_video.jsonl` | 176 | photo + GPS + dest + nearby POIs *(heading line stripped)* | model writes thinking but no `INFERRED_HEADING:` line | **~90 min** | ~$3 |
+| 4 | **B-implicit** | poi | `eval_test_poi.jsonl` | 483 | same | same | **~4 h** | ~$9 |
+| 5 | **B-explicit** | video | `eval_test_video.jsonl` | 176 | photo + GPS + dest + nearby POIs *(heading line stripped)* | system prompt requires `INFERRED_HEADING: 0–359` inside `<thinking>` — model must commit to a heading | **~90 min** | ~$3 |
+| 6 | **B-explicit** | poi | `eval_test_poi.jsonl` | 483 | same | same | **~4 h** | ~$9 |
+| | | | **total inferences** | **1,978** | | | **~16 h serial, ~3 h with the 3-condition-per-call parallel form** | **~$36 with anchor checks, ~$6 without** |
+
+(The "3-condition-per-call parallel" form is `experiments.py` passing
+`--condition all` to `eval_modal.py`, which loops the 3 base
+conditions in one Modal function invocation — same total compute,
+but only one cold start instead of three.)
+
+**Sample row sent to the model** (`B-given × video`, one of the 176
+test rows):
+
+```
+SYSTEM:
+  You are a Zurich-local walking-tour guide ...
+  Reply with <thinking>...</thinking><answer>...</answer>;
+  the answer is 2-4 short sentences, no compass words, no numbers,
+  no GPS, anchored to a visible object.
+
+USER:
+  [PHOTO ATTACHED: data/cities/zurich/frames/saturday_morning/frame_00543.jpg]
+  My GPS: 47.37498, 8.53696
+  My camera heading: 220° (0=N, 90=E)                ← stripped in
+                                                       B-implicit & B-explicit
+  Destination: Grossmünster (first-segment bearing 130°)
+  Walking-route distance: 480 m
+  Nearby POIs:
+    - Bahnhofstrasse
+    - St. Peter
+    - Münsterhof
+    ...
+  Tell me what to do, in 2-4 spoken sentences, anchored to
+  something I can actually see in the photo.
+```
+
+For `B-explicit` the system prompt **additionally** requires the
+model to write a `STEP 3 INFERRED_HEADING: <0-359>` line inside
+`<thinking>`. The user message is identical to `B-implicit`.
+
+**Evaluation — `PASS_strict` = AND of 4 metrics** (full definition
+in §4.4). Each test row is scored individually; the cell's
+`pass_strict_rate` is the fraction that passed all 4:
+
+| Metric | What it checks | How it's measured |
+|---|---|---|
+| `format_compliance` | `<thinking>` + `<answer>` present, 2–4 sentences, no compass words/numbers/GPS | regex over the response (pure function) |
+| `directional_accuracy` | `\|angle_diff(heading + ACTION_DELTA[verb], route_bearing)\| < 30°` | the closed-loop verifier — **see PNG in §3.6** |
+| `checkpoint_validity` | if answer says "when you reach X", X must be a permanent POI on the planned route | regex extract + route-POI membership |
+| `anchor_faithfulness` | the named anchor object ("the tram tracks") is actually visible in the photo | Gemini Flash yes/no call (optional: `--no-anchor` for cheaper runs) |
+
+**Outputs.** Each cell writes to the `navlm-eval` Modal volume:
+```
+/eval/<run_id>/<condition>__<ablation>/
+    per_sample.jsonl      one row per test sample with all 4 metric
+                          verdicts + model output + verifier delta
+    summary.json          {pass_strict_rate, format_rate,
+                          directional_rate, checkpoint_rate,
+                          anchor_rate, median_delta, n}
+```
+
+Pull results locally with `python pull_eval.py <run_id>` — prints
+the 6×2 PASS_strict matrix to stdout and copies the volume contents
+to `./eval_results/<run_id>/`.
+
+**Sequence of commands** (assumes one-time Modal setup is done —
+see §4.5 below):
+
+```powershell
+# the smoke: 1 cell × 20 frames first, ~$0.30, ~10 min — verifies
+# the whole pipeline works on Modal before paying for the full sweep
+python experiments.py --mode eval `
+                       --conditions B-given `
+                       --ablations video `
+                       --limit 20 `
+                       --no-anchor
+
+# the full sweep: all 6 cells × 2 ablations = 1,978 inferences
+# ~$6 without anchor, ~$36 with
+python experiments.py --mode eval `
+                       --conditions B-given,B-implicit,B-explicit `
+                       --ablations video,poi `
+                       --no-anchor
+
+# pull results
+python pull_eval.py <run_id_printed_by_above>
+```
+
 ### 4.5 Running the 6×2 experiment matrix on Modal
 
 Slide 4/5 of `milestone2/NavLM_milestone2.pptx` defines **6 conditions
