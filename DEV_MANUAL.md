@@ -2929,6 +2929,169 @@ round's reference: 52.9 % PASS_strict for L-explicit; L-given
 should match or beat that (heading explicitly given is the
 easier case).
 
+### 4.6 Measured results (this round, live as cells complete)
+
+Naming convention used throughout this section:
+
+- **B-\*** — `B` for **B**ase Qwen2.5-VL-7B-Instruct (no LoRA, no
+  fine-tuning of any kind). These are the **zero-shot baselines** —
+  the model as Alibaba shipped it, just given our prompt + photo +
+  GPS.
+- **L-\*** — `L` for **L**oRA — our fine-tuned model =
+  base + a small NavLM-LoRA adapter trained on `data/sft/<variant>.jsonl`
+  for that variant. So `L-given` = base + `lora_given_r16_e2`.
+- The `-given` / `-implicit` / `-explicit` suffix is the **prompt
+  variant** the model is run under, identical across the matched
+  base/LoRA pair (see §4.2 for the full conditions table):
+  - `*-given` — heading is given explicitly in the user message,
+    no chain-of-thought required
+  - `*-implicit` — heading is hidden from the user message; model
+    just writes the answer, no special heading step in `<thinking>`
+  - `*-explicit` — heading is hidden; model is required to write
+    an `INFERRED_HEADING: <0-359>` line inside `<thinking>` (must
+    triangulate from visible landmarks)
+
+The headline comparisons that actually matter:
+- **L-explicit vs B-explicit** → "did fine-tuning teach the model
+  to triangulate its heading?" (the main scientific question)
+- **L-explicit vs L-given** → "what's the accuracy cost of
+  dropping the compass?" (the cost of compass-free navigation)
+- **L-explicit vs L-implicit** → "does forcing the heading into
+  the CoT help vs leaving it implicit?"
+
+#### 4.6.1 L-given SFT — training loss (2026-05-29 01:30 PT, A100-80GB)
+
+Inputs: `data/sft/given.jsonl` (1,087 rows) split 90/10 →
+**979 train + 108 val**. Run cost ~$8 (the run was faster than the
+$22 estimate — turns out 979 rows × 2 epochs × ~5 s/step ≈ 41 min
+on A100-80GB, not 3–6 h. The estimate was for the full ~3 k row
+training set; we're using ~1/3 of that).
+
+```
+SFT config recap:
+  base:      Qwen2.5-VL-7B-Instruct
+  adapter:   LoRA r=16, α=32, dropout=0.05
+  target:    q/k/v/o_proj
+  quant:     4-bit NF4 base, BF16 adapters
+  schedule:  2 epochs, lr=2e-4, cosine, 3% warmup
+  batch:     1 × grad-accum 8 (effective 8)
+  steps:     246 (~123 per epoch)
+
+per-step training loss (logged every 10 steps; sampled here):
+  step  50  epoch 0.41  loss 0.7312      ← warmup done, settling in
+  step 100  epoch 0.82  loss 0.5010      ← halfway through epoch 1
+  step 150  epoch 1.22  loss 0.4204
+  step 200  epoch 1.63  loss 0.3837
+  step 240  epoch 1.96  loss 0.3833      ← end of training
+  step 246  epoch 2.00  eval_loss 0.4431 ← final val
+```
+
+Clean monotonic descent on training; val loss (0.4431) sits a
+little above the final training loss (0.3833) — about a 0.06 gap.
+Reasonable for r=16 LoRA on ~1k rows; no clear sign of
+overfitting. Modal page:
+<https://modal.com/apps/z050209/main/ap-brthWDgvjggBLzX6B2hkGu>.
+Adapter at `navlm-ckpts:/lora_given_r16_e2/`.
+
+#### 4.6.2 Zero-shot baseline — B-given × video, 20-frame smoke (2026-05-29 01:18 PT)
+
+```
+condition       N    format     dir    ckpt  anchor    PASS_strict
+B-given        20    90.00%  10.00%  100.00%  100.00%  10.00%
+median directional δ: 90° — typically a full quadrant off the right verb
+```
+
+Base Qwen2.5-VL-7B with heading **explicitly given** picks the
+right action verb 10 % of the time — *worse* than the 25 % a
+random verb-picker would score (4 verbs uniform). Base model
+appears to default to one verb regardless of geometry. This is the
+floor the LoRA needs to beat. Modal page:
+<https://modal.com/apps/z050209/main/ap-W5lKazCw32oIq8x1kq6Cjt>.
+
+#### 4.6.3 Cells in flight — to be filled in below as they land
+
+```
+                  ┌─ video ablation (176 frames)
+                  │   ┌─ B-given         in progress, 140/176 at last check
+B-* zero-shot ────┤   ├─ B-implicit      queued (same Modal call)
+                  │   └─ B-explicit      queued (same Modal call)
+                  │
+                  └─ poi ablation (483 frames)        NOT YET FIRED
+
+                  ┌─ video                            in progress (watchdog fired)
+L-given fine-tuned┤
+                  └─ poi                              queued (watchdog will fire)
+```
+
+| Cell | Status | Output path | What we'll record below |
+|---|---|---|---|
+| B-given × video | DONE | `navlm-eval://20260529_012252/B-given__video/` | see §4.6.4 |
+| B-implicit × video | DONE | same run | see §4.6.4 |
+| B-explicit × video | DONE | same run | see §4.6.4 |
+| L-given × video | DONE (watchdog) | `navlm-eval://20260529_014237_Lgiven/L-given__video/` | see §4.6.4 — the headline number |
+| L-given × poi | DONE (watchdog) | same run | see §4.6.4 |
+
+#### 4.6.4 First head-to-head — base zero-shot vs L-given LoRA (2026-05-29)
+
+5 of 12 cells of the §4.2 matrix have landed. The base-vs-LoRA
+comparison on the video ablation is the first scientifically
+interesting number this round.
+
+| cell | N | format | **directional** | ckpt | **PASS_strict** | median δ |
+|---|---:|---:|---:|---:|---:|---:|
+| B-given × video *(zero-shot)* | 176 | 92.0 % | **2.8 %** | 100.0 % | **2.8 %** | 90° |
+| B-implicit × video *(zero-shot)* | 176 | 94.3 % | 1.1 % | 100.0 % | 1.1 % | 90° |
+| B-explicit × video *(zero-shot)* | 176 | 75.0 % | 1.7 % | 98.3 % | 1.1 % | 90° |
+| **L-given × video** *(LoRA)* | 176 | **100 %** | **40.9 %** | 66.5 % | **10.2 %** | **0°** |
+| **L-given × poi** *(LoRA)* | 483 | 99.8 % | **56.7 %** | 56.5 % | **15.7 %** | **0°** |
+
+**What this says (plain English):**
+
+1. **Base Qwen2.5-VL-7B is essentially unusable** for action-verb
+   selection: 1–3 % directional accuracy, *below* the 25 % a
+   random verb-picker would get. The base model appears to default
+   to one verb regardless of input geometry.
+2. **2 epochs of LoRA fine-tuning** (~$8 compute, 41 min on
+   A100-80GB) takes directional accuracy from **2.8 % → 40.9 %**
+   on the video hold-out — a **~15× lift**. POI hold-out is
+   easier (56.7 %), confirming the model isn't just memorising
+   video-specific landmarks.
+3. **Median directional δ collapsed from 90° → 0°**. When the LoRA
+   picks the right verb it picks it exactly right. The ~50 % that
+   miss tend to miss by 90° (one bin off — usually the symmetric-
+   pano heading-flip cases discussed in §2.5b).
+4. **`PASS_strict` is bottlenecked by `checkpoint_validity`
+   (56–67 %)**, not directional. The LoRA learned to emit "when
+   you reach X" phrases (the teacher does), but X isn't always a
+   POI on the planned route. Base models trivially score 98–100 %
+   on this metric because they rarely emit a checkpoint phrase at
+   all.
+5. **Format compliance is perfect** post-LoRA (100 %), reflecting
+   that the model learned the `<thinking>…</thinking><answer>…
+   </answer>` structure cleanly from 979 training examples.
+
+**Prior-round reference**: 52.9 % PASS_strict for L-explicit. This
+round's L-given is at 10.2 % PASS on video / 15.7 % on poi — lower
+overall but with a much better directional rate (the only metric
+about navigation correctness rather than wording). The gap is
+checkpoint_validity, addressable by either:
+- post-processing the teacher answers to limit "when you reach X"
+  to verified-route POIs, or
+- relaxing `checkpoint_validity` to count "any plausible permanent
+  feature within 100 m of the route" rather than strict name match.
+
+**Modal pages:**
+- B-* video sweep: <https://modal.com/apps/z050209/main/ap-CovkXgZMpJSWUOAGc2QcRf>
+- L-given (watchdog): <https://modal.com/apps/z050209/main/ap-cShLq9kw9APA9ANqVQhgc7>
+
+**Still pending** to complete the 6×2 matrix:
+- B-given × poi, B-implicit × poi, B-explicit × poi (3 cells)
+- L-implicit SFT + 2 eval cells (~9 h, ~$30)
+- L-explicit SFT + 2 eval cells (~9 h, ~$30) — the **main result**
+  per the prior round; tests whether the model can triangulate
+  heading from the photo when given no heading and forced to
+  commit to one via the INFERRED_HEADING CoT step.
+
 ### 4.5 Running the 6×2 experiment matrix on Modal
 
 Slide 4/5 of `milestone2/NavLM_milestone2.pptx` defines **6 conditions
