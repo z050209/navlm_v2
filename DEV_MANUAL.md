@@ -595,9 +595,19 @@ directions.
 
 High gap (≥ 0.15) → DINOv2 *can* tell direction at this pano; low gap
 (< 0.05) → 2+ directions look nearly identical, heading is genuinely
-ambiguous (e.g., front-vs-back symmetric architecture). The 11 % of
-accepted frames with low gap will get their heading **replaced** by
-the segment bearing in the next (HMM) stage; the rest are trusted.
+ambiguous (e.g., front-vs-back symmetric architecture). **Frames
+with `heading_gap < 0.05` are dropped by `heading_qc` (§2.5b);**
+the rest keep their per-frame DINOv2 heading unchanged.
+
+> *Historical note.* The v1 design called for replacing the
+> ambiguous frames' heading with the HMM-snapped edge bearing
+> instead of dropping them. That idea was rejected once we measured
+> the cohort's temporal-gap distribution (§2.5b): pHash-deduped
+> frames can be 30 s+ of real video apart, so "the walker is
+> currently walking along the snapped edge" can't be assumed.
+> Overriding with the edge bearing would have replaced one
+> unreliable number with another. The Q1-only filter (drop, don't
+> rewrite) is what's actually in the production pipeline.
 
 > **Why `heading_gap` rather than top-K circular spread?** Spread
 > conflates two failure modes — *wrong pano* and *wrong direction at
@@ -1289,7 +1299,7 @@ visual-match path (12,583 frames pass F1 only):
 heading_gap among the 2,470 VLM-confirmed accepted:
   ≥ 0.15 confident   43%
   ≥ 0.05 some signal 85%
-  <  0.05 ambiguous  15%   ← HMM will resolve via segment bearing
+  <  0.05 ambiguous  15%   ← dropped by heading_qc Q1 (§2.5b)
 
 per-video VLM-confirmed accepted (eval hold-out saturday_morning bolded):
   looks_perfect     668     bahnhofstrasse  136
