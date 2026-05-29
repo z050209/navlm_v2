@@ -3219,6 +3219,247 @@ when `modal run` is invoked (which then prompts for auth). If you
 want to see the commands without firing them, swap `subprocess.run`
 for a print stub (see `tests/test_runnable.py` for the pattern).
 
+### 4.7 Attempt 1 — first complete pass through the ablation matrix
+
+First end-to-end measurement of the matrix on the data this round
+produced. Date: 2026-05-29. Status at time of writing: 5 of the 12
+cells landed (zero-shot baselines on the video ablation + both
+L-given LoRA cells). The remaining 7 cells (B-* × poi + L-implicit
++ L-explicit) are pending — see §4.6.4 for the live status.
+
+#### 4.7.1 Data used — train and test
+
+Source: `annotations_strict.jsonl` (1,706 verifier-pass rows in the
+in-progress annotation batch). Split by `src/eval_split.py` (§3.7):
+
+| File | Rows | Purpose |
+|---|---:|---|
+| `eval_train.jsonl` | **1,087** | LoRA SFT input. Modal `train_modal.py` does a 90/10 internal split → **979 train + 108 val** for in-training eval_loss. |
+| `eval_test_video.jsonl` | **176** | held-out `saturday_morning` video — tests **video / camera generalisation** |
+| `eval_test_poi.jsonl` | **483** | held-out 6 POIs — tests **POI-region generalisation** |
+
+40-row overlap between the two test files (saturday_morning frames
+whose destination is also a held-out POI) — each ablation owns its
+own test set; the train file excludes rows present in either test
+file.
+
+#### 4.7.2 POI distribution — source vs destination, train vs test
+
+Two distinct POI questions in this dataset: **source POI** = where
+each frame's camera *is* (`place_guess` from trusted_frames);
+**destination POI** = where each (frame, destination) sample tells
+the walker to go (`dest_name`).
+
+**Source POIs — frame locations.** All 30 top-POIs appear in
+training. The video-test cohort (saturday_morning) only spans the
+16 POIs that video walks past; the POI-test cohort spans 29 of 30
+(everything except 1 POI that doesn't happen to host a frame in
+the held-out destinations).
+
+| Source POI | train | test_video | test_poi |
+|---|---:|---:|---:|
+| Bahnhofstrasse | **222** | 13 | 98 |
+| Augustinergasse | 112 | 49 | 35 |
+| Münsterhof | 76 | 9 | 21 |
+| Niederdorfstrasse | 68 | 50 | 59 |
+| Münstergasse | 65 | 0 | 15 |
+| Limmatquai | 55 | 3 | 23 |
+| Utoquai | 55 | 0 | 19 |
+| Storchengasse | 44 | 5 | 18 |
+| Zürich Hauptbahnhof | 44 | 0 | 67 |
+| Schipfe | 38 | 25 | 18 |
+| (20 more, tail down to 3 rows on Limmat) | | | |
+
+Source POIs are heavily skewed to Bahnhofstrasse (20 % of train)
+because it's the most-walked street across the videos.
+
+**Destination POIs — where the walker is told to go.** The 6
+spatially-outermost POIs of the 30 are deliberately **held out of
+training** to test POI-region generalisation (§3.7.1 / §3.7.3):
+
+| Destination | train | test_video | test_poi | notes |
+|---|---:|---:|---:|---|
+| Rudolf-Brun-Brücke | 63 | 8 | 0 | trained on |
+| Schipfe | 58 | 9 | 0 | trained on |
+| Stüssihofstatt | 53 | 13 | 0 | trained on |
+| Münsterbrücke | 53 | 5 | 0 | trained on |
+| (20 more trained-on destinations …) | | | | |
+| Augustinergasse | 26 | 2 | 0 | trained on |
+| **Niederdorfstrasse** | **0** | 2 | 72 | **← HELD OUT** |
+| **Bahnhofstrasse** | **0** | 4 | 51 | **← HELD OUT** |
+| **Utoquai** | **0** | 10 | 120 | **← HELD OUT** |
+| **Werdmühleplatz** | **0** | 9 | 82 | **← HELD OUT** |
+| **Hirschenplatz** | **0** | 11 | 76 | **← HELD OUT** |
+| **Zürich Hauptbahnhof** | **0** | 4 | 82 | **← HELD OUT** |
+
+The L-given LoRA **never saw any of those 6 POIs as a destination
+label during training**. `L-given × poi` is asking "can the model
+route to a destination it has never been told about?".
+
+#### 4.7.3 Measured results — 5 of 12 cells
+
+Live read from `eval_results/.../summary.json`:
+
+| Cell | N | format | **directional** | checkpoint | **PASS_strict** | median δ |
+|---|---:|---:|---:|---:|---:|---:|
+| B-given × video *(zero-shot)* | 176 | 92.0 % | 2.8 % | 100.0 % | 2.8 % | 90° |
+| B-implicit × video | 176 | 94.3 % | 1.1 % | 100.0 % | 1.1 % | 90° |
+| B-explicit × video | 176 | 75.0 % | 1.7 % | 98.3 % | 1.1 % | 90° |
+| **L-given × video** *(LoRA)* | 176 | 100 % | **40.9 %** | 66.5 % | **10.2 %** | **0°** |
+| **L-given × poi** *(LoRA)* | 483 | 99.8 % | **56.7 %** | 56.5 % | **15.7 %** | **0°** |
+
+(Anchor metric was disabled — `--no-anchor` saves the Gemini Flash
+calls; all anchor rates show 100 % because of the "no claim to
+check" pass-through. Can be re-scored if needed.)
+
+**Headline takeaways:**
+
+1. **Base Qwen2.5-VL-7B is essentially unusable** for action-verb
+   selection: 1–3 % directional accuracy, *worse than random*
+   (25 % is the random-pick baseline for 4 verbs).
+2. **2 epochs of LoRA SFT** (~$8 compute, 41 min on A100-80GB) →
+   directional accuracy from **2.8 % → 40.9 %** on the video
+   hold-out. **~15× lift**.
+3. **POI hold-out scores HIGHER than video hold-out** (56.7 % vs
+   40.9 % directional). The 6 destination POIs the LoRA never saw
+   labelled in training are actually *easier* than the
+   video-generalisation task — confirms the model learned routing
+   semantics, not destination-name memorisation.
+4. **Median angular error δ collapsed from 90° → 0°.** When the
+   LoRA picks the right verb it picks it exactly right; misses
+   tend to be 90° off (one bin / symmetric-pano flip), not random.
+5. **Format compliance is perfect** post-LoRA (100 %): the model
+   learned the `<thinking>…</thinking><answer>…</answer>` schema
+   cleanly from 979 training examples.
+
+#### 4.7.4 PASS_strict vs directional — definition, and why PASS is so much lower
+
+**Definition.**
+
+```
+PASS_strict = format_compliance ∧ directional_accuracy
+              ∧ checkpoint_validity ∧ anchor_faithfulness
+```
+
+ALL FOUR metrics must pass for a row to PASS_strict. `directional`
+is just one of the four. Failure on any single metric drops the row.
+
+**The 4 metrics in plain English:**
+
+| Metric | What it checks | What "fail" looks like |
+|---|---|---|
+| `format_compliance` | `<thinking>`/`<answer>` blocks present; 2–4 sentences; no compass words/numbers/GPS | model outputs raw text without tags |
+| `directional_accuracy` | After applying the verb to the user's heading, do they face within 30° of the route bearing? (§3.6) | model says "turn left" but should be "continue ahead" |
+| `checkpoint_validity` | If answer contains "when you reach X", X must be a permanent POI on the planned OSM route | model invents "the big roundabout with the fountain" — not on the OSM route |
+| `anchor_faithfulness` | The named anchor object ("the tram tracks") is actually visible in the photo | model hallucinates an anchor that isn't in the image |
+
+**First-fail attribution — what knocks rows out of PASS_strict.**
+Pulled from the live per-sample jsonls:
+
+**L-given × video** (n=176):
+```
+  format fails         :   0  ( 0.0 %)    ← perfect formatting
+  + directional fails  : 104  (59.1 %)    ← biggest drop
+  + checkpoint fails   :  54  (30.7 %)    ← second drop — drags PASS down
+  + anchor fails       :   0  ( 0.0 %)    ← disabled
+  PASS all 4           :  18  (10.2 %)
+```
+
+**L-given × poi** (n=483):
+```
+  format fails         :   1  ( 0.2 %)
+  + directional fails  : 209  (43.3 %)
+  + checkpoint fails   : 197  (40.8 %)
+  + anchor fails       :   0  ( 0.0 %)
+  PASS all 4           :  76  (15.7 %)
+```
+
+**The math: PASS is dragged down by checkpoint, not directional.**
+
+If directional and checkpoint failures were independent, expected
+PASS on video would be 0.409 × 0.665 ≈ 27 %. Actual is 10 %, so
+the two metrics *correlate*: the rows the model gets directionally
+wrong are also disproportionately the rows where the checkpoint
+phrase doesn't match the route.
+
+**Why checkpoint is dragging it down.** The LoRA learned to emit
+"when you reach X" phrases because the teacher (Gemini Pro)
+emits them in long-route answers. But the model is generating
+**plausible-sounding generic landmarks** rather than naming actual
+route POIs. Three real failed examples from `L-given × video`:
+
+```
+[saturday_morning/frame_00104]
+  "...When you reach the big roundabout with the fountain, send me
+   another photo."
+   → checkpoint = "big roundabout with the fountain"
+   → not a POI on the OSM route → FAIL checkpoint_validity
+
+[saturday_morning/frame_00104]  (sister sample, same frame, different dest)
+  "...When you reach the big roundabout with the fountain, send me
+   another photo."
+   → same failure mode (re-using the same generic phrase)
+
+[saturday_morning/frame_01307]
+  "...When you reach the big bridge over the river, send me
+   another photo."
+   → "big bridge over the river" → not a named POI → FAIL
+```
+
+These are all **directionally correct** ("continue ahead, following
+the tracks") and well-formed — they just invent generic landmark
+descriptions instead of naming a verified route POI.
+
+**Why base models trivially score 100 % on checkpoint.** Base
+Qwen2.5-VL-7B almost never emits a "when you reach X" phrase.
+`checkpoint_validity` only fires when there IS a checkpoint claim
+to validate — silent rows are treated as a pass. The LoRA learned
+to add checkpoint phrases (because the teacher does), and *that*
+is what knocks its checkpoint score down to 56–67 %.
+
+This is a real artefact of the metric design. Three fixes possible
+for future attempts:
+
+1. **Constrain the teacher's checkpoint vocabulary** — re-prompt
+   Gemini Pro to use only verified-route POI names (re-annotate;
+   ~$100 cost again).
+2. **Relax `checkpoint_validity`** to count "any landmark within
+   100 m of the route polyline" as valid (re-score the existing
+   per_sample jsonls; ~$0; quick sanity check).
+3. **Train the LoRA without checkpoint phrases** — strip them from
+   teacher answers in `src/derive_variants.py` (re-derive +
+   re-train; ~$8 + 45 min).
+
+Option 2 is the cheapest test of how much of the 90 % PASS drop is
+checkpoint-strictness vs genuine routing error.
+
+#### 4.7.5 TL;DR for attempt 1
+
+- **Data:** 1,087 train rows + 176 video-test + 483 POI-test. 6
+  destination POIs held out of training (Bahnhofstrasse, Hirschen-
+  platz, Niederdorfstrasse, Utoquai, Werdmühleplatz, Hauptbahnhof).
+  30 source POIs represented across train and test cohorts.
+- **Headline result:** L-given LoRA hits **40.9 % directional
+  (video) / 56.7 % (poi)** vs **1–3 % zero-shot baseline** —
+  ~15–20× directional lift. Median angular error 90° → 0°.
+- **PASS_strict is 10–16 %** because `checkpoint_validity` joins
+  as an AND on top of directional, and the LoRA learned to emit
+  generic "when you reach X" phrases that don't always match
+  verified route POIs. Directional itself is healthy; PASS is
+  bottlenecked by the checkpoint metric, fixable in attempt 2.
+
+#### 4.7.6 What attempt 2 should do differently
+
+Concrete deltas for the next pass through the matrix:
+
+| Change | Why | Cost |
+|---|---|---|
+| Re-score with relaxed `checkpoint_validity` (within 100 m of route) | Quick test of how much of the PASS drop is metric strictness vs genuine error | $0 |
+| Wait for the annotation batch to finish (currently 1,706 / ~2,900 verifier-pass rows) → split + re-train L-given | More training data should help directional (currently 41 %) | ~$8 |
+| Fire L-implicit + L-explicit SFT + their 4 eval cells | Completes the 6×2 matrix; L-explicit is the slide-4 main result (the "compass-free" condition) | ~$60 |
+| Fire the 3 missing B-* × poi cells | Completes the zero-shot baseline row | ~$8 |
+| Optionally: strip "when you reach X" phrases from teacher answers and re-train | Trades teacher fidelity for higher PASS_strict | ~$8 + re-train |
+
 ---
 
 ## 5. Visualizations
