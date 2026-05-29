@@ -1940,6 +1940,255 @@ fell into.
 
 ---
 
+## 3.5 Dataset summary — end-to-end provenance & counts
+
+A one-page recap of how raw video became training data. Every number
+here is measurable on disk; see the file referenced in each step.
+
+### (1) Videos → frames
+
+| | count | source |
+|---|---:|---|
+| Source videos (YouTube walking tours of Zurich) | **8** | `videos/Zurich/*.mp4`; eval hold-out `saturday_morning` |
+| 1 fps dense raw frames | ~21.6 k | `ffmpeg -vf fps=1` cache (intermediate, not persisted) |
+| **Frames after quality gate + pHash dedup** | **26,034** | `data/cities/zurich/frames/<video>/frame_*.jpg`; dropped: blur (var-of-Laplacian < 100) / exposure (mean luma < 25 or > 230) / pHash-duplicate of previous kept frame (Hamming < 10 bits) |
+
+### (2) POI scan — how many frames fed to Gemini Pro
+
+Two scans, separated by the cos≥0.75 expansion decision:
+
+| Scan | Frames sent to Pro | Cost | Output |
+|---|---:|---:|---|
+| Initial — every-30 sample | **872** (1 in every 30 of the 26 k extracted) | $10.68 | `poi_scan.jsonl` |
+| cos≥0.75 expansion (after seeing DINOv2 cosine distribution) | **4,019** fresh + 82 copies | ~$48 | `poi_scan_cos0.75.jsonl` (4,101 rows) |
+| **Total Pro scans for POI provenance** | **4,891 Pro calls** | **~$59** | |
+
+### (3) POI matches to OSM
+
+| | count |
+|---|---:|
+| OSM POIs extracted over the project bbox (`pois.json`) | **1,289** |
+| Distinct OSM POIs matched by VLM in `poi_scan.jsonl` (872 frames) | **227** |
+| Distinct OSM POIs matched by VLM in `poi_scan_cos0.75.jsonl` (4,101 frames) | **316** |
+| Distinct OSM POIs in the VLM-confirmed accepted cohort of 2,470 frames (place_guess column) | **105** |
+| **Top-30 selected as the production destination pool** (§3.5.5 below) | **30** |
+
+Only ~25 % of the 1,289 OSM POIs ever appear in the videos. Of those
+316 that do, the **long tail of 1-frame singletons is excluded** —
+the dataset focuses on the **top 30** by frame count.
+
+### (4) Street View imagery purchased
+
+The "GPS reference index" the videos are matched against:
+
+| | count | cost / scope |
+|---|---:|---|
+| Free Street View metadata scan (`panos.jsonl`) | **1,915 panos** in `POI_BBOX + 300 m margin` | $0 |
+| **Paid crops downloaded** (`meta.jsonl`, `images/*.jpg`) | **4,431 crops = 1,108 unique panos × 4 compass headings (N/E/S/W)** | **~$31** ($7/1000 × 4,431) |
+| Region | 150 m buffer around each of the 227 POIs visited in the every-30 scan | — |
+
+Targeted vs. blanket: paying for 1,108 of the 1,915 panos (58 %)
+saved ~$23 vs. buying all panos in the bbox, without losing
+coverage where the videos actually walk.
+
+### (5) DINOv2 matching — funnel down to the training cohort
+
+Single matmul: 26,034 frame embeddings × 4,431 SV embeddings (both
+`dinov2-base` CLS, L2-normalised; cached `dinov2/{frames_n1_l0, sv_v1}.npz`).
+Then the cascade of filters:
+
+| Stage | Rows | Pass-rate | What dropped |
+|---|---:|---:|---|
+| All extracted frames in the DINOv2 cache | 26,034 | — | — |
+| F1: `cos_dino ≥ 0.60` to the top-1 SV crop | 16,684 | 64 % | 9,350 frames with no decent SV match |
+| **VLM-confirmed accepted** (F1 ∧ F2 ∧ F3 strict) | **2,470** | 9.5 % of 26 k | 1,432 disagree + 199 vlm_unresolved + the bulk that had no VLM signal |
+| **+ Visual-match accepted** (F1 only, no VLM) | + 12,583 | 48 % of 26 k | — |
+| HMM road-snap restricted to VLM-agreed ∧ top-30 POI cohort | **2,028** | — | 442 VLM-agreed frames whose `place_guess` was outside the top-30 pool |
+| **`heading_qc` Q1** (`heading_gap ≥ 0.05`) | **1,697** | 84 % of 2,028 | 331 frames with ambiguous per-frame heading (front/back symmetric facades) |
+
+#### (5a) Sanity-check viz — video frame vs. its top-1 SV pano (4 directions)
+
+**`viz/trusted_frames_grid_50.html`** — random 50 of the 1,697
+trusted frames, rendered in the same format as the pilot cos70
+grid. Each row shows:
+
+- the QUERY video frame (blue border, left)
+- the 4 compass crops at the matched SV pano (the heading-decision
+  evidence, with the chosen direction red-outlined)
+- per-row info: VLM raw guess, OSM-resolved POI, DINOv2's nearest
+  POI, F1/F2/F3 verdicts, `heading_gap`, the worked atan2 heading
+  calculation
+- 50 frames each in three sections: ACCEPTED / DISAGREE / VLM_UNRESOLVED
+
+This is the visual answer to *"is the DINOv2 match actually
+matching the right place at the right direction?"*. Re-generate:
+`python -m src.viz_recovery_grid --input gps_recovery_full.jsonl
+--filter-from trusted_frames.jsonl --output trusted_frames_grid_50.html
+--limit 50 --random --seed 42`.
+
+**Filtering process the 1,697 frames came through** (each row of
+the cascade above corresponds to one filter):
+
+1. Quality / dedup at extraction (`extract_frames.py`).
+2. DINOv2 cosine floor F1 (`gps_recovery.py`).
+3. VLM resolved-to-OSM F2 (`gps_recovery.py`).
+4. Semantic agreement F3 (`reconcile.py:reconcile_strict`).
+5. POI-pool restriction (`road_snap.py --top-pois 30`).
+6. Per-frame heading-confidence Q1 (`heading_qc.py --min-gap 0.05`).
+
+#### (5b) Distribution viz — POIs and frame counts in the cohort
+
+**`viz/poi_distribution_vlm_agreed_place_guess.png`** — horizontal
+bar chart of the 105 distinct VLM-resolved POIs sorted by frame
+count, top 30 shown.
+
+**The top 30 POIs selected as the destination pool** (this is
+exactly what `road_snap --top-pois 30` keeps; identical 30 POIs
+survive into `trusted_frames.jsonl`):
+
+| # | POI | frames | # | POI | frames |
+|---|---|---:|---|---|---:|
+|  1 | Bahnhofstrasse | 214 | 16 | Lindenhof | 33 |
+|  2 | Augustinergasse | 157 | 17 | Schoffelgasse | 29 |
+|  3 | Niederdorfstrasse | 120 | 18 | Spiegelgasse | 29 |
+|  4 | Limmatquai | 110 | 19 | Weggengasse | 29 |
+|  5 | Münsterbrücke | 93 | 20 | Quaibrücke | 27 |
+|  6 | Münsterhof | 90 | 21 | Rennweg | 24 |
+|  7 | Zürich Hauptbahnhof | 89 | 22 | Rudolf-Brun-Brücke | 24 |
+|  8 | Storchengasse | 85 | 23 | Limmat | 24 |
+|  9 | Münstergasse | 84 | 24 | Rathausbrücke | 23 |
+| 10 | Schipfe | 69 | 25 | Pfalzgasse | 23 |
+| 11 | Strehlgasse | 59 | 26 | Weinplatz | 21 |
+| 12 | Utoquai | 53 | 27 | Stüssihofstatt | 21 |
+| 13 | Marktgasse | 39 | 28 | Storchen | 20 |
+| 14 | Schlüsselgasse | 39 | 29 | Hirschenplatz | 17 |
+| 15 | Werdmühleplatz | 36 | 30 | Widdergasse | 16 |
+
+Source POIs (frame is *at* this POI) span the old town tightly —
+all 30 are within a roughly 1 km × 1 km region around Bahnhofstrasse
+and the Limmat. **Companion viz: `viz/poi_route_grid.html`** plots
+all C(30,2) = 435 OSM shortest paths between these 30 POIs so you
+can see the route graph the annotator can draw from. **Heading
+distribution viz: `viz/heading_rose_vlm_agreed.png`** (15° polar)
+and **`viz/heading_linear_vlm_agreed.png`** (10° linear).
+
+### (6) Instruction tuning — destinations, design, and the verifier
+
+For every trusted frame, the annotator (`src/annotate.py`) draws **3
+destinations** from the top-30 POI pool with **distance-band weights
+80 / 10 / 10**:
+
+| Band | Target share | Actual share (measured on 2,947 rows so far, 2026-05-29) |
+|---|---:|---:|
+| ≤ 500 m | 80 % | **84.0 %** |
+| 500–1000 m | 10 % | **11.3 %** |
+| 1000–1500 m | 10 % | **4.6 %** |
+| > 1500 m | 0 % | 0 % |
+
+The under-shoot on 1000–1500 m is the **fallback bias**: for frames
+deep inside the old town all 30 POIs are within 500 m, so the long-
+range band is empty and the algorithm picks the nearest unused
+POI instead of skipping the slot (§2.7.2). We accept the bias
+rather than skip slots or widen the pool.
+
+#### (6a) Annotation diagnosis viz — map view, per-sample pass/fail
+
+**`viz/annotate_smoke10.html`** — every (frame, destination) pair
+plotted on one Leaflet map:
+
+- **green polyline** = closed-loop verifier PASSED (δ < 30°)
+- **red polyline** = verifier FAILED (δ ≥ 30° or no verb extracted)
+- frame marker at start, destination pin at end, blue arrow = recovered camera heading
+- click any marker → popup with the frame photo + Pro's full `<thinking>` + `<answer>` + δ
+
+This is the **diagnose-correctness viz**. Pick any red polyline and
+the popup tells you which of the three things is wrong:
+- Pro's verb doesn't match the photo (model error)
+- Our recovered heading is ~180° wrong (DINOv2 symmetric-pano flip)
+- The OSM shortest path bears in a weird direction (route-planner artefact)
+
+(Currently rendered from the smoke output, 30 (frame, destination)
+pairs; will be re-rendered from `annotations_strict.jsonl` once the
+full batch completes — same script, just point `--input` at the
+full file.)
+
+#### (6b) Source POI distribution within the annotation set
+
+Source POIs (where each *frame* sits) follow the §3.5.5 top-30
+distribution directly — every frame in `trusted_frames.jsonl`
+belongs to one of those 30 POIs by `place_guess`. **Destination
+POIs** (where each instruction tells the walker to go) get sampled
+across all 30 with the 80/10/10 distance bias, so the destination
+distribution differs from the source distribution: POIs that sit
+far from many other POIs get drawn as destinations more often than
+their source count would suggest. The mid-run destination
+distribution (top 10 by accepted-sample count):
+
+| # | Destination POI | accepted samples |
+|---|---|---:|
+|  1 | Utoquai | 117 |
+|  2 | Werdmühleplatz | 82 |
+|  3 | Zürich Hauptbahnhof | 80 |
+|  4 | Hirschenplatz | 75 |
+|  5 | Niederdorfstrasse | 72 |
+|  6 | Rudolf-Brun-Brücke | 71 |
+|  7 | Stüssihofstatt | 66 |
+|  8 | Schipfe | 66 |
+|  9 | Rathausbrücke | 61 |
+| 10 | Lindenhof | 59 |
+
+#### (6c) Designation of the current instruction set
+
+The output rows in `data/cities/zurich/annotations_strict.jsonl`
+are **the production instruction-tuning dataset** for the strict
+6-step CoT prompt variant. Each row is one (frame, destination)
+sample:
+
+```jsonc
+{
+  "video":            "looks_perfect",
+  "frame_id":         "frame_00493",
+  "gps":              [47.37498, 8.53696],
+  "heading":          0.0,           // ← what derive_variants
+                                     //   will strip for the
+                                     //   {implicit, explicit}
+                                     //   training variants
+  "dest_name":        "Niederdorfstrasse",
+  "dest_dist_m":      386,
+  "route_bearing":    0,
+  "raw_response":     "...",         // full Pro response saved
+                                     //   verbatim for forensic
+                                     //   inspection
+  "thinking":         "STEP 1 SCENE: ...",
+  "answer":           "Continue straight ahead, ...",
+  "action":           "continue ahead",
+  "verifier_delta":   0.0,
+  "accepted":         true           // ← only true rows enter
+                                     //   training
+}
+```
+
+**Three downstream training views** are derived from this single
+file by `src/derive_variants.py` (next step in the pipeline,
+§2.10 step 9d):
+
+- `given` — heading line kept in the user message + INFERRED_HEADING
+  step kept in the assistant thinking
+- `implicit` — heading line stripped + INFERRED_HEADING step stripped
+- `explicit` — heading line stripped from user message but the
+  INFERRED_HEADING step kept inside the assistant thinking (the
+  model is *taught* to commit to a heading without being given one)
+
+The §4 training matrix uses these three variants as the L-given /
+L-implicit / L-explicit LoRA training inputs.
+
+**Current state of the batch** (2026-05-29 06:00 PT): 2,947 of
+~5,091 rows written (58 %), 1,685 verifier-pass kept (57 % pass
+rate), ~$37 visible spend / ~$59 incl. hidden thinking tokens
+spent so far on My Billing Account 2.
+
+---
+
 ## 4. Experiments, training & evaluation
 
 ### 4.1 The question
