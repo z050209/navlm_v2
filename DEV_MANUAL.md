@@ -2189,6 +2189,73 @@ spent so far on My Billing Account 2.
 
 ---
 
+## 3.6 Heading-correctness verification — diagrams (filter & eval)
+
+The same closed-loop verifier is used in two distinct places. Both
+diagrams below show its math visually so a reader doesn't need to
+re-read §2.7.6 to understand "what does *correct direction* actually
+mean for this dataset?".
+
+```
+       Closed-loop verifier (used at BOTH annotation and eval time):
+
+           δ = | angle_diff( heading + ACTION_DELTA[verb], route_bearing ) |
+           CORRECT iff verb is recognised AND δ < 30°.
+```
+
+| Input | At annotation time (filter) | At eval time (scoring) |
+|---|---|---|
+| `heading` | from `trusted_frames.jsonl`, recovered by DINOv2 | from the test frame's GPS recovery (ground truth) |
+| `route_bearing` | from `routing.plan_route` (OSM walking graph) | same — OSM ground truth |
+| **`verb`** | **from Gemini 2.5 Pro (teacher)** | **from the model under test** |
+| Outcome of CORRECT | sample **kept for training** | counts toward `directional_accuracy` metric |
+| Outcome of WRONG | sample **dropped from training** | fails `directional_accuracy`; row also fails `PASS_strict` |
+
+### (a) Annotation-time filter — picture, real examples
+
+![Annotation-time closed-loop filter, 2 PASS + 2 FAIL real examples](viz/heading_filter_annotation.png)
+
+What the picture shows, per panel:
+
+- **blue arrow** — recovered camera heading `h`
+- **green arrow** — `route_bearing B` (the OSM first-segment bearing
+  to the destination)
+- **red arrow** — `h + ACTION_DELTA[verb]` — where the user would be
+  facing *after* performing Pro's verb
+- **red arc** — the δ angle between the red and green arrows
+- **PASS/FAIL stamp** — `KEPT` if δ < 30°, else `DROPPED`
+
+The mechanic: if Pro's verb sends the user the right way (red arrow
+ends up close to the green one), `KEPT` — that (frame, destination)
+sample goes into the training set. If Pro's verb sends them wrong
+(big δ), `DROPPED` — we don't pay to train on a contradiction.
+
+### (b) Eval-time scoring — picture, same math, different verb source
+
+![Eval-time scoring, same verifier, verb now from model under test](viz/heading_filter_eval.png)
+
+Identical geometry; the only change vs. (a) is **where the verb
+comes from**. At eval time the model (zero-shot base or LoRA-tuned)
+produces the answer; we parse its action verb and run the same
+closed-loop math. A `CORRECT` here counts toward the
+`directional_accuracy` rate, one of the four metrics ANDed into
+`PASS_strict`:
+
+```
+PASS_strict = format_compliance ∧ directional_accuracy
+              ∧ checkpoint_validity ∧ anchor_faithfulness
+```
+
+(The other three metrics — format compliance, checkpoint validity,
+anchor faithfulness — are described in §4.4 and don't use this
+geometric check; they look at the answer *text*, not the heading.)
+
+Re-generate the two PNGs with `python -m src.viz_heading_correctness`
+(reads from `data/cities/zurich/annotations_strict.jsonl`, picks 2
+diverse PASS and 2 diverse FAIL examples).
+
+---
+
 ## 4. Experiments, training & evaluation
 
 ### 4.1 The question
