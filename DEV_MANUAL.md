@@ -2880,6 +2880,55 @@ Live dashboards:
 - <https://modal.com/apps/z050209/main/navlm-eval>
 - <https://modal.com/apps/z050209/main/navlm-train>
 
+#### Why 2 epochs (and how to bump)
+
+Inherited from the v1 navlm_ss training spec (§4.3): LoRA r=16,
+lr 2e-4, cosine, 3 % warmup, 2 epochs. The reasoning:
+
+- **LoRA ≈ 0.5 % trainable params** — 2 passes through 1,087 rows ≈
+  272 effective gradient updates (batch 1 × grad-accum 8), plenty
+  for a narrow "pick 1 of 4 verbs + anchor to a visible object"
+  task.
+- **Small dataset, overfitting risk** — prior round saw L-explicit
+  val loss plateau then drift up at epoch 3+.
+- **Cost shape** — 2 epochs ≈ $22; 4 ≈ $44; 8 ≈ $88. Doubling
+  epochs rarely beats what a better prompt variant or more
+  verifier-pass training rows would buy.
+
+If the L-given `summary.json` (in
+`navlm-ckpts:/lora_given_r16_e2/`) shows `final_eval_loss` still
+trending down at epoch 2, re-fire with `--epochs 4`:
+
+```powershell
+$env:MSYS_NO_PATHCONV = "1"
+python -m modal run train_modal.py --variant given --epochs 4
+```
+
+#### Queued — L-given eval cells auto-fire when SFT adapter lands
+
+`_watchdog_lora_eval.py` polls the `navlm-ckpts` volume every 90 s;
+the moment `/lora_given_r16_e2/adapter_model.safetensors` appears,
+it fires the two L-given eval cells back-to-back into a shared
+`--run-id`:
+
+```python
+# inside _watchdog_lora_eval.py
+modal run eval_modal.py --condition L-given --ablation video --run-id <ts>_Lgiven --no-anchor
+modal run eval_modal.py --condition L-given --ablation poi   --run-id <ts>_Lgiven --no-anchor
+```
+
+Results land at `navlm-eval://<ts>_Lgiven/L-given__{video,poi}/`.
+
+To run: `python _watchdog_lora_eval.py` (currently active as bg
+task `bjgtd6m63` for the in-flight L-given training).
+
+The metric to watch for is **`directional_rate`** — vs the **10 %
+B-given baseline** documented above, anything above ~50 % on
+L-given × video is the LoRA actually learning the task. Prior
+round's reference: 52.9 % PASS_strict for L-explicit; L-given
+should match or beat that (heading explicitly given is the
+easier case).
+
 ### 4.5 Running the 6×2 experiment matrix on Modal
 
 Slide 4/5 of `milestone2/NavLM_milestone2.pptx` defines **6 conditions
