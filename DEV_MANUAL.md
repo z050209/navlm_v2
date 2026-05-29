@@ -3294,6 +3294,122 @@ The L-given LoRA **never saw any of those 6 POIs as a destination
 label during training**. `L-given × poi` is asking "can the model
 route to a destination it has never been told about?".
 
+#### 4.7.2b L-given training-set composition (the 1,087 SFT rows in detail)
+
+What the **L-given LoRA actually learned from**, broken down five
+ways. These numbers are pulled from `data/sft/given.jsonl` joined
+back to `data/cities/zurich/eval_train.jsonl` for the per-row
+distance + verb info.
+
+**(a) Per video — heavily skewed to `looks_perfect`**
+
+| video | rows | share |
+|---|---:|---:|
+| looks_perfect | 391 | **36.0 %** |
+| most_elegant | 159 | 14.6 % |
+| hidden_streets | 138 | 12.7 % |
+| most_famous | 129 | 11.9 % |
+| old_town_limmat | 94 | 8.6 % |
+| zurich_main | 89 | 8.2 % |
+| bahnhofstrasse | 87 | 8.0 % |
+| `saturday_morning` | 0 | held out for the video-ablation test |
+
+`looks_perfect` dominates because it has the most VLM-confirmed
+trusted frames (484 of the 1,697). Worth flagging when reading
+results — the LoRA has seen ~3× more frames from this one video
+than from any other.
+
+**(b) Per source POI — where the *frame* is. All 30 represented.**
+
+| top 10 source POI | rows | share |
+|---|---:|---:|
+| Bahnhofstrasse | 222 | **20.4 %** |
+| Augustinergasse | 112 | 10.3 % |
+| Münsterhof | 76 | 7.0 % |
+| Niederdorfstrasse | 68 | 6.3 % |
+| Münstergasse | 65 | 6.0 % |
+| Utoquai | 55 | 5.1 % |
+| Limmatquai | 55 | 5.1 % |
+| Zürich Hauptbahnhof | 44 | 4.0 % |
+| Storchengasse | 44 | 4.0 % |
+| Schipfe | 38 | 3.5 % |
+| (20 more, tail down to 3 rows on Limmat) |  |  |
+
+All 30 top-30 POIs appear as source. Bahnhofstrasse is heavily
+over-represented (20 %) — it's the longest street and the most
+common video setting.
+
+**(c) Per destination POI — where the walker is told to go. Only 24 of 30 represented.**
+
+| top 10 destination | rows | share |
+|---|---:|---:|
+| Rudolf-Brun-Brücke | 63 | 5.8 % |
+| Schipfe | 58 | 5.3 % |
+| Münsterbrücke | 53 | 4.9 % |
+| Stüssihofstatt | 53 | 4.9 % |
+| Limmat | 52 | 4.8 % |
+| Rathausbrücke | 52 | 4.8 % |
+| Weggengasse | 50 | 4.6 % |
+| Pfalzgasse | 49 | 4.5 % |
+| Limmatquai | 49 | 4.5 % |
+| Lindenhof | 48 | 4.4 % |
+| (14 more …) |  |  |
+| Augustinergasse (tail) | 26 | 2.4 % |
+
+Destinations are roughly uniform across 24 POIs (~3–6 % each).
+The **6 spatially-outermost POIs are held out** (zero rows for
+Bahnhofstrasse, Hirschenplatz, Niederdorfstrasse, Utoquai,
+Werdmühleplatz, Zürich Hauptbahnhof) — that's the POI-region
+generalisation test (§4.7.2 above).
+
+**(d) Distance-band drift — short walks dominate**
+
+| band | target (§2.7.2) | actual in SFT | Δ |
+|---|---:|---:|---:|
+| ≤ 500 m | 80 % | **90.1 %** | +10 pp |
+| 500–1000 m | 10 % | 7.7 % | −2 pp |
+| 1000–1500 m | 10 % | **2.2 %** | **−8 pp** |
+| > 1500 m | 0 % | 0 % | 0 |
+
+The fallback bias in `sample_destinations` (§2.7.2) is amplified
+in `eval_train.jsonl` because it excluded saturday_morning AND the
+6 held-out destinations (which were disproportionately the long-
+range walks). Effect: the L-given LoRA saw mostly short ≤500 m
+walks; long-range routes are under-represented.
+
+**(e) Per action verb — imbalanced toward "continue ahead"**
+
+| verb | rows | share |
+|---|---:|---:|
+| **continue ahead** | 500 | **46.0 %** |
+| turn around | 315 | 29.0 % |
+| turn left | 145 | 13.3 % |
+| turn right | 127 | 11.7 % |
+
+Nearly half the training labels are "continue ahead" — because 90 %
+of destinations are within 500 m and most are forward-of-the-walker.
+**"Turn around" is unusually high at 29 %** — these are frames where
+the recovered heading is 180° wrong (DINOv2 symmetric-pano flip,
+§2.5b) and the teacher correctly tells the user to turn around.
+**"Turn left" / "turn right" are under-represented at ~12 % each.**
+
+**Implications for the L-given results (§4.7.3 / §4.7.4):**
+
+- Model has 4× more `continue ahead` examples than left/right →
+  expected to be biased toward predicting `continue ahead`. The
+  41 % directional accuracy on video probably reflects this bias
+  (a model that always says "continue ahead" would get ~46 %
+  accuracy on this verb-distribution).
+- 90 % of training is short-range walks → model probably weakest on
+  cross-old-town routes (rare in training).
+- 36 % of training is `looks_perfect` → if the eval cohort happens
+  to look visually like that video, accuracy will be higher than
+  the cross-video number suggests.
+- The fact that **L-given × poi (56.5 %) beats L-given × video
+  (40.9 %)** despite 6 destinations being completely novel
+  confirms the model learned routing semantics (relative bearing
+  → verb) rather than memorising destination names.
+
 #### 4.7.3 Measured results — 5 of 12 cells
 
 Live read from `eval_results/.../summary.json`. **PASS reported
