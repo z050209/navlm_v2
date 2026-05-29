@@ -2256,6 +2256,137 @@ diverse PASS and 2 diverse FAIL examples).
 
 ---
 
+## 3.7 Test datasets & split for the §4 eval matrix
+
+The §4 6-conditions × 2-ablations eval matrix runs on **two
+independent test files** built by `src/eval_split.py` from the
+verifier-passed rows of `annotations_strict.jsonl`. Each ablation
+asks a different generalisation question and uses its own test file.
+
+```
+SOURCE:  annotations_strict.jsonl        (1,757 verifier-pass rows so far,
+                                          of ~3,100 in-progress; will
+                                          grow as the annotation batch
+                                          completes)
+
+                  ┌─────────────────────────┐
+                  │ src/eval_split.py       │
+                  │  --input annotations_   │
+                  │   strict.jsonl          │
+                  └──────────┬──────────────┘
+                             ▼
+   ┌─────────────────────────┴─────────────────────────────┐
+   ▼                         ▼                              ▼
+eval_test_video.jsonl   eval_test_poi.jsonl              eval_train.jsonl
+   (video ablation)      (POI-region ablation)            (SFT input)
+   176 rows              483 rows                         1,087 rows
+   all `saturday_morning` 6 held-out POIs                 everything else
+```
+
+(Total 1,746; the +40 overlap of 1,746 vs 1,706 source rows is
+saturday_morning frames whose destination is also a held-out POI —
+they appear in both test files because each ablation owns its own
+test set.)
+
+### 3.7.1 The two ablations — what each test set asks
+
+| Ablation | Test file | Held out | Asks |
+|---|---|---|---|
+| **Video / camera generalisation** | `eval_test_video.jsonl` | one entire video (`saturday_morning`) | *"Trained on 7 videos' scenery — can the model handle a totally unseen video?"* |
+| **POI-region generalisation** | `eval_test_poi.jsonl` | 6 of the 30 destination POIs (the spatial outliers) | *"Trained on 24 destinations — can the model route to a destination it never saw a label for in training?"* |
+
+The 6 held-out POIs are chosen as the 20 % spatially-outermost of
+the 30 destinations actually used (median lat/lon per POI across
+the rows where it was the destination → distance from the
+30-POI centroid → top 6 by distance). On the current cohort:
+
+```
+held-out POI list (2026-05-29):
+  Bahnhofstrasse
+  Hirschenplatz
+  Niederdorfstrasse
+  Utoquai
+  Werdmühleplatz
+  Zürich Hauptbahnhof
+```
+
+These are the most northerly, easterly, and southerly POIs in the
+30-POI pool — Hauptbahnhof at the north end, Utoquai at the
+south-east lake edge, etc.
+
+### 3.7.2 Per-test-file details — what's in each
+
+`eval_test_video.jsonl` — **176 rows**, distance-band distribution:
+- ≤ 500 m  : 154 (88 %)
+- 500–1000 :  13 (7 %)
+- 1000–1500:   9 (5 %)
+- video: 100 % `saturday_morning`
+
+`eval_test_poi.jsonl` — **483 rows**, per held-out POI:
+| POI | rows |
+|---|---:|
+| Utoquai | 120 |
+| Werdmühleplatz | 82 |
+| Zürich Hauptbahnhof | 82 |
+| Hirschenplatz | 76 |
+| Niederdorfstrasse | 72 |
+| Bahnhofstrasse | 51 |
+
+Distance-band distribution: ≤ 500 m 59 %, 500–1000 25 %, 1000–1500 16 %.
+The POI test has more mid- and long-range destinations than the
+video test because we held out the spatially-outermost POIs —
+samples to them tend to be longer walks.
+
+`eval_train.jsonl` — **1,087 rows**, distance-band distribution:
+- ≤ 500 m  : 979 (90 %)
+- 500–1000 :  84 (8 %)
+- 1000–1500:  24 (2 %)
+- contains all 7 non-held-out videos and 24 non-held-out destinations.
+
+This is the input for the L-given / L-implicit / L-explicit LoRA
+training (after `src/derive_variants.py` rewrites each row into the
+three view-specific user/assistant formats — §2.10 step 9d).
+
+### 3.7.3 Why the split logic is built this way
+
+Three design choices worth flagging:
+
+1. **Two independent test files, not one combined hold-out.** Each
+   ablation is its own experiment with its own training set
+   (everything not in *its* test file). A row that's in both files
+   simply gets tested twice — once under each ablation. No leakage:
+   `eval_train.jsonl` excludes rows present in either test file.
+2. **POI hold-out is from the 30 destinations actually used, not
+   the full 1,289-POI OSM table.** Earlier draft of the split
+   computed spatial outliers over all OSM POIs (got 257 obscure
+   street names nobody destinations to; only 56 coincidental matches
+   in our data). Fixed in `1d00ecb` to compute from the destination
+   pool only.
+3. **20 % spatial-outermost, not random 20 %.** Random-20 % POI
+   hold-out would leak knowledge (a destination near a trained one
+   benefits from local geographic prior). Spatial outliers force
+   the model to generalise across a real *distance* gap.
+
+### 3.7.4 Re-running the split
+
+```powershell
+# default — picks the latest annotations_*.jsonl in data/cities/zurich
+python -m src.eval_split
+
+# explicit input
+python -m src.eval_split --input data/cities/zurich/annotations_strict.jsonl
+
+# tweak the held-out POI fraction (default 0.2 = 6 of 30)
+python -m src.eval_split --holdout-frac 0.3      # would hold out 9 POIs
+```
+
+The script is idempotent — re-running overwrites all three output
+files. Once the annotation batch finishes, the split numbers above
+will roughly **3×** (currently 1,757 verifier-pass rows of an
+expected ~2,900 at completion; same 3 file structure).
+
+---
+
 ## 4. Experiments, training & evaluation
 
 ### 4.1 The question
