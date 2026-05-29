@@ -3410,6 +3410,52 @@ the recovered heading is 180° wrong (DINOv2 symmetric-pano flip,
   confirms the model learned routing semantics (relative bearing
   → verb) rather than memorising destination names.
 
+#### 4.7.2c Bilingual reference table of the 30 destination POIs
+
+| # | German (canonical) | English | 中文 | held out? |
+|---:|---|---|---|---|
+|  1 | Bahnhofstrasse | Train-Station Street (main shopping boulevard) | 班霍夫大街（火车站大街） | ✅ HELD OUT |
+|  2 | Hirschenplatz | Stag Square | 鹿广场 | ✅ HELD OUT |
+|  3 | Niederdorfstrasse | Lower-Village Street | 下村街 | ✅ HELD OUT |
+|  4 | Utoquai | Uto Quay (lake-front promenade) | 乌托湖滨道 | ✅ HELD OUT |
+|  5 | Werdmühleplatz | Werd-Mill Square | 韦尔德磨坊广场 | ✅ HELD OUT |
+|  6 | Zürich Hauptbahnhof | Zurich Main Station | 苏黎世中央车站 | ✅ HELD OUT |
+|  7 | Augustinergasse | Augustinian Alley | 奥古斯丁巷 | — |
+|  8 | Limmat | Limmat (the river) | 利马特河 | — |
+|  9 | Limmatquai | Limmat Quay (river-side street) | 利马特河滨道 | — |
+| 10 | Lindenhof | Linden Court (hill-top park, Roman fort site) | 林登霍夫山丘（椴树庭院） | — |
+| 11 | Marktgasse | Market Alley | 集市巷 | — |
+| 12 | Münsterbrücke | Cathedral Bridge (links Münsterhof ↔ Grossmünster) | 大教堂桥 | — |
+| 13 | Münstergasse | Cathedral Alley | 大教堂巷 | — |
+| 14 | Münsterhof | Cathedral Court (square in front of Fraumünster) | 大教堂广场（圣母大教堂前） | — |
+| 15 | Pfalzgasse | Palace Alley (from Pfalz = imperial palace) | 帕拉茨巷（行宫巷） | — |
+| 16 | Quaibrücke | Quay Bridge (where the lake meets the Limmat) | 码头桥 | — |
+| 17 | Rathausbrücke | Town-Hall Bridge | 市政厅桥 | — |
+| 18 | Rennweg | "Race-Way" — old jousting street, now shopping | 跑马道 | — |
+| 19 | Rudolf-Brun-Brücke | Rudolf-Brun Bridge (named after 14th-c. mayor) | 鲁道夫·布伦桥 | — |
+| 20 | Schipfe | "Schipfe" (medieval river-craft landing area) | 希普菲老城区（河边步道） | — |
+| 21 | Schlüsselgasse | Key Alley | 钥匙巷 | — |
+| 22 | Schoffelgasse | Schoffel Alley | 肖弗尔巷 | — |
+| 23 | Spiegelgasse | Mirror Alley (Lenin lived at no. 14) | 镜子巷（列宁旧居所在地） | — |
+| 24 | Storchen | The Stork (Hotel Storchen, riverside) | 鹳鸟酒店 | — |
+| 25 | Storchengasse | Stork Alley | 鹳巷 | — |
+| 26 | Strehlgasse | Strehl Alley | 斯特雷尔巷 | — |
+| 27 | Stüssihofstatt | Stüssi Court-Stead (small medieval square) | 斯图西广场 | — |
+| 28 | Weggengasse | Bun Alley (Weggen = small bread rolls) | 面包卷巷 | — |
+| 29 | Weinplatz | Wine Square (old wine-trading square) | 葡萄酒广场 | — |
+| 30 | Widdergasse | Ram Alley | 公羊巷 | — |
+
+Most of the 30 are tightly clustered in central Zurich's old town
+(roughly a 700 m × 700 m square between Hauptbahnhof, the lake, and
+the east bank of the Limmat). The 6 held-out POIs are the
+spatially-outermost (§4.7.2's `_holdout_pois` algorithm) — the
+station to the north, Utoquai down at the lake, the eastern
+Niederdorf streets, and Bahnhofstrasse along the western axis.
+
+Reference for cross-checking the §2.5f route-grid map
+(`viz/poi_route_grid.html`) — the 30 markers there correspond
+1:1 to the rows in this table.
+
 #### 4.7.3 Measured results — 5 of 12 cells
 
 Live read from `eval_results/.../summary.json`. **PASS reported

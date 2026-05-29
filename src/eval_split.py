@@ -1,22 +1,33 @@
-"""Build the held-out evaluation sets for the two ablations (slide 4).
+"""Build the held-out evaluation set for the single POI-region ablation.
 
 Reads annotations_<variant>.jsonl (the verifier-passed Phase B output)
-and produces TWO held-out test files:
+and produces TWO files:
 
-  eval_test_video.jsonl   — rows from the saturday_morning video only
-                            (new footage; "video / camera generalization")
-  eval_test_poi.jsonl     — rows whose destination POI sits in the
-                            held-out POI region (new destinations;
-                            "POI generalization")
+  eval_test_poi.jsonl     — rows whose destination POI is in the
+                            held-out POI region (= 20 % spatially-
+                            outermost of the destinations actually
+                            used). Tests "POI-region generalisation":
+                            can the model route to destinations it
+                            never saw labelled in training?
+  eval_train.jsonl        — everything else (LoRA SFT input)
 
-For the POI ablation the held-out POI list lives in `config.HOLDOUT_POIS`
-(if absent, the default is the 20 % of point POIs furthest from the
-centroid of all visited POIs — a clean spatial split). Training data
-becomes "everything not in the test set" — that filtering happens in
-src/derive_variants.py.
+**Design note — only one ablation.** The earlier two-ablation design
+(adding a saturday_morning video hold-out) was dropped because the
+video-hold-out accuracy was confounded by a single failure mode
+(the L-given LoRA never emits "turn around" verbs, and the video
+hold-out has 2× more turn-around ground-truth labels than the POI
+hold-out — see DEV_MANUAL §4.7.4). The POI-region hold-out is the
+cleaner test of generalisation: novel destinations on visually-
+familiar scenery, isolates the routing-learning signal from visual
+novelty. saturday_morning frames now join the training pool.
+
+For backwards compatibility the script still accepts `--keep-video`
+to also produce eval_test_video.jsonl + exclude saturday_morning
+from training, but this is OFF by default.
 
   python -m src.eval_split                           # default annotations
   python -m src.eval_split --input annotations_strict.jsonl
+  python -m src.eval_split --keep-video              # legacy two-ablation
 """
 
 import argparse
@@ -51,9 +62,17 @@ def main():
     ap.add_argument("--input", default=None,
                     help="annotations*.jsonl; default = latest in CITY_DIR")
     ap.add_argument("--video", default=config.HOLDOUT_VIDEO,
-                    help=f"held-out video (default {config.HOLDOUT_VIDEO})")
+                    help=f"video to hold out IF --keep-video is set "
+                         f"(default {config.HOLDOUT_VIDEO})")
     ap.add_argument("--holdout-frac", type=float, default=0.2,
                     help="POI fraction for the POI ablation (default 0.2)")
+    ap.add_argument("--keep-video", action="store_true",
+                    help="legacy two-ablation mode — also write "
+                         "eval_test_video.jsonl and exclude --video "
+                         "rows from training. OFF by default; the "
+                         "current pipeline is single-ablation "
+                         "(POI hold-out only). See eval_split.py "
+                         "docstring for rationale.")
     args = ap.parse_args()
 
     if args.input:
@@ -103,23 +122,32 @@ def main():
     train_path = config.CITY_DIR / "eval_train.jsonl"
 
     n_v = n_p = n_t = 0
-    with video_path.open("w", encoding="utf-8") as fv, \
-            poi_path.open("w", encoding="utf-8") as fp, \
-            train_path.open("w", encoding="utf-8") as ft:
-        for r in records:
-            line = json.dumps(r, ensure_ascii=False) + "\n"
-            in_video = r["video"] == args.video
-            in_poi = r["dest_name"] in holdout
-            if in_video:
-                fv.write(line); n_v += 1
-            if in_poi:
-                fp.write(line); n_p += 1
-            # train set = neither the holdout video nor the holdout POI
-            if not in_video and not in_poi:
-                ft.write(line); n_t += 1
+    write_video = bool(args.keep_video)
+    fv = video_path.open("w", encoding="utf-8") if write_video else None
+    try:
+        with poi_path.open("w", encoding="utf-8") as fp, \
+                train_path.open("w", encoding="utf-8") as ft:
+            for r in records:
+                line = json.dumps(r, ensure_ascii=False) + "\n"
+                in_video = (r["video"] == args.video) if write_video else False
+                in_poi = r["dest_name"] in holdout
+                if in_video and fv is not None:
+                    fv.write(line); n_v += 1
+                if in_poi:
+                    fp.write(line); n_p += 1
+                # train set = neither the holdout video nor the holdout POI
+                if not in_video and not in_poi:
+                    ft.write(line); n_t += 1
+    finally:
+        if fv is not None:
+            fv.close()
 
-    print(f"[eval_split] eval_test_video: {n_v} -> {video_path.name}",
-          flush=True)
+    if write_video:
+        print(f"[eval_split] eval_test_video: {n_v} -> {video_path.name} "
+              f"(legacy --keep-video mode)", flush=True)
+    else:
+        print(f"[eval_split] eval_test_video: SKIPPED (single-ablation mode; "
+              f"saturday_morning rows kept in training)", flush=True)
     print(f"[eval_split] eval_test_poi:   {n_p} -> {poi_path.name}",
           flush=True)
     print(f"[eval_split] eval_train:      {n_t} -> {train_path.name}",
