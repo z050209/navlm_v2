@@ -1449,6 +1449,167 @@ where landmarks are still visible AND geometry is unambiguous, worse
 at near (turn-around bias) and worse at far (no landmarks to anchor
 visual reasoning).
 
+### Direction-pass-rate analysis (clean reasoning-quality measure)
+
+Restricting the denominator to **format-passing rows only** isolates
+the teacher's reasoning quality from its output-format reliability.
+
+```
+FORMAT-PASSING rows: 10,271
+  direction_pass rate: 8,270 / 10,271  (80.5 %)
+```
+
+#### Precision / recall split per verb — the most diagnostic view
+
+```
+RECALL — how often is each GT verb correctly identified
+  gt_verb             n      ok     recall
+  continue ahead    3,013   2,348    78 %
+  turn left         1,666   1,025    62 %   ← worst recall (often mistaken for turn around)
+  turn right        2,367   1,678    71 %
+  turn around       3,225   3,219   100 %   ← perfect recall ... at a cost (see precision)
+
+PRECISION — when teacher says verb V, how often is it correct?
+  pred_verb           n      ok     precision
+  continue ahead    2,440   2,348    96 %   ← when teacher says "continue ahead", almost always right
+  turn left         1,492   1,025    69 %
+  turn right        1,821   1,678    92 %
+  turn around       4,518   3,219    71 %   ← worst precision — fires too often
+```
+
+**The 100 % recall + 71 % precision on `turn around` IS the bias.**
+The teacher catches every real turn-around but ALSO falsely fires
+"turn around" on 1,299 cases that should have been turn-left/right.
+
+#### Per-destination direction-pass rate (worst → best)
+
+```
+destination                n      ok    dir%
+─────────────────────────────────────────────
+Lake Zurich              497     337    68 %   ← worst
+Münsterbrücke            474     328    69 %
+Fraumünster              492     368    75 %
+Wasserkirche             465     350    75 %
+Münsterhof               483     367    76 %
+Paradeplatz              552     423    77 %
+Kunsthaus                265     204    77 %
+Helmhaus                 467     365    78 %
+Grossmünster             417     329    79 %
+Bahnhofstrasse           624     493    79 %
+Niederdorfstrasse        645     515    80 %
+Bürkliplatz              345     277    80 %
+Sechseläutenplatz        393     316    80 %
+Limmatquai               615     503    82 %
+Rathaus                  646     541    84 %
+Opernhaus                442     371    84 %
+Lindenhof                571     490    86 %
+Landesmuseum             407     353    87 %
+St. Peter                501     444    89 %
+Limmat river             556     508    91 %
+Hauptbahnhof             414     388    94 %   ← easiest
+```
+
+#### Per-distance-band direction-pass rate
+
+```
+band                       n      ok    dir%
+─────────────────────────────────────────────
+near (<500m)           7,235   5,620    78 %   ← worst (where turn-around cases live)
+mid  (500-1000m)       2,318   2,022    87 %
+far  (1000m+)            718     628    87 %
+```
+
+### Four direction-failure modes — analogies + mechanism
+
+#### 1. The 180° trigger-finger — `turn-around` over-prediction
+
+```
+turn-around precision: 71 % (4,518 fires, 1,299 wrong)
+contribution to total direction failures: 60 % (1,210 of 1,997)
+```
+
+**Analogy**: A taxi driver who hears "destination is behind us
+somewhere" and immediately yanks the wheel for a full U-turn — when
+actually the destination is just slightly back-and-to-the-side and a
+single 90° turn at the next corner would do.
+
+**Mechanism**: the teacher's `<thinking>` compares heading to
+first-segment bearing. When `|heading − bearing| > 100°`, the model
+gravitates to "180° rotation needed → turn around", missing that a
+100-160° gap is more often a 90° left-or-right at the upcoming
+intersection.
+
+#### 2. The right-handed gardener — `turn-left` under-recall
+
+```
+turn left:  recall 62 % (lowest of all 4 verbs)
+turn right: recall 71 %
+```
+
+**Analogy**: A right-handed gardener trimming a hedge instinctively
+works clockwise. When the route requires a left turn, the model's
+preferred verbs are right (handled) or turn-around (the headline
+bias) — turn-left is the disfavoured residual.
+
+**Mechanism**: a combination of (a) a mild rightward bias on
+ambiguous turn cases (likely from training-data composition) and (b)
+when bearing-diff is `−90° to −135°`, the model fires turn-around
+instead of left more often than the symmetric right case at
+`+90° to +135°`.
+
+#### 3. The "which bank am I on" confusion — river-edge destination failures
+
+```
+Lake Zurich     68%    Münsterbrücke   69%
+Fraumünster     75%    Wasserkirche    75%    Münsterhof  76%
+```
+
+All five are on or beside the Limmat (river + lakeshore).
+Hauptbahnhof, by contrast, is 800 m inland with an unambiguous
+northward bearing → 94 % direction-pass.
+
+**Analogy**: Asking a tourist on the Münsterbrücke "which way to the
+Limmat?" — the river is *right there on both sides*. The verb depends
+on whether you walk *along* the bank you're on or *cross* to the
+other one. Pro 2.5 can see water in the photo but cannot reliably
+tell which bank it's standing on, so when the route says "cross to
+the east bank toward Grossmünster", the model sometimes says
+"continue ahead toward the river" instead.
+
+**Mechanism**: the multi-target routing (§10) for Lake Zurich and
+Limmat picks the network-nearest node, which can be on the OPPOSITE
+bank. The correct verb depends on whether a bridge is in the first
+50 m of route — a fine detail the photo doesn't always disambiguate.
+
+#### 4. The around-the-corner blindspot — near-distance failure spike
+
+```
+near (<500m)         78 % direction-pass
+mid  (500-1000m)     87 %
+far  (1000m+)        87 %
+```
+
+**Analogy**: A walking-tour guide who's great at the long view ("the
+cathedral is ten minutes that way, you'll see it") but stumbles on
+the immediate-corner case ("the cathedral is right around this
+corner — left or right?"). The wide gestures work; the precise
+micro-direction at <500 m doesn't.
+
+**Mechanism**: short routes are bearing-sensitive — a 50 m first
+segment requires the model to nail the heading to within ~10° to pick
+the right verb. Long routes have many segments, so even if the
+first-segment bearing is slightly off, the cumulative direction tends
+toward "ahead" or a clear cardinal turn.
+
+### Summary — the four direction-failure modes
+
+| Mode | Symptom | Frequency | Where it hits worst |
+|---|---|---|---|
+| **Turn-around trigger-finger** | 71 % precision on turn-around → 1,299 false positives | Largest contributor (60 % of all direction failures) | All 3 variants, especially derived/implicit |
+| **Left under-recall** | turn-left recall 62 % vs turn-right 71 % | 9 pp gap | All 3 variants, slightly worse in implicit |
+| **River-bank ambiguity** | Lake Zurich / Münsterbrücke / Fraumünster bottom 3 by direction-pass | 5 destinations, ~25 % of dataset | Worst in derived/implicit (no heading anchor) |
+| **Near-distance blindspot** | 9 pp gap near vs mid/far | Concentrated in 70 % of dataset (near band) | All 3, worst in implicit |
+
 ---
 
 ## 19. Evaluation metrics (v2)
