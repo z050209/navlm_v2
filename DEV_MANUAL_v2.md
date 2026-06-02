@@ -1373,6 +1373,15 @@ Per-LoRA adapter (one variant × one rank):
 Rank does not change wall time meaningfully — r=4, 8, 16 differ only in
 adapter param count, not forward/backward cost.
 
+`eval_loss` from training is **masked-loss** (see §22) — it averages
+cross-entropy only over `<thinking>` + `<answer>` tokens, NOT over the
+system+user prompt. This makes the number directly comparable across
+runs (variant × rank) and meaningful as a model-selection signal. The
+2026-06-02 overfit test showed that the pre-masking eval_loss was
+misleadingly low (it averaged in the trivial-to-predict system+user
+tokens); the post-masking eval_loss reveals real overfitting as a
+U-shaped curve over epochs.
+
 #### Eval — 12 conditions on Modal A100-40GB
 
 ```
@@ -1933,18 +1942,79 @@ LoRA rank (swept)       : 4, 8, 16
 optimiser               : AdamW (HF Trainer default)
 learning rate           : 2e-4
 LR schedule             : cosine, 3 % warmup
-epochs                  : 2
+epochs                  : 2  (early stopping may cut short — see below)
 per_device_batch_size   : 1
 gradient_accumulation   : 8         → effective batch size 8
 bf16                    : true
 max_pixels              : 448 × 448 (Qwen processor cap)
-eval_strategy           : per epoch (val loss)
-save_strategy           : end-of-run only
+eval_strategy           : per epoch  (eval_loss computed on val split)
+save_strategy           : per epoch  (one checkpoint per epoch)
+save_total_limit        : 3          (oldest checkpoints pruned)
+load_best_model_at_end  : true       (pick lowest masked eval_loss)
+early_stopping_patience : 2 epochs   (via EarlyStoppingCallback)
 ```
 
 LoRA alpha is set to `2 × rank` (standard practice) so per-weight
 effective learning rate is rank-invariant; we are sweeping capacity,
 not effective LR.
+
+### Loss masking — `<thinking>` + `<answer>` only
+
+The chat-template-rendered training row has 3 turns: `system`, `user`,
+and `assistant`. Naively, HuggingFace Trainer computes the loss over
+ALL non-padding tokens — including the (identical-across-rows) system
+prompt and the user prompt. That makes the loss number dominated by
+constant prompt text the model learns to predict in a few steps, and
+makes `eval_loss` near-monotone-decreasing even when the model is
+overfitting on the assistant tokens we actually care about.
+
+The collate function therefore masks the system + user tokens out of
+the loss by finding `<|im_start|>assistant\n` in each row's
+`input_ids` and setting `labels[:asst_start] = -100`. After this, the
+loss is computed over **only the assistant turn** — i.e. exactly the
+`<thinking>...</thinking><answer>...verb.</answer>` tokens.
+
+```python
+# src/a2_train_modal.py — collate()
+asst_prefix_ids = processor.tokenizer.encode(
+    "<|im_start|>assistant\n", add_special_tokens=False)
+# inside collate, per row:
+for i in range(labels.shape[0]):
+    seq = enc["input_ids"][i].tolist()
+    for j in range(len(seq) - len(asst_prefix_ids) + 1):
+        if seq[j:j+len(asst_prefix_ids)] == asst_prefix_ids:
+            labels[i, :j + len(asst_prefix_ids)] = -100
+            break
+```
+
+Empirical impact (overfit smoke test, 32 train / 4 val / 30 epochs,
+variant=given, r=16):
+
+| Epoch | UNMASKED train | UNMASKED eval | MASKED train | MASKED eval |
+|---:|---:|---:|---:|---:|
+| 1  | 4.84  | 4.38  | 0.60  | 0.77 |
+| 5  | 1.87  | 1.32  | 0.36  | **0.52** ← min |
+| 9  | 0.19  | 0.18  | 0.13  | 0.55 |
+| 15 | 0.08  | 0.12  | 0.04  | 0.64 |
+| 20 | 0.06  | 0.12  | 0.02  | 0.82 |
+| 30 | 0.05  | 0.13  | 0.005 | 0.87 |
+
+The unmasked eval_loss looked like a healthy plateau; the masked
+eval_loss reveals classic overfitting — minimum at epoch ~5 then
+climbing. Early stopping (patience=2) would have caught this at
+epoch ~7.
+
+### Early stopping
+
+`EarlyStoppingCallback(early_stopping_patience=2)` halts training when
+`eval_loss` (the masked version) fails to improve for 2 consecutive
+epochs. `load_best_model_at_end=True` then restores the checkpoint
+with the lowest eval_loss before `model.save_pretrained()`. For the
+full sweep (~2,900 train rows) we set `epochs=2` as the cap; if the
+val loss starts climbing within those 2 epochs, the best checkpoint
+is what gets saved.
+
+### Adapter naming convention
 
 ### Adapter naming convention
 
