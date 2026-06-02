@@ -889,7 +889,7 @@ python -m src.a2_viz_thin
 |---|---|---|
 | Decide on 3 weak attractions | Kunsthaus / Bürkliplatz / Paradeplatz each have 1 matched frame — drop, augment with SV crops, or accept | Pending |
 | Per-attraction radii for long features | Bahnhofstrasse / Limmatquai / Lake Zurich / Limmat / Niederdorfstrasse need larger R or multi-anchor to recover the 59 unmatched-but-passing panos | Deferred to attempt 3 |
-| Train/test holdout split | 89 panos × 20% = ~18 panos for test; carve so each viable attraction has panos in both buckets | Pending |
+| Train/test split | **Random 80/10/10** on the **shared `(video, frame_id, destination)` key list** across all 3 variants, so the SAME test instances are used for every condition (apples-to-apples). See §21. | **Resolved** |
 | Re-annotation prompt v2 | New `src/a2_annotate.py` consuming `routes.jsonl` as input; teacher VLM reasons about route + emits verb; drop checkpoint step (unverifiable in Attempt 1) | Pending |
 | Retrain L-given | Same training code (`train_modal.py`), new annotation file | Pending |
 | Eval metrics implementation | `progress_correct` + `strict_correct` + `soft_correct` reporting alongside | Pending |
@@ -1181,6 +1181,87 @@ Total                                          ~$55      ~5.5 h
 Gemini Pro 2.5 is only invoked during the teacher-annotation step.
 All evaluation (including zero-shot) runs on Qwen 2.5 VL 7B via
 Modal — same harness as Attempt 1.
+
+---
+
+## 21. Aligned-split SFT conversion (`src/a2_to_sft.py`)
+
+**Script**: `src/a2_to_sft.py`
+**Inputs**: `data/cities/zurich/a2/annotations_a2_{given,derived,implicit}.jsonl`
+**Outputs**:
+
+```
+data/sft/a2_given_train.jsonl       a2_given_val.jsonl       a2_given_test.jsonl
+data/sft/a2_derived_train.jsonl     a2_derived_val.jsonl     a2_derived_test.jsonl
+data/sft/a2_implicit_train.jsonl    a2_implicit_val.jsonl    a2_implicit_test.jsonl
+data/sft/a2_split_manifest.json     (audit trail — split keys + counts)
+```
+
+### One split, three variants — apples-to-apples
+
+The script does NOT split each variant independently. Instead it:
+
+1. **Loads all 3 annotation files** and indexes each by the triple
+   `key = (video, frame_id, destination)`.
+2. **Keeps only rows that pass `format_pass==True` in ALL THREE
+   variants.** A `(frame, dest)` pair where Gemini malformed the
+   response in even one variant is dropped from every variant's
+   dataset — otherwise the cohorts wouldn't be comparable.
+3. **Intersects the keys** across the 3 surviving sets → one shared
+   cohort of size ≈ 3,600 (depends on teacher format-failure rate).
+4. **Shuffles the shared key list with `seed=42` and splits 80/10/10**.
+5. **Applies that single split to each variant**, producing 9 files
+   where each variant's `train`/`val`/`test` contains exactly the same
+   `(video, frame_id, destination)` triples — but with the variant's
+   own `student_prompt` (heading shown for given, hidden for derived /
+   implicit) and the variant's own teacher `response` (which followed
+   that variant's CoT template).
+
+```
+                         given         derived       implicit
+─────────────────────────────────────────────────────────────────────
+test (same 360 keys)     same keys     same keys     same keys
+                         + given       + derived     + implicit
+                           student       student       student
+                           prompt        prompt        prompt
+                         + given       + derived     + implicit
+                           teacher       teacher       teacher
+                           response      response      response
+─────────────────────────────────────────────────────────────────────
+```
+
+### Why this matters for the 6-condition matrix
+
+Because all 6 conditions evaluate on the same 360 test instances, you
+can compute per-row deltas (`trained-given.PASS − zs-given.PASS` on
+instance #i) rather than only per-condition rates. The headline cross-
+condition comparison in §20 becomes a true paired comparison.
+
+### Filters
+
+| Flag | Effect | Trade-off |
+|---|---|---|
+| (default) | Keep all rows with `format_pass==True` in all 3 variants | Largest cohort. Includes rows where the teacher's verb was wrong (direction_pass==False) — the student trains on those imperfect labels but only on the format and CoT style. |
+| `--only-pass` | Additionally require `direction_pass==True` in all 3 | Cleaner SFT labels; cohort shrinks ~15-20 %. Use if direction-accuracy is more important than data volume. |
+
+### Run
+
+```bash
+python -m src.a2_to_sft                 # default: format_pass-only filter
+python -m src.a2_to_sft --only-pass     # require teacher-correct verbs too
+```
+
+Then upload to Modal once:
+```bash
+modal volume put navlm-data data/sft/a2_*.jsonl /sft/
+```
+
+### Manifest
+
+`a2_split_manifest.json` records seed, fractions, sizes, and the full
+list of test keys — useful both for auditability and for downstream
+scripts that need to know which `(video, frame_id, destination)`
+triples are in the held-out test set without re-deriving the split.
 
 ---
 
