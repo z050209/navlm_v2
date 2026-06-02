@@ -889,7 +889,7 @@ python -m src.a2_viz_thin
 |---|---|---|
 | Decide on 3 weak attractions | Kunsthaus / Bürkliplatz / Paradeplatz each have 1 matched frame — drop, augment with SV crops, or accept | Pending |
 | Per-attraction radii for long features | Bahnhofstrasse / Limmatquai / Lake Zurich / Limmat / Niederdorfstrasse need larger R or multi-anchor to recover the 59 unmatched-but-passing panos | Deferred to attempt 3 |
-| Train/test split | **Random 80/10/10** on the **shared `(video, frame_id, destination)` key list** across all 3 variants, so the SAME test instances are used for every condition (apples-to-apples). See §21. | **Resolved** |
+| Train/test split | **Per-variant independent random 80/10/10** (each variant shuffled with `seed=42` over its own `format_pass` rows). Cross-variant comparison in §20 is rate-vs-rate; within-variant `zs-X` vs `trained-X` is paired automatically. See §21. | **Resolved** |
 | Re-annotation prompt v2 | New `src/a2_annotate.py` consuming `routes.jsonl` as input; teacher VLM reasons about route + emits verb; drop checkpoint step (unverifiable in Attempt 1) | Pending |
 | Retrain L-given | Same training code (`train_modal.py`), new annotation file | Pending |
 | Eval metrics implementation | `progress_correct` + `strict_correct` + `soft_correct` reporting alongside | Pending |
@@ -1184,84 +1184,92 @@ Modal — same harness as Attempt 1.
 
 ---
 
-## 21. Aligned-split SFT conversion (`src/a2_to_sft.py`)
+## 21. Per-variant SFT conversion (`src/a2_to_sft.py`)
 
 **Script**: `src/a2_to_sft.py`
-**Inputs**: `data/cities/zurich/a2/annotations_a2_{given,derived,implicit}.jsonl`
-**Outputs**:
+**Inputs**: `data/cities/zurich/a2/annotations_a2_{variant}.jsonl`
+            (one file per variant — given / derived / implicit)
+**Outputs** (3 files per run, one variant at a time):
 
 ```
-data/sft/a2_given_train.jsonl       a2_given_val.jsonl       a2_given_test.jsonl
-data/sft/a2_derived_train.jsonl     a2_derived_val.jsonl     a2_derived_test.jsonl
-data/sft/a2_implicit_train.jsonl    a2_implicit_val.jsonl    a2_implicit_test.jsonl
-data/sft/a2_split_manifest.json     (audit trail — split keys + counts)
+data/sft/a2_{variant}_train.jsonl     a2_{variant}_val.jsonl     a2_{variant}_test.jsonl
 ```
 
-### One split, three variants — apples-to-apples
+### Per-variant independent random 80/10/10
 
-The script does NOT split each variant independently. Instead it:
+Each variant is processed in its own invocation and gets its own random
+shuffle (`seed=42`). The 3 variants' train/val/test splits are NOT
+aligned — they contain different `(video, frame_id, destination)`
+instances. This is by design.
 
-1. **Loads all 3 annotation files** and indexes each by the triple
-   `key = (video, frame_id, destination)`.
-2. **Keeps only rows that pass `format_pass==True` in ALL THREE
-   variants.** A `(frame, dest)` pair where Gemini malformed the
-   response in even one variant is dropped from every variant's
-   dataset — otherwise the cohorts wouldn't be comparable.
-3. **Intersects the keys** across the 3 surviving sets → one shared
-   cohort of size ≈ 3,600 (depends on teacher format-failure rate).
-4. **Shuffles the shared key list with `seed=42` and splits 80/10/10**.
-5. **Applies that single split to each variant**, producing 9 files
-   where each variant's `train`/`val`/`test` contains exactly the same
-   `(video, frame_id, destination)` triples — but with the variant's
-   own `student_prompt` (heading shown for given, hidden for derived /
-   implicit) and the variant's own teacher `response` (which followed
-   that variant's CoT template).
+### Why we are NOT aligning splits across variants
+
+Earlier we considered intersecting keys across the 3 variants to build
+a single shared cohort, on the theory that "same test instances" would
+let us compute per-row deltas across conditions. That framing is wrong,
+for two reasons:
+
+1. **Cross-variant comparisons are NOT per-row valid even with shared
+   keys.** Each variant gives the same image a different input
+   (heading shown for given, hidden + 4-step derive for derived,
+   hidden + 3-step visual for implicit). So a delta like
+   `trained-derived[i].PASS − trained-given[i].PASS` on the same
+   instance #i is *not* isolating any single effect — it conflates
+   input-prompt difference with output-behavior difference. The only
+   thing meaningfully comparable across variants is **rates**
+   (PASS rate, format rate, heading_inference rate).
+
+2. **The intersection cost is severe at the teacher's true pass rate.**
+   The teacher's per-variant PASS rate is roughly ~70 %. Intersecting
+   `--only-pass` across all 3 variants would drop retention to
+   ~0.7³ ≈ 0.34 — chopping the training pool by ~2× for an alignment
+   property that, per point 1, isn't useful.
+
+### Where per-row comparisons DO survive (for free)
+
+Within a single variant, the trained-vs-zero-shot comparison is paired
+by construction: `zs-given` and `trained-given` both load
+`a2_given_test.jsonl`, so they see identical inputs on identical
+instances. The 3 within-variant comparisons:
 
 ```
-                         given         derived       implicit
-─────────────────────────────────────────────────────────────────────
-test (same 360 keys)     same keys     same keys     same keys
-                         + given       + derived     + implicit
-                           student       student       student
-                           prompt        prompt        prompt
-                         + given       + derived     + implicit
-                           teacher       teacher       teacher
-                           response      response      response
-─────────────────────────────────────────────────────────────────────
+zs-given      ↔ trained-given        → paired (same test file)
+zs-derived    ↔ trained-derived      → paired
+zs-implicit   ↔ trained-implicit     → paired
 ```
 
-### Why this matters for the 6-condition matrix
+These are the comparisons that answer the headline scientific question
+"does the LoRA adapter help for this prompt style?"
 
-Because all 6 conditions evaluate on the same 360 test instances, you
-can compute per-row deltas (`trained-given.PASS − zs-given.PASS` on
-instance #i) rather than only per-condition rates. The headline cross-
-condition comparison in §20 becomes a true paired comparison.
+The cross-variant comparison (e.g. `trained-derived` vs
+`trained-given`) is rate-vs-rate only.
 
 ### Filters
 
 | Flag | Effect | Trade-off |
 |---|---|---|
-| (default) | Keep all rows with `format_pass==True` in all 3 variants | Largest cohort. Includes rows where the teacher's verb was wrong (direction_pass==False) — the student trains on those imperfect labels but only on the format and CoT style. |
-| `--only-pass` | Additionally require `direction_pass==True` in all 3 | Cleaner SFT labels; cohort shrinks ~15-20 %. Use if direction-accuracy is more important than data volume. |
+| (default) | Keep only rows with `format_pass==True` | Largest cohort. Includes rows where the teacher's verb was wrong (direction_pass==False) — the student still learns the format and CoT style from those. |
+| `--only-pass` | Additionally require `direction_pass==True` | Cleaner SFT labels; cohort shrinks to ~0.7× at the current teacher pass rate. Use if direction-accuracy is more important than data volume. |
 
 ### Run
 
 ```bash
-python -m src.a2_to_sft                 # default: format_pass-only filter
-python -m src.a2_to_sft --only-pass     # require teacher-correct verbs too
+python -m src.a2_to_sft --variant given
+python -m src.a2_to_sft --variant derived
+python -m src.a2_to_sft --variant implicit
+
+# optional — cleaner SFT labels at ~0.7× cohort size:
+python -m src.a2_to_sft --variant given --only-pass
+
+# optional — video-holdout split instead of random:
+python -m src.a2_to_sft --variant given --holdout-video <video_id>
 ```
 
-Then upload to Modal once:
+Then upload to Modal once all 3 are produced:
+
 ```bash
 modal volume put navlm-data data/sft/a2_*.jsonl /sft/
 ```
-
-### Manifest
-
-`a2_split_manifest.json` records seed, fractions, sizes, and the full
-list of test keys — useful both for auditability and for downstream
-scripts that need to know which `(video, frame_id, destination)`
-triples are in the held-out test set without re-deriving the split.
 
 ---
 
