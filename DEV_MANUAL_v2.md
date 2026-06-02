@@ -930,7 +930,7 @@ python -m src.a2_viz_thin
 |---|---|---|
 | Decide on 3 weak attractions | Kunsthaus / Bürkliplatz / Paradeplatz each have 1 matched frame — accepted as-is; routes.jsonl includes them via the destination-cohort sampler | **Resolved (accepted)** |
 | Per-attraction radii for long features | Multi-target routing (§10) addresses this — Bahnhofstrasse / Limmatquai / Lake Zurich / Limmat / Niederdorfstrasse use the matched-cohort node list + canonical fallback | **Resolved** |
-| Re-annotation prompt v2 | `src/a2_annotate.py` produces 3 variant-specific datasets (given/derived/implicit) via 3 parallel Gemini Pro 2.5 passes — see §18 | **given 100 %, implicit 100 %, derived 88.6 %** — only derived still running, ETA ~3 h. Teacher pass rates measured so far: **given 87.5 % PASS, derived 72.1 % PASS, implicit 73.0 % PASS** (see §18 "Measured teacher pass rates"). |
+| Re-annotation prompt v2 | `src/a2_annotate.py` produces 3 variant-specific datasets (given/derived/implicit) via 3 parallel Gemini Pro 2.5 passes — see §18 | **given 100 %, implicit 100 %, derived 88.6 %** — only derived still running, ETA ~3 h. Teacher pass rates so far: **given 87.5 %, derived 72.1 %, implicit 73.0 %** (whole-dataset PASS 77.8 % on 10,614 rows; see §18 "Whole-dataset teacher-quality analysis" — headline finding: **turn-around bias** — 60 % of teacher direction failures are turn-left/right mis-classified as turn-around). |
 | Train/test split | Per-variant independent random 80/10/10 (`seed=42`, format_pass only by default) — see §20 | **Resolved** |
 | Modal infrastructure | 3 volumes (`navlm-data/ckpts/eval`), 2 apps (`navlm-train-a2/eval-a2`), CLI cheat sheet + Windows gotchas — see §21 | **Resolved** |
 | Frame upload to Modal | 1,030 needed frames (517 MB) discovered missing during trial; now uploaded to `navlm-data:/frames/` | **Resolved (2026-06-02)** |
@@ -1316,6 +1316,138 @@ the supervisor's reliability.
    requires direction_pass), cohorts shrink further: given ~3,200,
    derived ~2,350, implicit ~2,675 (rough projections to full
    annotation completion).
+
+### Whole-dataset teacher-quality analysis (10,614 rows across all 3 variants)
+
+```
+WHOLE DATASET
+  format_pass    : 10,258 / 10,614  (96.6 %)
+  direction_pass :  8,292 / 10,614  (78.1 %)
+  overall PASS   :  8,261 / 10,614  (77.8 %)
+```
+
+#### By destination attraction — PASS rate
+
+```
+destination                n     fail   fail%   PASS%
+─────────────────────────────────────────────────────
+Lake Zurich              515     179    35 %    65 %   ← worst
+Münsterbrücke            498     171    34 %    66 %
+Fraumünster              518     150    29 %    71 %
+Paradeplatz              573     151    26 %    74 %
+Münsterhof               496     130    26 %    74 %
+Wasserkirche             474     124    26 %    74 %
+Kunsthaus                275      71    26 %    74 %
+Helmhaus                 484     119    25 %    75 %
+Grossmünster             433     104    24 %    76 %
+Bürkliplatz              362      85    23 %    77 %
+Bahnhofstrasse           637     146    23 %    77 %
+Sechseläutenplatz        405      89    22 %    78 %
+Niederdorfstrasse        657     143    22 %    78 %
+Limmatquai               639     136    21 %    79 %
+Opernhaus                465      94    20 %    80 %
+Rathaus                  665     125    19 %    81 %
+Lindenhof                587      97    17 %    83 %
+Landesmuseum             420      67    16 %    84 %
+St. Peter                520      76    15 %    85 %
+Limmat river             569      61    11 %    89 %
+Hauptbahnhof             422      35     8 %    92 %   ← easiest
+```
+
+**Pattern**: river/bank-adjacent destinations (Lake Zurich,
+Münsterbrücke, Fraumünster — all on or beside the Limmat) fail most,
+because routes there often require a bridge crossing whose verb
+depends on which bank the walker is on. **Hauptbahnhof is easiest**
+because it sits north of the matched cohort with an unambiguous
+bearing.
+
+#### By distance band — PASS rate
+
+```
+band                   n      fail   fail%   PASS%
+──────────────────────────────────────────────────
+near (<500m)         7,438   1,826    25 %    75 %   ← worst (counter-intuitive)
+mid  (500-1000m)     2,428     407    17 %    83 %
+far  (1000m+)          748     120    16 %    84 %
+```
+
+**Counter-intuitive but consistent**: the teacher fails MORE on near
+destinations. Two compounding reasons:
+1. The 80 % near-band sampling concentrates the `turn around` cases
+   (destination just around the corner or behind the walker).
+2. Near destinations have short routes (~50-500 m) so small
+   heading-noise errors translate to wrong verbs — an 80 m segment is
+   much more bearing-sensitive than a 1.2 km segment.
+
+#### By ground-truth verb — PASS rate (most striking finding)
+
+```
+gt_verb              n        fail   fail%   PASS%
+────────────────────────────────────────────────────
+continue ahead    3,091      748    24 %    76 %
+turn left         1,706      683    40 %    60 %   ← worst
+turn right        2,436      758    31 %    69 %
+turn around       3,381      164     5 %    95 %   ← best, but it's a BIAS — see below
+```
+
+The "95 % PASS on turn around" looks great in isolation but the
+confusion matrix below reveals it's actually a **teacher over-
+prediction bias**, not a genuine strength.
+
+#### Confusion matrix — where teacher's verb disagrees with GT
+
+```
+GT verb         → teacher verb        count
+────────────────────────────────────────────
+turn right       → turn around          617    ← teacher over-predicts turn around
+turn left        → turn around          593    ← teacher over-predicts turn around
+continue ahead   → turn left            454
+continue ahead   → turn right           122
+continue ahead   → turn around           87
+turn right       → continue ahead        60
+turn left        → continue ahead        29
+turn left        → turn right            18
+turn right       → turn left             11
+turn around      → continue ahead         3
+```
+
+#### **Key finding: TURN-AROUND BIAS**
+
+1,210 of the 1,997 total direction failures (60 %) are cases where
+the GT verb is `turn left` or `turn right` and the teacher mis-
+predicted `turn around`. The teacher is trigger-happy with the
+180°-rotation verb whenever the route bearing is noticeably backward
+from the heading — even when geometrically it's only a 90° turn.
+
+**Implications**:
+
+- The 95 % PASS rate on `turn around` is real but it comes WITH a
+  large false-positive rate from `turn left/right` cases. The
+  precision is high but recall on the OTHER verbs is hurt.
+- The SFT data has a **systematic over-representation of `turn around`
+  labels** on rows that should be turn left/right. The student will
+  inherit this bias.
+- `--only-pass` filtering removes the 1,210 mis-classified rows
+  (~12 % cohort shrinkage), trading data volume for label cleanliness.
+  Worth considering for the final training run.
+
+#### By variant × distance band
+
+```
+variant       near (<500m)      mid (500-1000m)     far (1000m+)
+──────────────────────────────────────────────────────────────────
+given          85 % (n=2571)     92 % (n=827)        96 % (n=259)   ← monotonic — far easiest
+derived        71 % (n=2296)     76 % (n=774)        79 % (n=230)   ← monotonic
+implicit       70 % (n=2571)     82 % (n=827)        76 % (n=259)   ← non-monotonic
+```
+
+`given` is robust across distance bands (monotonic 85 → 96 %).
+`derived` follows the same monotonic shape but ~15 pp lower at every
+band — consistent with the 4-step derivation costing accuracy
+proportionally. `implicit` is non-monotonic: best at mid distance
+where landmarks are still visible AND geometry is unambiguous, worse
+at near (turn-around bias) and worse at far (no landmarks to anchor
+visual reasoning).
 
 ---
 
