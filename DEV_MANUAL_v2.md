@@ -402,7 +402,24 @@ For each attraction, decide ONE canonical routing target:
 | target_type | applies to | Rule |
 |---|---|---|
 | **point** | 16 attractions (kind ∉ {water, street}) | Snap canonical GPS to nearest walking-graph node (single point) |
-| **multi** | 5 long features (kind ∈ {water, street}: Lake Zurich, Limmat river, Bahnhofstrasse, Niederdorfstrasse, Limmatquai) | List of matched-cohort panos as targets; "arrived" = reach ANY of them |
+| **multi** | 5 long features (kind ∈ {water, street}: Lake Zurich, Limmat river, Bahnhofstrasse, Niederdorfstrasse, Limmatquai) | List of walking-graph nodes — one per matched-cohort pano tagged with this attraction, PLUS the canonical-centroid node as a fallback; "arrived" = reach ANY node in the list |
+
+The multi-target candidate pool is built as:
+
+```
+multi_targets =
+    { nearest_walking_node(pano.gps_snapped or pano.g_dino)
+      for every pano in GPS_VLM_GEO where matched==True and the pano
+      was tagged with this attraction }
+  ∪
+    { nearest_walking_node(canonical_lat_lon) }     ← +1 fallback row,
+                                                      stored with
+                                                      video="<canonical>"
+```
+
+The fallback exists so that if the matched cohort missed an obvious
+section (e.g. every Lake-Zurich pano happens to be on the west shore),
+routing can still land on the curated centroid.
 
 ### Per-row schema
 
@@ -421,8 +438,12 @@ For each attraction, decide ONE canonical routing target:
  "target_type": "multi",
  "n_targets": 39,
  "multi_targets": [
-    {"video": "...", "frame_id": "...", "node_id": ..., "gps": [...]},
+    {"video": "<video>", "frame_id": "<fid>",
+     "node_id": 12345678, "gps": [...], "snap_offset_m": 8.4},
     ...
+    {"video": "<canonical>", "frame_id": "<canonical>",
+     "node_id": 87654321, "gps": [<curated lat,lon>],
+     "snap_offset_m": 12.1}    ← centroid fallback row
  ]}
 ```
 
@@ -501,13 +522,34 @@ target   = destination_targets row (point or multi)
 if point:
    path = nx.shortest_path(G, src_node, target.snapped_node_id, weight='length')
 if multi:
-   path = shortest among nx.shortest_path(G, src_node, t.node_id)
-                          for t in target.multi_targets
+   # run Dijkstra to EVERY candidate node in the list, keep the
+   # path with the smallest total edge-length:
+   for t in target.multi_targets:
+       p_t = nx.shortest_path(G, src_node, t.node_id, weight='length')
+       len_t = sum(edge.length for edge in p_t)
+   path = argmin_t len_t
 
 route_bearing_network = bearing( lat-lon(path[0]) → lat-lon(path[1]) )
 route_distance_m      = sum of all edge lengths in path
 first_segment_length_m = length of path[0]→path[1]
 ```
+
+**Multi-target "nearest" is network walking distance, not straight-line.**
+The router does N Dijkstra calls (N = `n_targets`, up to 313 for the
+Limmat river) and keeps the path with the smallest total `length`-summed
+edge weight. This matters in Zurich because of the river + limited
+bridges: a Limmat-river candidate 80 m straight-line away on the far
+bank can be 400 m of walking via the nearest bridge, so the router will
+correctly prefer a same-bank candidate 300 m upstream over it, and the
+GT verb will reflect "continue ahead along this bank" rather than a
+spurious "turn right toward the bridge".
+
+The **distance-band sampling** in `routes.jsonl` (the 80 % near /
+10 % mid / 10 % far cohort) is the only place that uses straight-line
+distance — `_frame_to_dest_distance()` returns the *minimum haversine*
+to any node in `multi_targets`, used purely to assign the (frame, dest)
+pair into a band. Once the pair is selected, the route + GT verb come
+from the network-shortest version above.
 
 ### GT verb — combining heading and route direction
 
