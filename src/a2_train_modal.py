@@ -195,8 +195,11 @@ def train_lora(variant: str = "given",
 
 @app.local_entrypoint()
 def main(variant: str = "given", epochs: int = 2, lr: float = 2e-4,
-         limit: int = 0):
+         lora_r: int = 16, lora_alpha: int = 0, limit: int = 0):
+    if lora_alpha == 0:
+        lora_alpha = 2 * lora_r          # default alpha = 2 * rank
     result = train_lora.remote(variant=variant, epochs=epochs, lr=lr,
+                               lora_r=lora_r, lora_alpha=lora_alpha,
                                limit=limit)
     print("=== TRAIN DONE ===")
     print(json.dumps({k: v for k, v in result.items() if k != "history"},

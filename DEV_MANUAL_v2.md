@@ -1025,6 +1025,163 @@ learning rate per LoRA weight is rank-invariant.
 | `trained-given-r16` vs `trained-implicit-r16` | Cost of dropping heading entirely (visual-only) |
 | `trained-derived-r16` vs `trained-implicit-r16` | Is explicit derivation better than visual-only? |
 
+### Ablation matrix — the concrete runs
+
+Using `--only-pass` filter (rows that PASS both format and direction
+teacher checks — see §18) so training and test data is clean of the
+teacher's turn-around bias. Per-variant sample counts:
+
+```
+            train rows   val   test   adapters   eval conditions
+─────────────────────────────────────────────────────────────────
+given           2,561     320   320      3 (r=4,8,16)   4 (zs + 3 trained)
+implicit        2,137     267   267      3              4
+derived        ~2,118    ~265  ~265      3              4
+─────────────────────────────────────────────────────────────────
+total           6,816     852   852      9             12
+```
+
+9 LoRA training ablations, all with the same hyperparameters
+(§22 — `--only-pass`, masked CE loss, 3-epoch cap, early stop p=2,
+load_best_model_at_end). Adapter naming: `lora_a2_<variant>_r<r>_e3/`.
+
+```
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+condition           rank  α    train  val   optim steps    wall-time   cost    data-ready?
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+given-r4             4    8    2,561  320   3 × 320 = 960   ~65 min     $3.75   now
+given-r8             8   16    2,561  320   960             ~65 min     $3.75   now
+given-r16           16   32    2,561  320   960             ~65 min     $3.75   now
+implicit-r4          4    8    2,137  267   3 × 267 = 801   ~55 min     $3.20   now
+implicit-r8          8   16    2,137  267   801             ~55 min     $3.20   now
+implicit-r16        16   32    2,137  267   801             ~55 min     $3.20   now
+derived-r4           4    8   ~2,118 ~265   3 × 265 = 795   ~55 min     $3.20   after derived annotation (~3 h)
+derived-r8           8   16   ~2,118 ~265   795             ~55 min     $3.20   after derived annotation
+derived-r16         16   32   ~2,118 ~265   795             ~55 min     $3.20   after derived annotation
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+total                                       7,668 steps    ~65 min     ~$30.50   (parallel wall time)
+                                                          (parallel)             (~$22 if early stop fires)
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+```
+
+12 eval conditions (Modal A100-40GB):
+
+```
+─────────────────────────────────────────────────────────────────────────────────────────────
+condition              adapter                              n_test   per-s    time      cost
+─────────────────────────────────────────────────────────────────────────────────────────────
+zs-given               (base Qwen, no adapter)               320     4.6 s   ~29 min   $1.00
+zs-implicit            (base Qwen, no adapter)               267     7.0 s   ~36 min   $1.25
+zs-derived             (base Qwen, no adapter)              ~265     7.4 s   ~38 min   $1.35
+trained-given-r4       /ckpts/lora_a2_given_r4_e3            320     4.6 s   ~29 min   $1.00
+trained-given-r8       /ckpts/lora_a2_given_r8_e3            320     4.6 s   ~29 min   $1.00
+trained-given-r16      /ckpts/lora_a2_given_r16_e3           320     4.6 s   ~29 min   $1.00
+trained-implicit-r4    /ckpts/lora_a2_implicit_r4_e3         267     7.0 s   ~36 min   $1.25
+trained-implicit-r8    /ckpts/lora_a2_implicit_r8_e3         267     7.0 s   ~36 min   $1.25
+trained-implicit-r16   /ckpts/lora_a2_implicit_r16_e3        267     7.0 s   ~36 min   $1.25
+trained-derived-r4     /ckpts/lora_a2_derived_r4_e3         ~265    11.5 s   ~56 min   $1.95
+trained-derived-r8     /ckpts/lora_a2_derived_r8_e3         ~265    11.5 s   ~56 min   $1.95
+trained-derived-r16    /ckpts/lora_a2_derived_r16_e3        ~265    11.5 s   ~56 min   $1.95
+─────────────────────────────────────────────────────────────────────────────────────────────
+total                                                                        ~56 min   ~$16.30
+                                                                            (parallel)
+─────────────────────────────────────────────────────────────────────────────────────────────
+```
+
+**Grand total — both training + eval together: ~$47, ~5 h wall-time
+parallel (or ~$35 with early stop firing).**
+
+**Currently in flight (2026-06-02)**: given + implicit trainings
+(6 adapters) and zs-given + zs-implicit evals launched in parallel
+on Modal. Derived 3 trainings + 4 derived evals queued for after
+derived annotation completes (~3 h ETA).
+
+### Actual launch commands used
+
+The 8 jobs (6 trainings + 2 zs evals) were launched in one Bash
+`& ... wait` loop so they run concurrently on Modal:
+
+```bash
+export PYTHONIOENCODING=utf-8 PYTHONLEGACYWINDOWSSTDIO=utf-8
+MODAL='/c/Users/z0502/anaconda3/envs/navlm_v2/Scripts/modal.exe'
+RUN_ID="ablation_$(date +%Y%m%d_%H%M%S)"
+mkdir -p _ablation_logs
+echo "RUN_ID=$RUN_ID" > _ablation_logs/RUN_ID
+
+# 1. Generate SFT splits with --only-pass (rows passing fmt AND dir)
+python -m src.a2_to_sft --variant given    --only-pass
+python -m src.a2_to_sft --variant implicit --only-pass
+#  → data/sft/a2_{given,implicit}_{train,val,test}.jsonl
+#    given:    2,561 train / 320 val / 320 test
+#    implicit: 2,137 train / 267 val / 267 test
+
+# 2. Upload to Modal (PowerShell — Git Bash path-converts /sft/...)
+#    PS> modal volume put navlm-data data/sft/a2_<v>_<split>.jsonl /sft/<...> --force
+
+# 3. Upload any new frames the test/train rows reference (PowerShell again)
+#    PS> modal volume put navlm-data _trial_snapshot/frames_to_upload /frames --force
+
+# 4. Launch 6 trainings in parallel (Bash, A100-80GB)
+for v in given implicit; do
+  for r in 4 8 16; do
+    $MODAL run src/a2_train_modal.py --variant $v --lora-r $r --epochs 3 \
+        > "_ablation_logs/train_${v}_r${r}.log" 2>&1 &
+  done
+done
+
+# 5. Launch 2 zero-shot evals in parallel (no adapter needed yet)
+for v in given implicit; do
+  $MODAL run src/a2_eval_modal.py --condition zs-heading-$v \
+      --run-id "$RUN_ID" \
+      > "_ablation_logs/zs_${v}.log" 2>&1 &
+done
+
+# 6. Wait for all 8 to finish
+wait
+
+# 7. (Once each adapter finishes, launch its matching trained-eval)
+#    These need /ckpts/ prefix on --adapter or PEFT can't find the config:
+for v in given implicit; do
+  for r in 4 8 16; do
+    $MODAL run src/a2_eval_modal.py \
+        --condition trained-heading-$v \
+        --adapter /ckpts/lora_a2_${v}_r${r}_e3 \
+        --run-id "$RUN_ID" \
+        > "_ablation_logs/trained_${v}_r${r}.log" 2>&1 &
+  done
+done
+wait
+
+# 8. Pull eval results + score (PowerShell for the volume get):
+#    PS> modal volume get navlm-eval $RUN_ID eval_pull/ --force
+python -m src.a2_score --run-dir eval_pull/$RUN_ID
+```
+
+Notes / lessons learned (real bugs hit during launch):
+
+1. The training CLI's `local_entrypoint` had no `--lora-r` flag — first
+   launch returned `Error: No such option '--lora-r'`. Added in commit
+   <SHA>: `main(variant, epochs, lr, lora_r=16, lora_alpha=0, limit=0)`
+   with `lora_alpha = 2 * lora_r` default.
+2. Test rows from the `--only-pass` cohort reference 1,187 unique
+   frames vs the 1,030 we had on Modal from the earlier trial. Staged
+   the extra 186 frames + re-uploaded the whole `frames/` tree
+   (566 MB total). PowerShell is required for `modal volume put` to
+   avoid Git Bash converting `/frames` to `C:/Program Files/Git/frames`.
+3. Trained-eval needs the `/ckpts/` prefix on `--adapter` (see §21
+   gotcha) — `PeftModel.from_pretrained` reads from the in-container
+   mount point, not the volume-root path.
+
+### Hypotheses
+
+| Comparison | Tests |
+|---|---|
+| `zs-X` vs `trained-X-r16` (same variant) | Does fine-tuning help? (headline trained-vs-zs effect) |
+| `trained-X-r4` vs `r8` vs `r16` (same variant) | Rank-saturation: is more LoRA capacity helping? |
+| `trained-given-r16` vs `trained-derived-r16` | Does deriving the heading recover most accuracy? |
+| `trained-given-r16` vs `trained-implicit-r16` | Cost of dropping heading entirely (visual-only) |
+| `trained-derived-r16` vs `trained-implicit-r16` | Is explicit derivation better than visual-only? |
+
 **Main project result**: if `trained-heading-derived-r16` or
 `trained-heading-implicit-r16` PASS is within ~5–10 % of
 `trained-heading-given-r16`, the compass-free thesis holds.
