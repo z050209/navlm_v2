@@ -1502,6 +1502,167 @@ Then upload to Modal once all 3 are produced:
 modal volume put navlm-data data/sft/a2_*.jsonl /sft/
 ```
 
+### Worked examples — one real training row per variant
+
+Each row's `messages` array has 3 turns: `system` (the variant-specific
+prompt from §18), `user` (image + variant-specific student prompt), and
+`assistant` (the teacher's `<thinking>` + `<answer>`). At inference time
+the assistant turn is stripped and the model generates it.
+
+Examples below are real rows from the trial-snapshot SFT files
+(`data/sft/a2_<variant>_train.jsonl`, snapshot at ~80% annotation
+completion). System prompt is abbreviated as `<system_prompt(variant)>`
+(see §18 for the full string).
+
+#### Example — variant=`given`
+
+```
+video=old_town_limmat  frame=frame_01171
+dest=Limmat river (利马特河)   heading=270°   gt_verb=turn around
+
+[system] <system_prompt("given")>  ← COMMON_HEAD + THINKING_RULE["given"]
+
+[user]   <IMAGE>
+         You are at this location, facing 270° (west).
+
+         Destination: Limmat river (利马特河), about 116 m walking distance.
+
+         OSM walking route:
+           First segment heads 89° (east) for 45 m, then 5 more turns
+           over a total of 116 m.
+
+         Visible landmarks at this spot:
+           (no notable landmarks listed)
+
+         Decide the next action verb.
+
+[assistant]
+<thinking>
+I'm facing 270° (west); the route heads 89° (east), which is a 181°
+rotation, so I need to turn around.
+</thinking>
+<answer>
+There is no clear landmark in front of you. Turn around.
+</answer>
+```
+
+The student sees the heading (270°) and the route bearing (89°) and
+just has to do the angle subtraction. Heading-given is the easiest
+variant.
+
+#### Example — variant=`derived`
+
+```
+video=looks_perfect  frame=frame_02463
+dest=Münsterbrücke (大教堂桥)   heading=140.1° (HIDDEN)   gt_verb=turn around
+
+[system] <system_prompt("derived")>  ← COMMON_HEAD + 4-step THINKING_RULE
+
+[user]   <IMAGE>
+         Destination: Münsterbrücke (大教堂桥), about 258 m walking distance.
+
+         OSM walking route:
+           First segment heads 329° (north-northwest) for 32 m,
+           then 11 more turns over a total of 258 m.
+
+         Visible landmarks at this spot:
+           (no notable landmarks listed)
+
+         The walker's heading is NOT provided. In <thinking>, FIRST
+         infer the heading from the photo by stating "I estimate I'm
+         facing X° (direction)", THEN reason about the route and verb.
+
+[assistant]
+<thinking>
+STEP 1 (visual cues): I can see the H. Schwarzenbach Colonialwaren
+shop at number 19 on a narrow cobblestone street. In the distance, a
+street sign for Spiegelgasse is visible. The buildings are colorful
+and typical of Zurich's old town.
+STEP 2 (apply geography): The shop H. Schwarzenbach is located at
+Münstergasse 19, on the east bank of the Limmat. Looking down the
+street from this address towards the intersection with Spiegelgasse
+means I am looking southeast along Münstergasse.
+STEP 3 (estimated heading): I estimate I'm facing 140° (southeast).
+STEP 4 (route comparison): The route's first segment heads 329°
+(north-northwest). This is almost exactly the opposite direction of
+my current heading (140°). The required action is to turn 180 degrees.
+The verb is turn around.
+</thinking>
+<answer>
+There is no clear landmark in front of you. Turn around.
+</answer>
+```
+
+The student does NOT see the heading. The teacher (which had access to
+heading=140.1°) had to produce the 4-step derivation as if it had
+derived 140° from the photo cues — and it did, exactly. Note that the
+STEP-3 estimate (140°) matches the GT heading (140.1°) almost
+perfectly, which is the strongest possible signal for the student:
+"the photo's cues are sufficient to recover this heading."
+
+#### Example — variant=`implicit`
+
+```
+video=looks_perfect  frame=frame_01886
+dest=Limmatquai (利马特河滨道)   heading=220.2° (HIDDEN)   gt_verb=turn around
+
+[system] <system_prompt("implicit")>  ← COMMON_HEAD + 3-step purely-visual rule
+
+[user]   <IMAGE>
+         Destination: Limmatquai (利马特河滨道), about 98 m walking distance.
+
+         OSM walking route:
+           First segment heads 67° (east-northeast) for 16 m,
+           then 5 more turns over a total of 98 m.
+
+         Visible landmarks at this spot:
+           Fraumünster, Münsterhof
+
+         The walker's heading is NOT provided. Reason from visual cues
+         in the photo about where the destination is and which verb is
+         needed. Do NOT state a numeric heading.
+
+[assistant]
+<thinking>
+STEP 1 (what I see): The scene shows the large, open cobblestone
+square of Münsterhof, with a fountain and buildings across the way.
+The corner of the Fraumünster church is visible on the far left.
+STEP 2 (where the destination is relative to me): The destination,
+Limmatquai, is the street along the river. The river is located behind
+me, on the other side of the Fraumünster. I am currently facing away
+from it.
+STEP 3 (verb decision): Therefore the walker should turn around.
+</thinking>
+<answer>
+You are looking across the open square of Münsterhof. Turn around.
+</answer>
+```
+
+No numeric heading anywhere — neither in the prompt nor in the
+reasoning. The model navigates by spatial reasoning over the
+"Visible landmarks" list ("Fraumünster on the left + Limmatquai is
+behind that" → turn around).
+
+### What "test row" looks like
+
+The test rows have the **same 3-message structure**, but at inference
+the harness strips the assistant turn:
+
+```python
+# src/a2_eval_modal.py:152
+messages_for_inference = [m for m in row["messages"]
+                          if m["role"] != "assistant"]
+```
+
+…feeds `[system, user]` to the model, and decodes only the
+newly-generated tokens. The teacher's response in the test row's
+`messages[2]` is kept solely so the row remains self-contained for
+offline inspection — it is never fed to the model.
+
+The `gt_verb` field on each row is computed deterministically from
+the OSM route (§11) — independent of what the teacher wrote — and is
+what `src/a2_score.py` compares the model's `first_verb` against.
+
 ---
 
 ## 21. LoRA training pipeline (`src/a2_train_modal.py`)
