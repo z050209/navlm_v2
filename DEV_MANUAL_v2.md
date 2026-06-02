@@ -2500,33 +2500,76 @@ fixed it.
 Modal A100-80GB, 4-bit NF4 base + BF16 LoRA. One Modal function call
 per (variant, rank) — 9 calls total for the full sweep.
 
-### Hyperparameters
+### Hyperparameters — full setup
 
 ```
-base model              : Qwen/Qwen2.5-VL-7B-Instruct
-quantisation            : NF4 (4-bit) base, BF16 LoRA
-target modules          : q_proj, k_proj, v_proj, o_proj
-LoRA dropout            : 0.05
-LoRA alpha              : 2 × rank  (so 8 / 16 / 32 for r=4 / 8 / 16)
-LoRA rank (swept)       : 4, 8, 16
-optimiser               : AdamW (HF Trainer default)
-learning rate           : 2e-4
-LR schedule             : cosine, 3 % warmup
-epochs                  : 2  (early stopping may cut short — see below)
-per_device_batch_size   : 1
-gradient_accumulation   : 8         → effective batch size 8
-bf16                    : true
-max_pixels              : 448 × 448 (Qwen processor cap)
-eval_strategy           : per epoch  (eval_loss computed on val split)
-save_strategy           : per epoch  (one checkpoint per epoch)
-save_total_limit        : 3          (oldest checkpoints pruned)
-load_best_model_at_end  : true       (pick lowest masked eval_loss)
-early_stopping_patience : 2 epochs   (via EarlyStoppingCallback)
+─────────────────────────────── MODEL / QUANTISATION ──────────────────────
+base model               : Qwen/Qwen2.5-VL-7B-Instruct
+quantisation             : NF4 (4-bit) base, BF16 LoRA
+  bnb_4bit_quant_type    : "nf4"
+  bnb_4bit_compute_dtype : bfloat16
+  bnb_4bit_use_double_quant: true
+processor max_pixels     : 448 × 448
+
+─────────────────────────────── LORA (PEFT) ───────────────────────────────
+task_type                : CAUSAL_LM
+target_modules           : q_proj, k_proj, v_proj, o_proj
+r (rank, SWEPT)          : 4 / 8 / 16
+alpha (= 2 × r)          : 8 / 16 / 32   (rank-invariant per-weight LR)
+dropout                  : 0.05
+
+─────────────────────────────── OPTIMISER ─────────────────────────────────
+optim                    : adamw_torch (HF default — NOT 8-bit adam)
+adam_beta1, beta2, eps   : 0.9, 0.999, 1e-8 (HF defaults — not overridden)
+weight_decay             : 0.0 (HF default — NOT regularised; relying on LoRA-r as capacity bottleneck + early stop)
+max_grad_norm            : 1.0 (HF default — gradient clipping enabled)
+
+─────────────────────────────── LR SCHEDULE ───────────────────────────────
+learning_rate            : 2e-4
+lr_scheduler_type        : "cosine"          ← annealing 2e-4 → 0 over total steps
+warmup_ratio             : 0.03              ← 3 % linear warmup 0 → 2e-4
+                                              (e.g. 24 warmup steps on an 800-step run)
+
+─────────────────────────────── BATCHING ──────────────────────────────────
+per_device_train_batch_size: 1
+per_device_eval_batch_size : 1
+gradient_accumulation_steps: 8                → effective batch size 8
+bf16                       : true (forward + backward + optim states)
+
+─────────────────────────────── LOSS — SUPERVISOR ONLY ON OUTPUT ─────────
+labels = input_ids.clone()
+labels[pad_token]                    = -100
+labels[<|image_pad|>, <|vision_*|>]  = -100
+labels[< system tokens >]            = -100  ← masked
+labels[< user tokens >]              = -100  ← masked
+labels[< assistant tokens >]         = original tokens (loss flows here)
+
+  → cross-entropy is computed ONLY over tokens inside the assistant turn
+    (<thinking>…</thinking><answer>…verb.</answer>), per `collate()` in
+    src/a2_train_modal.py:110-149. See "Loss masking" subsection below.
+
+─────────────────────────────── EARLY STOP + BEST CKPT ────────────────────
+num_train_epochs           : 3 (CAP — early-stop may halt sooner)
+eval_strategy              : "epoch"             (eval each epoch)
+save_strategy              : "epoch"             (1 checkpoint per epoch)
+save_total_limit           : 3                   (oldest pruned)
+load_best_model_at_end     : true                (restore best ckpt)
+metric_for_best_model      : "eval_loss"         (the MASKED version)
+greater_is_better          : false
+callbacks                  : [EarlyStoppingCallback(early_stopping_patience=2)]
+
+─────────────────────────────── DATA / FILTER ─────────────────────────────
+train data filter          : --only-pass (format_pass AND direction_pass)
+per-variant counts         : given 2,561 train / 320 val / 320 test
+                             implicit 2,137 / 267 / 267
+                             derived ~2,118 / ~265 / ~265 (projected)
 ```
 
 LoRA alpha is set to `2 × rank` (standard practice) so per-weight
 effective learning rate is rank-invariant; we are sweeping capacity,
-not effective LR.
+not effective LR. Weight decay is `0` and LoRA dropout is `0.05` — the
+only regularisation comes from the small LoRA rank and early stop on
+the masked val loss.
 
 ### Loss masking — `<thinking>` + `<answer>` only
 
