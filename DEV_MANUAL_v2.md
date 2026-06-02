@@ -932,8 +932,9 @@ python -m src.a2_viz_thin
 | Per-attraction radii for long features | Multi-target routing (§10) addresses this — Bahnhofstrasse / Limmatquai / Lake Zurich / Limmat / Niederdorfstrasse use the matched-cohort node list + canonical fallback | **Resolved** |
 | Re-annotation prompt v2 | `src/a2_annotate.py` produces 3 variant-specific datasets (given/derived/implicit) via 3 parallel Gemini Pro 2.5 passes — see §18 | **Resolved (in flight)** |
 | Train/test split | Per-variant independent random 80/10/10 (`seed=42`, format_pass only by default) — see §20 | **Resolved** |
-| LoRA training | `src/a2_train_modal.py` ready; 9 adapters to train (3 variants × ranks 4/8/16) — see §21 | Pending — runs after annotation completes |
-| Eval harness | `src/a2_eval_modal.py` ready for all 12 conditions — see §22 | Pending — runs after training completes |
+| Modal infrastructure | volumes, upload/download patterns, Windows gotchas — see §21 | **Resolved** |
+| LoRA training | `src/a2_train_modal.py` ready; 9 adapters to train (3 variants × ranks 4/8/16) — see §22 | Pending — runs after annotation completes |
+| Eval harness | `src/a2_eval_modal.py` ready for all 12 conditions — see §23 | Pending — runs after training completes |
 | Eval scoring | `src/a2_score.py` ready (4 metrics, see §19) | **Resolved** |
 | **Final report** | CS231n + NeurIPS 2026 — uses the 12-condition × 4-metric table from §19 | Pending — assembled from `summary_table.txt` after eval scoring |
 
@@ -1665,7 +1666,257 @@ what `src/a2_score.py` compares the model's `first_verb` against.
 
 ---
 
-## 21. LoRA training pipeline (`src/a2_train_modal.py`)
+## 21. Modal infrastructure — upload, download, run
+
+All training and evaluation happens on **Modal** (serverless GPU
+compute). The local machine produces SFT data + frame images and pulls
+eval results back; everything else lives on Modal volumes.
+
+### 21.1 The 3 navlm Modal volumes
+
+| Volume | Mounted at | What lives there |
+|---|---|---|
+| `navlm-data` | `/data` (in containers) | SFT JSONL: `/sft/a2_<v>_<split>.jsonl`<br>Frame images: `/frames/<video>/<frame_id>.jpg` |
+| `navlm-ckpts` | `/ckpts` | LoRA adapters: `/lora_a2_<v>_r<r>_e<e>/{adapter_model.safetensors, adapter_config.json, summary.json, history.json}` |
+| `navlm-eval` | `/eval` | Per-condition eval outputs: `/<run_id>/<condition>/{per_sample.jsonl, summary.json}` |
+
+When `navlm-data` is mounted at `/data` inside a Modal container, its
+`/frames/<video>/...jpg` files appear at `/data/frames/<video>/...jpg`
+— which is what `FRAMES_ROOT = "/data/frames"` in
+`src/a2_{train,eval}_modal.py` expects.
+
+```python
+# src/a2_train_modal.py + src/a2_eval_modal.py
+ckpts    = modal.Volume.from_name("navlm-ckpts", create_if_missing=True)
+data_vol = modal.Volume.from_name("navlm-data",  create_if_missing=True)
+eval_vol = modal.Volume.from_name("navlm-eval",  create_if_missing=True)
+```
+
+### 21.2 The 2 Modal apps
+
+| App name | Defined in | Function | GPU | What it does |
+|---|---|---|---|---|
+| `navlm-train-a2` | `src/a2_train_modal.py` | `train_lora` | A100-80GB | SFT one LoRA adapter for one (variant, rank) |
+| `navlm-eval-a2` | `src/a2_eval_modal.py` | `evaluate_condition` | A100-40GB | Run inference for one of 12 conditions |
+
+Both apps mount all 3 volumes (read for inputs, write for outputs).
+
+### 21.3 CLI cheat sheet (PowerShell, recommended on Windows)
+
+Set this once per shell session — Modal CLI emits Unicode glyphs
+(`✓`, box-drawing) that crash Windows `cp1252` stdout without it:
+
+```powershell
+$env:PYTHONIOENCODING        = "utf-8"
+$env:PYTHONLEGACYWINDOWSSTDIO = "utf-8"
+$modal = "C:\Users\z0502\anaconda3\envs\navlm_v2\Scripts\modal.exe"
+```
+
+#### Upload (local → volume)
+
+Single file:
+```powershell
+& $modal volume put navlm-data data/sft/a2_given_train.jsonl /sft/a2_given_train.jsonl --force
+```
+
+Whole directory (recursive):
+```powershell
+& $modal volume put navlm-data _trial_snapshot/frames_to_upload /frames --force
+```
+
+`--force` overwrites existing files on the volume.
+
+#### List (inspect what's on a volume)
+
+```powershell
+& $modal volume ls navlm-data /sft                   # SFT splits present
+& $modal volume ls navlm-data /frames                # top-level video dirs
+& $modal volume ls navlm-data /frames/old_town_limmat  # per-video frames
+& $modal volume ls navlm-ckpts /                     # trained adapters
+& $modal volume ls navlm-eval  /                     # eval run_ids
+```
+
+#### Download (volume → local)
+
+```powershell
+& $modal volume get navlm-eval  <run_id> ./eval_pull/
+& $modal volume get navlm-ckpts /lora_a2_given_r16_e2 ./adapters/
+```
+
+#### Delete
+
+```powershell
+& $modal volume rm navlm-data /sft/old.jsonl
+& $modal volume rm navlm-data /some_dir --recursive
+```
+
+#### Run a Modal-app function
+
+```powershell
+& $modal run src/a2_train_modal.py --variant given --lora-r 16 --epochs 2
+& $modal run src/a2_eval_modal.py  --condition zs-heading-given --limit 16
+& $modal run src/a2_eval_modal.py  --condition trained-heading-derived `
+                                    --adapter /lora_a2_derived_r8_e2
+```
+
+`modal run` BLOCKS until the function returns. Launch multiple in
+parallel by backgrounding each one (Bash `&` + `wait`, or several
+PowerShell terminals).
+
+### 21.4 The training script — what `modal run` actually triggers
+
+`src/a2_train_modal.py`:
+
+```python
+app = modal.App("navlm-train-a2")
+train_image = (modal.Image.debian_slim(python_version="3.11")
+               .pip_install("torch==2.5.1", "transformers>=4.49", "peft>=0.13",
+                            "bitsandbytes>=0.44", ...))
+
+@app.function(image=train_image, gpu="A100-80GB", timeout=6*3600,
+              volumes={"/ckpts": ckpts, "/data": data_vol},
+              secrets=[modal.Secret.from_name("huggingface")])
+def train_lora(variant, epochs=2, lr=2e-4, lora_r=16, lora_alpha=32, limit=0):
+    train_path = Path(f"/data/sft/a2_{variant}_train.jsonl")
+    val_path   = Path(f"/data/sft/a2_{variant}_val.jsonl")
+    # 1. load 4-bit base Qwen 2.5 VL 7B
+    # 2. attach LoRA (target q/k/v/o_proj, r=lora_r, alpha=lora_alpha)
+    # 3. HF Trainer with per-image collate that opens /data/frames/<video>/<frame>.jpg
+    # 4. save adapter to /ckpts/lora_a2_<v>_r<r>_e<e>/
+    ckpts.commit()       # persist writes back to the navlm-ckpts volume
+
+@app.local_entrypoint()
+def main(variant="given", epochs=2, lr=2e-4, limit=0):
+    result = train_lora.remote(variant=variant, epochs=epochs, lr=lr,
+                               limit=limit)
+    # prints the adapter path + the `modal volume get` command to pull it
+```
+
+The `.remote()` call serialises the args, ships them to a freshly-spun
+A100-80GB container, and BLOCKS until `train_lora` returns. Logs from
+the remote function stream back to your terminal in real time.
+
+`ckpts.commit()` is critical — without it, writes to `/ckpts/...`
+inside the container would be lost when the container terminates.
+
+### 21.5 The inference script — what eval does
+
+`src/a2_eval_modal.py`:
+
+```python
+app = modal.App("navlm-eval-a2")
+# same image set as train_image plus inference deps
+
+@app.function(image=eval_image, gpu="A100-40GB", timeout=3*3600,
+              volumes={"/ckpts": ckpts, "/data": data_vol, "/eval": eval_vol},
+              secrets=[modal.Secret.from_name("huggingface")])
+def evaluate_condition(condition, run_id, adapter="", max_new_tokens=4096,
+                        temperature=0.0, limit=0):
+    variant = CONDITION_TO_VARIANT[condition]      # given / derived / implicit
+    is_trained = condition.startswith("trained-")
+    rows = [json.loads(l) for l in
+            Path(f"/data/sft/a2_{variant}_test.jsonl").open()]
+    # 1. load 4-bit base Qwen
+    # 2. if trained: PeftModel.from_pretrained(model, adapter)
+    # 3. per-row: strip assistant turn, apply chat template, run model.generate
+    # 4. write /eval/<run_id>/<condition>/per_sample.jsonl
+    eval_vol.commit()
+```
+
+Each row's output goes one-line-JSON into `per_sample.jsonl` with
+fields the local scorer needs: `model_response`, `gt_verb`, `heading`,
+`condition`, `video`, `frame_id`.
+
+### 21.6 End-to-end data flow
+
+```
+LOCAL                                       MODAL
+─────────────────────────                   ─────────────────────────────
+
+data/sft/a2_<v>_<split>.jsonl  ─────┐
+data/cities/zurich/frames/<v>/*.jpg ─┤
+                                     │
+                              modal volume put (upload)
+                                     │
+                                     ▼
+                                  navlm-data
+                                  ├ /sft/a2_<v>_<split>.jsonl
+                                  └ /frames/<v>/*.jpg
+
+                                  modal run src/a2_train_modal.py --variant <v> --lora-r <r>
+                                     │
+                                     ▼  reads /data/sft/, /data/frames/
+                                  navlm-ckpts:/lora_a2_<v>_r<r>_e<e>/
+
+                                  modal run src/a2_eval_modal.py --condition <cond> [--adapter ...]
+                                     │
+                                     ▼  reads /data/sft/, /data/frames/,
+                                        and /ckpts/lora_a2_... (if trained)
+                                  navlm-eval:/<run_id>/<cond>/per_sample.jsonl
+
+                              modal volume get (download)
+                                     │
+                                     ▼
+eval_pull/<run_id>/<cond>/per_sample.jsonl
+                                     │
+                              python -m src.a2_score
+                                     │
+                                     ▼
+eval_pull/<run_id>/<cond>/per_sample_scored.jsonl
+                          summary.json
+                          summary_table.txt   ← final-report input
+```
+
+### 21.7 Windows gotchas (real ones we hit)
+
+#### Git Bash path conversion
+
+Git Bash auto-converts an argument that starts with `/` into a Windows
+path before passing it to `modal.exe`. So this:
+
+```bash
+modal volume put navlm-data ./frames /frames     # Git Bash
+```
+
+uploads to a folder literally named `C:/Program Files/Git/frames` on
+the Modal volume (not the intended `/frames`). Symptoms: training jobs
+fail with `No such file or directory: /data/frames/...`.
+
+Fixes:
+
+```bash
+modal volume put navlm-data ./frames //frames    # Git Bash: double slash bypasses conversion
+MSYS_NO_PATHCONV=1 modal volume put ...          # or set this env var
+```
+
+```powershell
+& $modal volume put navlm-data ./frames /frames  # PowerShell — no conversion
+```
+
+**Recommended: do all `modal volume` operations from PowerShell.**
+
+#### UTF-8 stdout
+
+Set `PYTHONIOENCODING=utf-8` + `PYTHONLEGACYWINDOWSSTDIO=utf-8` before
+running Modal CLI on Windows. Without it, the `✓` glyph in the
+"uploaded" confirmation crashes the CLI on PowerShell's default
+`cp1252`. The upload may still finish, but the exit code is non-zero
+and you lose the path confirmation in the output.
+
+#### Frames must be uploaded separately from SFT JSONL
+
+SFT JSONL files reference frames by `image_rel = "<video>/<frame>.jpg"`;
+the train/eval scripts join that against `FRAMES_ROOT = "/data/frames"`.
+**Uploading the SFT files alone is insufficient** — you must also push
+the referenced frame images to `navlm-data:/frames/`. The trial-run
+discovery on 2026-06-02 was that this step had never been done for the
+Attempt-2 matched cohort; ~70-100 % of test rows skipped with
+`No such file or directory` until the 517 MB / 1,030-frame upload
+fixed it.
+
+---
+
+## 22. LoRA training pipeline (`src/a2_train_modal.py`)
 
 Modal A100-80GB, 4-bit NF4 base + BF16 LoRA. One Modal function call
 per (variant, rank) — 9 calls total for the full sweep.
@@ -1762,7 +2013,7 @@ is helping before running the full 12-condition eval.
 
 ---
 
-## 22. Inference pipeline (`src/a2_eval_modal.py`)
+## 23. Inference pipeline (`src/a2_eval_modal.py`)
 
 Modal A100-40GB, 4-bit NF4 base, BF16 LoRA when loaded. One Modal
 function call per condition — 12 calls total for the full sweep.
@@ -1878,7 +2129,7 @@ prints the full 12-condition table (and writes
 
 ---
 
-## 23. Full reproducibility checklist (annotate → train × 9 → eval × 12)
+## 24. Full reproducibility checklist (annotate → train × 9 → eval × 12)
 
 Assumes the data pipeline §1-§14 has already produced
 `routes.jsonl` and the matched cohort (1,219 frames).
@@ -1998,7 +2249,7 @@ Total cost               ~$151
 
 ---
 
-## 24. Glossary
+## 25. Glossary
 
 | Term | Definition |
 |---|---|
