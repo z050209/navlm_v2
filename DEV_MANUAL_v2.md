@@ -936,7 +936,7 @@ python -m src.a2_viz_thin
 | Frame upload to Modal | 1,030 needed frames (517 MB) discovered missing during trial; now uploaded to `navlm-data:/frames/` | **Resolved (2026-06-02)** |
 | **Loss masking** | `<thinking>` + `<answer>` only — system+user tokens masked from CE loss. Validated by 32-sample overfit test (train→0.005, masked eval U-shaped, peak min at epoch 5) — see §22 | **Resolved (2026-06-02)** |
 | **Early stopping** | `EarlyStoppingCallback(patience=2)` + `load_best_model_at_end=True` on `eval_loss` (the masked version) — see §22 | **Resolved (2026-06-02)** |
-| Trial smoke test | 3 zs evals + 3 train-on-32 + 1 overfit-test all green end-to-end. **Preliminary smoke PASS rates: zs-given 62.5 %, trained-given 43.8 % (Δ −18.8 pp ← small-data degradation); zs-derived 18.8 %, trained-derived 25.0 % (Δ +6.2 pp); zs-implicit 12.5 %, trained-implicit still running.** SMOKE caveats apply (n=16, 32-sample × 1-epoch training, no loss masking) — see §19 "Trial smoke results" for details. | **Resolved (2026-06-02)** |
+| Trial smoke test | 3 zs evals + 3 train-on-32 + 1 overfit-test all green end-to-end. **All 6 smoke conditions complete**: zs-given 62.5 % → trained-given 43.8 % (Δ −18.8 pp ← small-data degradation), zs-derived 18.8 % → trained-derived 25.0 % (Δ +6.2 pp ← LoRA learning CoT structure), zs-implicit 12.5 % → trained-implicit 12.5 % (Δ 0.0 pp ← null at this scale). SMOKE caveats apply (n=16, 32-sample × 1-epoch training, no loss masking) — see §19 "Trial smoke results" for details. | **Resolved (2026-06-02)** |
 | LoRA training (full sweep) | `src/a2_train_modal.py` ready; 9 adapters to train (3 variants × ranks 4/8/16) — see §22 | Pending — runs after annotation completes |
 | Eval harness (full sweep) | `src/a2_eval_modal.py` ready for all 12 conditions — see §23 | Pending — runs after training completes |
 | Eval scoring | `src/a2_score.py` ready (4 metrics, see §19) | **Resolved** |
@@ -1407,16 +1407,16 @@ trained on ~2,900 samples × 2 epochs with masked loss + early
 stopping, evaluated on ~290 samples per condition.
 
 ```
-condition                       n     fmt     dir    PASS   h_inf   h_n
-─────────────────────────────────────────────────────────────────────────
-zs-heading-given                16  100.0%   62.5%   62.5%    n/a    0
-trained-heading-given (r16/e1)  16  100.0%   43.8%   43.8%    n/a    0    ← Δ −18.8 pp
-                                                              
-zs-heading-derived              16  100.0%   18.8%   18.8%   12.5%   8
-trained-heading-derived(r16/e1) 16  100.0%   25.0%   25.0%    8.3%  12    ← Δ  +6.2 pp
+condition                        n     fmt     dir    PASS   h_inf   h_n
+──────────────────────────────────────────────────────────────────────────
+zs-heading-given                 16  100.0%   62.5%   62.5%    n/a    0
+trained-heading-given (r16/e1)   16  100.0%   43.8%   43.8%    n/a    0   ← Δ −18.8 pp
 
-zs-heading-implicit             16  100.0%   12.5%   12.5%    n/a    0
-trained-heading-implicit(r16/e1)            (still running at time of write)
+zs-heading-derived               16  100.0%   18.8%   18.8%   12.5%   8
+trained-heading-derived (r16/e1) 16  100.0%   25.0%   25.0%    8.3%  12   ← Δ  +6.2 pp
+
+zs-heading-implicit              16  100.0%   12.5%   12.5%    n/a    0
+trained-heading-implicit (r16/e1)16  100.0%   12.5%   12.5%    n/a    0   ← Δ   0.0 pp
 ```
 
 Run dir on Modal: `navlm-eval:/trial2_20260602_002923/`.
@@ -1428,6 +1428,7 @@ Run dir on Modal: `navlm-eval:/trial2_20260602_002923/`.
 | `trained-given` PASS DROPPED 18.8 pp vs zs | Classic small-data + no-masking degradation. The LoRA over-fit to the 32 samples' surface format and unlearned base Qwen's prior geometric reasoning. Loss-masking + ~90× more data + early stopping in the production sweep should fix this. |
 | `trained-derived` PASS rose +6.2 pp | LoRA learning the 4-step CoT structure even at this scale. Promising signal — with proper-scale training this delta should grow substantially. |
 | `trained-derived` produced "facing X°" in 12/16 rows (vs 8/16 zs) | The variant-specific CoT template IS being adopted. Even though h_inf accuracy is only 8.3 % on those 12 (model writes a heading but it's not within 22.5° of GT), more rows now follow the expected structure. |
+| `trained-implicit` PASS unchanged (12.5 % = zs) | Null result at this scale. Two readings: (1) implicit has the hardest visual-only task and 32 train rows are simply not enough to move the needle, or (2) the 3-step CoT template needs more capacity than r=16 can fit on tiny data. Production-scale training should disambiguate. |
 | `format_pass = 100 %` everywhere | Base Qwen already obeys the `<thinking>…</thinking><answer>…</answer>` structure cold. The format metric will plateau at 100 % across the full sweep and won't be the differentiator. |
 
 #### What we cannot conclude from smoke
