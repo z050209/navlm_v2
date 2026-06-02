@@ -930,7 +930,7 @@ python -m src.a2_viz_thin
 |---|---|---|
 | Decide on 3 weak attractions | Kunsthaus / Bürkliplatz / Paradeplatz each have 1 matched frame — accepted as-is; routes.jsonl includes them via the destination-cohort sampler | **Resolved (accepted)** |
 | Per-attraction radii for long features | Multi-target routing (§10) addresses this — Bahnhofstrasse / Limmatquai / Lake Zurich / Limmat / Niederdorfstrasse use the matched-cohort node list + canonical fallback | **Resolved** |
-| Re-annotation prompt v2 | `src/a2_annotate.py` produces 3 variant-specific datasets (given/derived/implicit) via 3 parallel Gemini Pro 2.5 passes — see §18 | **In flight** — given 98.4 %, implicit 94.0 %, derived 74.5 %; ETA ~6 h to all-complete (derived bottleneck) |
+| Re-annotation prompt v2 | `src/a2_annotate.py` produces 3 variant-specific datasets (given/derived/implicit) via 3 parallel Gemini Pro 2.5 passes — see §18 | **given 100 %, implicit 100 %, derived 88.6 %** — only derived still running, ETA ~3 h. Teacher pass rates measured so far: **given 87.5 % PASS, derived 72.1 % PASS, implicit 73.0 % PASS** (see §18 "Measured teacher pass rates"). |
 | Train/test split | Per-variant independent random 80/10/10 (`seed=42`, format_pass only by default) — see §20 | **Resolved** |
 | Modal infrastructure | 3 volumes (`navlm-data/ckpts/eval`), 2 apps (`navlm-train-a2/eval-a2`), CLI cheat sheet + Windows gotchas — see §21 | **Resolved** |
 | Frame upload to Modal | 1,030 needed frames (517 MB) discovered missing during trial; now uploaded to `navlm-data:/frames/` | **Resolved (2026-06-02)** |
@@ -1254,6 +1254,68 @@ GCP projects (`navlm-annot-1-26`, `navlm-annot-2-26`, `navlm-annot-3-26`).
   "derived_heading": null     // only set when the model wrote "facing X°"
 }
 ```
+
+### Measured teacher pass rates (as of 2026-06-02, derived still in flight)
+
+Per-variant rates over the rows annotated so far. `PASS = format_pass
+AND direction_pass`. The metrics here are the same 4 used to score the
+student (§19) — applied to the teacher's own responses to characterise
+the supervisor's reliability.
+
+| Variant | n rows so far | format_pass | direction_pass | **PASS** | h_inf accuracy (n derived headings) |
+|---|---:|---:|---:|---:|---:|
+| **given** | 3,657 / 3,657 (100 %) | **100.0 %** | 87.5 % | **87.5 %** | n/a |
+| **derived** | 3,239 / 3,657 (88.6 %) | 89.3 % | 73.0 % | **72.1 %** | **99.1 %** (n=2,928) |
+| **implicit** | 3,657 / 3,657 (100 %) | 99.9 % | 73.1 % | **73.0 %** | n/a |
+
+#### Reading the numbers
+
+1. **`format_pass` ranks: given (100 %) ≫ implicit (99.9 %) > derived
+   (89.3 %)**. The 4-step CoT template in derived occasionally
+   truncates or misses the closing `</thinking>`/`</answer>` tag —
+   ~10.7 % of derived responses fail the strict format check.
+
+2. **`direction_pass` is roughly equal between derived and implicit
+   (~73 %)** but well below given (~87.5 %). The teacher always has
+   the heading, so the verb is geometrically derivable; the missing
+   accuracy comes from the variant-specific CoT instruction nudging
+   the model into a reasoning path that occasionally disagrees with
+   the geometry (e.g. "the destination is behind me" can still
+   resolve to "turn left" if the route's first edge is sideways).
+
+3. **`derived` heading-inference accuracy is 99.1 % at n=2,928** —
+   when the derived-variant teacher emits a "facing X°" statement, X
+   matches the GT heading within 22.5° 99 % of the time. This is
+   expected — the teacher IS shown the heading and just frames its
+   reasoning as if derived. The number serves as a sanity check that
+   the teacher prompt is producing the intended CoT structure (≥80 %
+   of derived rows include the parseable heading statement).
+
+4. **Implication for student PASS upper bound**: the student's
+   `direction_pass` cannot exceed the teacher's by much without
+   producing labels-disagreement, so realistic targets for the full
+   sweep are:
+   - `trained-heading-given` ≤ ~87.5 %
+   - `trained-heading-derived` ≤ ~72 % (and 22.5°-accurate heading
+     inference on a high fraction)
+   - `trained-heading-implicit` ≤ ~73 %
+
+   The zero-shot baseline (Qwen 2.5 VL 7B cold, no LoRA) — from the
+   trial-2 16-sample eval — is currently:
+   - `zs-heading-given` 62.5 %
+   - `zs-heading-derived` 18.8 %
+   - `zs-heading-implicit` 12.5 %
+
+   So the headroom for LoRA to recover is largest on derived (~53 pp)
+   and implicit (~60 pp). Given is closer to teacher (~25 pp headroom)
+   and will be the hardest variant to demonstrate large gains on.
+
+5. **The `format_pass` filter for the SFT splits drops ~11 % of
+   derived rows** (vs. ~0 % for given/implicit) — `data/sft/a2_*.jsonl`
+   will be uneven across variants. With `--only-pass` (additionally
+   requires direction_pass), cohorts shrink further: given ~3,200,
+   derived ~2,350, implicit ~2,675 (rough projections to full
+   annotation completion).
 
 ---
 
