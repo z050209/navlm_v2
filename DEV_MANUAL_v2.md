@@ -107,6 +107,9 @@ STEP 1.
 ## 3. Pipeline overview
 
 ```
+DATA PIPELINE (offline, local, one-time)
+═════════════════════════════════════════════════════════════════════
+
 GPS-side                  VLM-side
 ─────────                 ─────────
 gps_recovery_full.jsonl   poi_scan.jsonl + poi_scan_cos0.75.jsonl
@@ -116,25 +119,63 @@ gps_recovery_full.jsonl   poi_scan.jsonl + poi_scan_cos0.75.jsonl
        └────────┬───────────────┘
                 ↓
       (STEP 3) a2_step3
-      GPS_VLM_GEO.jsonl
+      GPS_VLM_GEO.jsonl  →  matched cohort: 1,219
                 ↓
-        matched cohort: 1,219
+      a2_target_frames + a2_heading_v2 + road_snap +
+      a2_destination_targets    (16 point + 5 multi targets)
                 ↓
-      (STEP 4) a2_viz_matched
-      viz/a2_vlmagreed.html   (visual QC)
-                ↓
-      a2_target_frames
-      target_attraction_frames.jsonl   (per-attraction destination pool)
-                ↓
-                ↓ + heading_v2 (a2_heading_v2)
-                ↓ + road_snapped_a2 (road_snap, re-run)
-                ↓ + destination_targets (a2_destination_targets)
-                ↓
-      (current) a2_route
-      routes.jsonl   (network-routed bearing + GT verbs)
-                ↓
-                (re-annotate with Gemini Pro 2.5 — pending)
-                (re-train L-given LoRA — pending)
+      a2_route   (network-routed shortest path + deterministic GT verb)
+      routes.jsonl  (3,657 (frame, dest) pairs)
+
+
+ANNOTATION (3 parallel passes, Vertex AI Gemini Pro 2.5)
+═════════════════════════════════════════════════════════════════════
+
+routes.jsonl
+   ↓                              ↓                            ↓
+a2_annotate --variant given   --variant derived   --variant implicit
+   ↓ (GCP project 1)             ↓ (GCP project 2)             ↓ (GCP project 3)
+annotations_a2_given.jsonl   _derived.jsonl     _implicit.jsonl
+   (~3,657 rows each — teacher sees heading; student prompt
+    is variant-specific: heading shown only for "given")
+
+
+SFT CONVERSION + UPLOAD (local)
+═════════════════════════════════════════════════════════════════════
+
+annotations_a2_{variant}.jsonl
+   ↓ a2_to_sft --variant {given,derived,implicit}
+data/sft/a2_{variant}_{train,val,test}.jsonl  (80/10/10, seed=42, per variant)
+   ↓ modal volume put navlm-data data/sft/a2_*.jsonl /sft/
+
+
+TRAINING (Modal A100-80GB, 9 LoRA adapters — rank sweep)
+═════════════════════════════════════════════════════════════════════
+
+For each (variant ∈ {given, derived, implicit})
+    for each (rank ∈ {4, 8, 16}):
+        a2_train_modal --variant <v> --lora-r <r>
+            ↓
+        /ckpts/lora_a2_<v>_r<r>_e2/   (LoRA adapter on navlm-ckpts)
+
+
+EVALUATION (Modal A100-40GB, 12 conditions = 3 zs + 9 trained)
+═════════════════════════════════════════════════════════════════════
+
+For each condition:
+    a2_eval_modal --condition <cond> [--adapter ...]
+        ↓
+    /eval/<run_id>/<cond>/per_sample.jsonl   (on navlm-eval)
+
+
+SCORING (local)
+═════════════════════════════════════════════════════════════════════
+
+modal volume get navlm-eval <run_id> eval_pull/
+    ↓
+python -m src.a2_score --run-dir eval_pull/<run_id>
+    ↓ 4 metrics × 12 conditions
+summary_table.txt  (final report input)
 ```
 
 ---
@@ -883,109 +924,165 @@ python -m src.a2_viz_thin
 
 ---
 
-## 16. Next steps (pending)
+## 16. Status (as of 2026-06-01)
 
 | Step | What | Status |
 |---|---|---|
-| Decide on 3 weak attractions | Kunsthaus / Bürkliplatz / Paradeplatz each have 1 matched frame — drop, augment with SV crops, or accept | Pending |
-| Per-attraction radii for long features | Bahnhofstrasse / Limmatquai / Lake Zurich / Limmat / Niederdorfstrasse need larger R or multi-anchor to recover the 59 unmatched-but-passing panos | Deferred to attempt 3 |
-| Train/test split | **Per-variant independent random 80/10/10** (each variant shuffled with `seed=42` over its own `format_pass` rows). Cross-variant comparison in §20 is rate-vs-rate; within-variant `zs-X` vs `trained-X` is paired automatically. See §21. | **Resolved** |
-| Re-annotation prompt v2 | New `src/a2_annotate.py` consuming `routes.jsonl` as input; teacher VLM reasons about route + emits verb; drop checkpoint step (unverifiable in Attempt 1) | Pending |
-| Retrain L-given | Same training code (`train_modal.py`), new annotation file | Pending |
-| Eval metrics implementation | `progress_correct` + `strict_correct` + `soft_correct` reporting alongside | Pending |
+| Decide on 3 weak attractions | Kunsthaus / Bürkliplatz / Paradeplatz each have 1 matched frame — accepted as-is; routes.jsonl includes them via the destination-cohort sampler | **Resolved (accepted)** |
+| Per-attraction radii for long features | Multi-target routing (§10) addresses this — Bahnhofstrasse / Limmatquai / Lake Zurich / Limmat / Niederdorfstrasse use the matched-cohort node list + canonical fallback | **Resolved** |
+| Re-annotation prompt v2 | `src/a2_annotate.py` produces 3 variant-specific datasets (given/derived/implicit) via 3 parallel Gemini Pro 2.5 passes — see §18 | **Resolved (in flight)** |
+| Train/test split | Per-variant independent random 80/10/10 (`seed=42`, format_pass only by default) — see §20 | **Resolved** |
+| LoRA training | `src/a2_train_modal.py` ready; 9 adapters to train (3 variants × ranks 4/8/16) — see §21 | Pending — runs after annotation completes |
+| Eval harness | `src/a2_eval_modal.py` ready for all 12 conditions — see §22 | Pending — runs after training completes |
+| Eval scoring | `src/a2_score.py` ready (4 metrics, see §19) | **Resolved** |
+| **Final report** | CS231n + NeurIPS 2026 — uses the 12-condition × 4-metric table from §19 | Pending — assembled from `summary_table.txt` after eval scoring |
 
-Cost estimate (unchanged from §6.5 of the original `DEV_MANUAL.md`):
-- Re-annotate ~3,657 (frame, dest) pairs with Gemini Pro 2.5: ~$30
-- Retrain L-given LoRA on Modal A100: ~$10 GPU
-- Total: ~$40, ~4 h wall-time
+For the full cost + wall-time breakdown, see the Cost section at the
+end of §19.
 
 ---
 
-## 18. The 6-condition experiment matrix
+## 17. The 12-condition experiment matrix (with LoRA rank sweep)
 
-Six conditions, all evaluated against the SAME student model
-**Qwen 2.5 VL 7B**. The difference between zero-shot and trained is
-whether a LoRA adapter is applied:
+All conditions are evaluated against the SAME student model
+**Qwen 2.5 VL 7B**. The two axes are (1) the prompt variant (given /
+derived / implicit) and (2) zero-shot vs trained — with the trained
+side ALSO swept across LoRA ranks **r ∈ {4, 8, 16}**:
 
-- **Zero-shot**: base Qwen 2.5 VL 7B (no fine-tuning) prompted cold
-- **Trained**: base Qwen + a LoRA adapter SFT-trained on a specific
-  variant of the annotation data
+- **Zero-shot** (3 conditions): base Qwen 2.5 VL 7B, no adapter.
+- **Trained** (9 conditions): base Qwen + 1 of 9 LoRA adapters
+  (3 variants × 3 ranks).
 
 The teacher model **Gemini Pro 2.5** is used ONLY to generate the
-training-data annotations (one call per (frame, destination) pair).
-We never evaluate Gemini Pro 2.5 itself — it is the labeler, not the
-system under test.
+training-data annotations (3 independent passes — §18). We never
+evaluate Gemini Pro 2.5 itself — it is the labeler, not the system
+under test.
 
 ```
-                          ZERO-SHOT                       TRAINED
-                          (base Qwen 2.5 VL 7B,          (Qwen 2.5 VL 7B + LoRA,
-                           no fine-tuning,                 SFT on the corresponding
-                           cold-prompted)                  variant of annotations)
-                          ──────────────────────────      ──────────────────────────
-heading-given             zs-heading-given                trained-heading-given
-  (heading # in input)
-heading-derived           zs-heading-derived              trained-heading-derived
-  (no heading in input;
-   CoT derives heading)
-heading-implicit          zs-heading-implicit             trained-heading-implicit
-  (no heading in input;
-   visual-only CoT)
+                       ZERO-SHOT          TRAINED (LoRA rank)
+                       (no adapter)       ┌───────┬───────┬───────┐
+                                          │  r=4  │  r=8  │ r=16  │
+                       ─────────────      ┼───────┼───────┼───────┤
+heading-given          zs-heading-given   │ t-g-4 │ t-g-8 │ t-g-16│
+heading-derived        zs-heading-derived │ t-d-4 │ t-d-8 │ t-d-16│
+heading-implicit       zs-heading-implicit│ t-i-4 │ t-i-8 │ t-i-16│
+                                          └───────┴───────┴───────┘
+                       ──────────         ──────────────────────────
+                       3 conditions       9 conditions  →  12 total
 ```
 
-All 6 conditions are evaluated on **Modal A100** via `eval_modal.py`
-(the inference harness from Attempt 1). Zero-shot uses the base model
-weights as-is; trained loads the corresponding LoRA adapter on top.
+(`t-g-4` = `trained-heading-given-r4`, etc.)
 
-### Per-condition input + CoT style
+All 12 conditions are evaluated on **Modal A100-40GB** via
+`src/a2_eval_modal.py`. Zero-shot uses base weights as-is; trained
+loads the corresponding LoRA adapter from `/ckpts/lora_a2_<v>_r<r>_e2/`
+on top.
 
-| # | Condition | Heading in user prompt? | `<thinking>` style | Training data |
-|---:|---|:-:|---|---|
-| 1 | `zs-heading-given` | YES | freely mentions heading | (zero-shot) |
-| 2 | `zs-heading-derived` | NO | prompt instructs "first state estimated heading" | (zero-shot) |
-| 3 | `zs-heading-implicit` | NO | prompt instructs "reason visually, no numeric heading" | (zero-shot) |
-| 4 | `trained-heading-given` | YES | mentions heading numerically | base annotations as-is |
-| 5 | `trained-heading-derived` | NO | begins with "I estimate I'm facing X°…" | base CoT prepended with heading-derivation sentence |
-| 6 | `trained-heading-implicit` | NO | visual reasoning, no numeric heading | base CoT with numeric heading replaced by visual descriptors |
+### Per-condition input + CoT style + training data
+
+| Conditions | Heading in user prompt? | `<thinking>` style | Training data |
+|---|:-:|---|---|
+| `zs-heading-given` / `trained-heading-given-r{4,8,16}` | YES | numeric heading + route bearing → verb | `annotations_a2_given.jsonl` |
+| `zs-heading-derived` / `trained-heading-derived-r{4,8,16}` | NO | 4-step derivation: cues → geography → heading → verb | `annotations_a2_derived.jsonl` |
+| `zs-heading-implicit` / `trained-heading-implicit-r{4,8,16}` | NO | 3-step visual chain (NO numeric heading) | `annotations_a2_implicit.jsonl` |
+
+(Training data is variant-specific because the teacher's `<thinking>`
+follows the variant's CoT template — see §18.)
+
+### Why rank sweep r ∈ {4, 8, 16}
+
+LoRA rank controls the capacity of the adapter (parameter count grows
+linearly with r). For Qwen 2.5 VL 7B targeting q/k/v/o_proj:
+
+```
+r=4   ~ 2.1 M trainable params  (≤ 0.03 % of base)
+r=8   ~ 4.2 M trainable params  (≤ 0.06 %)
+r=16  ~ 8.4 M trainable params  (≤ 0.12 %)
+```
+
+- r=4 tests whether the variant prompt + CoT format is teachable with
+  minimal capacity — if r=4 already matches r=16, the bottleneck is
+  the prompt design, not capacity.
+- r=16 is the "comfort" rank typically reported in LoRA papers.
+- r=8 is the midpoint; if PASS rate monotonically improves r=4 → 8 → 16,
+  more capacity is helping; if it plateaus, we have rank-saturation.
+
+`lora_alpha` is fixed at `2 * r` (standard practice) so the effective
+learning rate per LoRA weight is rank-invariant.
 
 ### Hypotheses
 
 | Comparison | Tests |
 |---|---|
-| zs-* vs trained-* (same mode) | Does fine-tuning help? |
-| trained-heading-given vs trained-heading-derived | Does deriving heading recover most accuracy? |
-| trained-heading-given vs trained-heading-implicit | Cost of dropping heading entirely |
-| trained-heading-derived vs trained-heading-implicit | Is explicit derivation better than visual-only? |
+| `zs-X` vs `trained-X-r16` (same variant) | Does fine-tuning help? (headline trained-vs-zs effect) |
+| `trained-X-r4` vs `r8` vs `r16` (same variant) | Rank-saturation: is more LoRA capacity helping? |
+| `trained-given-r16` vs `trained-derived-r16` | Does deriving the heading recover most accuracy? |
+| `trained-given-r16` vs `trained-implicit-r16` | Cost of dropping heading entirely (visual-only) |
+| `trained-derived-r16` vs `trained-implicit-r16` | Is explicit derivation better than visual-only? |
 
-**Main project result**: if `trained-heading-derived` or
-`trained-heading-implicit` PASS is within ~5-10 % of
-`trained-heading-given`, the compass-free thesis holds.
+**Main project result**: if `trained-heading-derived-r16` or
+`trained-heading-implicit-r16` PASS is within ~5–10 % of
+`trained-heading-given-r16`, the compass-free thesis holds.
 
 ---
 
-## 19. Annotation prompt v2
+## 18. Annotation prompt v2 — three independent teacher passes
 
-### System prompt (same for all 6 conditions)
+### Design — supervised distillation with input asymmetry
+
+The Gemini Pro 2.5 teacher labels each `(frame, destination)` pair
+THREE TIMES, once per variant — in three independent parallel passes,
+one per GCP project (for quota and parallelism). For every pass:
+
+- The **teacher** is given the heading (so it can compute the verb
+  correctly via geometry).
+- The **student** prompt — what Qwen sees at training and at inference
+  — is variant-specific: heading is **shown** for `given` and **hidden**
+  for `derived` and `implicit`.
+
+Both the system prompt and the user prompt differ across variants —
+all three differ. Per-variant chat shape:
 
 ```
-You are a Zurich walking-tour guide speaking directly to a tourist
-who is looking at the photo right now. Help them take the next step.
+                        TEACHER (Gemini, annotation)        STUDENT (Qwen, train + eval)
+system_prompt           system_prompt(variant)              system_prompt(variant)   ← same string
+user_prompt             teacher_prompt(variant)             student_prompt(variant)
+                        (heading ALWAYS shown)              (heading shown only for given)
+assistant               teacher's <thinking> + <answer>     model generates this
+```
 
-Your reply has two parts (2-3 sentences total):
+The `system_prompt(variant)` returned by `src/a2_annotate.py` is the
+same string at annotation, training, and inference for a given variant
+— so the SFT data and the eval inputs share the system context the
+teacher was trained against.
 
-<thinking>
-1-2 short sentences for your reasoning — where the route's first
-segment is relative to the walker's heading, and which verb rotates
-the camera onto that direction.
-</thinking>
+### System prompt — common head (shared across variants)
 
-<answer>
-1 sentence speaking DIRECTLY to the walker, then the action verb.
-- Use "you" and point to specific things they can see:
-    "Can you see X?"  "Look at the X."  "Notice the X ahead."
-- Reference only landmarks from the "Visible landmarks" list. The
-  walker has no map; only what they can SEE in the photo helps them.
-- End with the action verb in its own short sentence.
-</answer>
+```
+You are a Zurich walking-tour guide speaking directly to a tourist who
+is looking at the photo right now. Help them take the next step.
+
+Useful Zurich orientation facts you may rely on when reasoning:
+- The Limmat river flows roughly south-to-north through central Zurich.
+- Grossmünster (twin towers) sits on the EAST bank of the Limmat.
+- Fraumünster (single tall spire, green roof) sits on the WEST bank.
+- St. Peter (largest clock face in Europe) is on the WEST bank a bit
+  north of Fraumünster.
+- Bahnhofstrasse runs roughly south-to-north: Hauptbahnhof at the
+  NORTH end, Paradeplatz mid-way, Bürkliplatz / Lake Zurich at the
+  SOUTH end.
+- At midday in Zurich the sun sits in the SOUTH (south-east in
+  morning, south-west in afternoon).
+- Tram tracks visible on a street tell you the street's axis.
+
+Your reply has two parts: <thinking> for reasoning and <answer> for
+the spoken instruction.
+
+<answer> is one sentence speaking DIRECTLY to the walker (use "you"),
+pointing to specific things they can see, then the action verb:
+  "Can you see X?"  "Look at the X."  "Notice the X ahead."
+Reference only landmarks from the "Visible landmarks" list. End with
+the action verb on its own short sentence.
 
 The action verb must be EXACTLY one of:
   continue ahead    turn left    turn right    turn around
@@ -1002,17 +1099,65 @@ AVOID:
   - Compass directions ("head north") — say "ahead", "to your right".
 ```
 
-### User-prompt template A — `heading-given` (conditions 1, 4)
+### System-prompt tail — variant-specific `<thinking>` style rule
 
 ```
-[IMAGE]
-You are at this location, facing 95° (east-by-north-east).
+THINKING_RULE["given"]:
+  In <thinking>, write 1-2 short sentences reasoning from the GIVEN
+  heading and the route's first-segment bearing to a verb. State both
+  numerically (e.g., "I'm facing 95° (east); the route heads 270°
+  (west), a 180° rotation, so turn around").
+
+THINKING_RULE["derived"] (4-step):
+  STEP 1 (visual cues): I can see [2-3 things in the photo].
+  STEP 2 (apply geography): These cues indicate the camera is oriented
+                            such that [reasoning].
+  STEP 3 (estimated heading): I estimate I'm facing X° (direction).
+  STEP 4 (route comparison): Route heads Y° — that's [N°] [direction],
+                            so [verb].
+
+THINKING_RULE["implicit"] (3-step, NO numeric heading):
+  STEP 1 (what I see): The visible scene contains [2-3 specific things].
+  STEP 2 (where the destination is relative to me): The destination is
+         "ahead of me / behind me / to my left / to my right" because
+         [visual cue]. NO numeric heading.
+  STEP 3 (verb decision): Therefore the walker should [verb].
+```
+
+The combined `system_prompt(variant) = COMMON_HEAD + "\n" +
+THINKING_RULE[variant]` — defined in `src/a2_annotate.py:139`.
+
+### User prompts — teacher (always has heading) vs student
+
+```
+                      teacher_prompt(variant)                  student_prompt(variant)
+                      ───────────────────────                  ─────────────────────────
+HEADING LINE          ALWAYS prepended:                        Only prepended for given:
+                      "You are at this location,               "You are at this location,
+                       facing 95° (east)."                      facing 95° (east)." (only for given)
+
+SHARED BODY           Destination + walking distance +         Same as teacher
+                      OSM route first-segment bearing +
+                      Visible landmarks list
+
+TRAILING INSTRUCTION  Variant-specific CoT instruction         Variant-specific instruction
+                      (the teacher is reminded to              (the student is told the
+                       PRODUCE the variant's CoT style          heading is NOT provided for
+                       even though it has the heading)          derived/implicit)
+```
+
+#### Example — `given`
+
+```
+TEACHER and STUDENT see the same prompt:
+
+You are at this location, facing 95° (east).
 
 Destination: Grossmünster (大教堂), about 287 m walking distance.
 
 OSM walking route:
-  First segment heads 270° (west) along Limmatquai for 62 m,
-  then 2 more turns over a total of 187 m.
+  First segment heads 270° (west) for 62 m, then 2 more turns
+  over a total of 187 m.
 
 Visible landmarks at this spot:
   Limmatquai, Münsterbrücke
@@ -1020,15 +1165,16 @@ Visible landmarks at this spot:
 Decide the next action verb.
 ```
 
-### User-prompt template B — `heading-derived` (conditions 2, 5)
+#### Example — `derived`
 
 ```
-[IMAGE]
+STUDENT (heading hidden):
+
 Destination: Grossmünster (大教堂), about 287 m walking distance.
 
 OSM walking route:
-  First segment heads 270° (west) along Limmatquai for 62 m,
-  then 2 more turns over a total of 187 m.
+  First segment heads 270° (west) for 62 m, then 2 more turns
+  over a total of 187 m.
 
 Visible landmarks at this spot:
   Limmatquai, Münsterbrücke
@@ -1036,59 +1182,77 @@ Visible landmarks at this spot:
 The walker's heading is NOT provided. In <thinking>, FIRST infer the
 heading from the photo by stating "I estimate I'm facing X° (direction)",
 THEN reason about the route and verb.
+
+TEACHER (same body, BUT heading appended at top + a "write AS IF you
+derived this" instruction so the produced CoT still follows the 4-step
+template the student will be trained on):
+
+You are at this location, facing 95° (east).
+
+Destination: Grossmünster ... [shared body]
+
+Decide the next action verb. In <thinking>, WRITE AS IF you derived
+the heading from the photo: start with "I estimate I'm facing X°
+(direction)." using the GIVEN heading value X. Then reason about the
+route and verb. Cite visual cues from the photo that support the
+heading estimate (shop signs, tram direction, sun position,
+recognisable buildings).
 ```
 
-### User-prompt template C — `heading-implicit` (conditions 3, 6)
+#### Example — `implicit`
 
-```
-[IMAGE]
-Destination: Grossmünster (大教堂), about 287 m walking distance.
+Same pattern: student sees the body alone with a "no numeric heading,
+visual-only" instruction. Teacher sees `facing 95°` + a "purely visual,
+no numeric heading" instruction. Teacher uses the heading internally to
+geometric-derive the correct verb; the produced CoT stays visual-only.
 
-OSM walking route:
-  First segment heads 270° (west) along Limmatquai for 62 m,
-  then 2 more turns over a total of 187 m.
+### Why three independent passes (instead of one + transforms)
 
-Visible landmarks at this spot:
-  Limmatquai, Münsterbrücke
+Earlier we considered running one Gemini pass and deriving the 3
+variants by text transforms. That was abandoned because:
 
-The walker's heading is NOT provided. Reason from visual cues in the
-photo about where the destination is and which verb is needed. Do NOT
-state a numeric heading.
-```
+1. **Information leak.** The "visual" CoT we wanted for derived/implicit
+   needs to be generated *without* heading-aware language; if generated
+   from a heading-conditioned answer and edited locally, the visual
+   reasoning is implicitly heading-aware.
+2. **Verb consistency.** Letting Gemini regenerate the answer per
+   variant lets the variant-specific CoT template (4-step / 3-step /
+   1-step) actually shape the answer, not just the prefix.
 
-### Base annotation generation
+The cost is 3× the teacher API calls, parallelised across 3 separate
+GCP projects (`navlm-annot-1-26`, `navlm-annot-2-26`, `navlm-annot-3-26`).
 
-Only ONE Gemini Pro 2.5 call per (frame, destination) pair, using
-template A (heading-given). The 3 trained variants are derived locally
-by text transforms; the 3 zero-shot conditions are evaluated by calling
-Gemini cold with the appropriate template at eval time.
+### Per-row schema in `annotations_a2_{variant}.jsonl`
 
-### Expected response format
+```jsonl
+{
+  "video": "...",  "frame_id": "...",
+  "destination": "Grossmünster", "destination_zh": "大教堂",
+  "variant": "given",
+  "heading": 95.0,           "gt_verb": "turn around",
+  "route_bearing_network": 270.0,
+  "first_segment_length_m": 62.0, "n_segments": 3,
+  "route_distance_m": 187.4, "sampling_band": "near",
+  "visible_landmarks": ["Limmatquai", "Münsterbrücke"],
 
-```
-<thinking>
-1-2 short sentences (style varies by condition).
-</thinking>
-<answer>
-Can you see [Visible landmark] [position]? [VERB].
-</answer>
-```
+  "teacher_prompt": "<sent to Gemini>",
+  "student_prompt": "<used at SFT and inference>",
+  "response":  "<full <thinking>…</thinking><answer>…</answer> as returned>",
+  "thinking":  "<extracted from response>",
+  "answer":    "<extracted from response>",
 
-Example (template A, `trained-heading-given`):
-```
-<thinking>
-I am facing 95° (east); the route's first segment heads 270° (west),
-so the destination lies 180° behind me.
-</thinking>
-<answer>
-Notice Limmatquai with the tram tracks stretching ahead — you came
-from that direction. Turn around.
-</answer>
+  "first_verb": "turn around",
+  "format_pass": true,
+  "direction_pass": true,
+  "PASS": true,
+  "truncated": false,
+  "derived_heading": null     // only set when the model wrote "facing X°"
+}
 ```
 
 ---
 
-## 20. Evaluation metrics (v2)
+## 19. Evaluation metrics (v2)
 
 Only **4 metrics** are scored — all computed by `src/a2_score.py` from
 the per-condition `per_sample.jsonl` produced by `src/a2_eval_modal.py`.
@@ -1110,16 +1274,22 @@ heading_inference_acc : only for `*-heading-derived` conditions —
                         as n/a for `given` and `implicit` conditions.
 ```
 
-### Per-condition reporting
+### Per-condition reporting (12 rows — 3 zs + 9 trained)
 
 ```
-                              n     fmt    dir    PASS   h_inf  h_n
-zs-heading-given              ?      ?      ?      ?      n/a    0
-zs-heading-derived            ?      ?      ?      ?       ?     ?
-zs-heading-implicit           ?      ?      ?      ?      n/a    0
-trained-heading-given         ?      ?      ?      ?      n/a    0
-trained-heading-derived       ?      ?      ?      ?       ?     ?
-trained-heading-implicit      ?      ?      ?      ?      n/a    0
+                                       n     fmt    dir    PASS   h_inf  h_n
+zs-heading-given                       ?      ?      ?      ?      n/a    0
+zs-heading-derived                     ?      ?      ?      ?       ?     ?
+zs-heading-implicit                    ?      ?      ?      ?      n/a    0
+trained-heading-given-r4               ?      ?      ?      ?      n/a    0
+trained-heading-given-r8               ?      ?      ?      ?      n/a    0
+trained-heading-given-r16              ?      ?      ?      ?      n/a    0
+trained-heading-derived-r4             ?      ?      ?      ?       ?     ?
+trained-heading-derived-r8             ?      ?      ?      ?       ?     ?
+trained-heading-derived-r16            ?      ?      ?      ?       ?     ?
+trained-heading-implicit-r4            ?      ?      ?      ?      n/a    0
+trained-heading-implicit-r8            ?      ?      ?      ?      n/a    0
+trained-heading-implicit-r16           ?      ?      ?      ?      n/a    0
 ```
 
 `h_n` = number of derived-condition rows where a "facing X°" string was
@@ -1156,35 +1326,96 @@ def score_row(row):
     ...
 ```
 
-### Cost & wall-time estimate
+### Cost & wall-time estimate (updated 2026-06-01)
+
+Measured throughput from the in-flight annotation runs and from the
+Modal pricing table (A100-80GB ≈ $3.46/hr, A100-40GB ≈ $2.10/hr).
+
+#### Annotation (Gemini Pro 2.5, 3 parallel passes, one per variant)
 
 ```
-Teacher annotation (Gemini Pro 2.5,            ~$30      ~3 h
-  one call per (frame, dest) pair via
-  src/a2_annotate.py — generates the base
-  dataset used by all 3 trained conditions):
-
-Derive 3 training files (text transforms       $0        instant
-  via src/a2_derive_variants.py):
-
-Train 3 LoRAs (Qwen 2.5 VL 7B + LoRA on        ~$15      ~1 h
-  Modal A100, one adapter per training
-  variant):
-
-Eval 6 conditions on Modal A100                ~$10      ~1.5 h
-  (Qwen base for the 3 zero-shot; Qwen +
-   the corresponding LoRA for the 3 trained):
-─────────────────────────────────────────────────────────
-Total                                          ~$55      ~5.5 h
+Per-variant: ~3,657 calls × variant-specific input/output token counts.
+Measured throughput:
+  given     : ~268 rows/hr  → 13.6 h full pass · ~$28
+  derived   : ~205 rows/hr  → 17.8 h full pass · ~$34 (longer 4-step CoT)
+  implicit  : ~256 rows/hr  → 14.3 h full pass · ~$28
+Parallel wall-time (3 GCP projects in parallel): ~18 h (derived bottleneck)
+Combined cost: ~$90 (range $85-100 depending on token usage)
 ```
 
-Gemini Pro 2.5 is only invoked during the teacher-annotation step.
-All evaluation (including zero-shot) runs on Qwen 2.5 VL 7B via
-Modal — same harness as Attempt 1.
+#### SFT conversion + upload
+
+```
+Local Python, < 1 min per variant · $0
+modal volume put navlm-data data/sft/a2_*.jsonl /sft/  (~30 MB) · $0
+```
+
+#### Training — full LoRA rank sweep (9 adapters, Modal A100-80GB)
+
+```
+Per-LoRA adapter (one variant × one rank):
+  - model load + warmup            : ~10 min
+  - SFT training:
+      ~2,900 train rows × 2 epochs
+      per_device_batch=1 grad_accum=8  → ~725 optimisation steps
+      ~3-5 s/step                     → ~40-60 min
+  - save adapter + commit volume   : ~1 min
+  TOTAL wall-time per adapter      : ~55-75 min (~1 h)
+  Per-adapter cost (A100-80GB)     : $3.46-4.30
+
+9 adapters (3 variants × 3 ranks):
+  Sequential wall-time             : ~9-11 h
+  Parallel wall-time (Modal)       : ~1-1.5 h (Modal can run 9 in parallel)
+  Combined cost                    : ~$30-40
+```
+
+Rank does not change wall time meaningfully — r=4, 8, 16 differ only in
+adapter param count, not forward/backward cost.
+
+#### Eval — 12 conditions on Modal A100-40GB
+
+```
+Per-condition (one of 12):
+  - model load                     : ~5 min
+  - adapter load (trained only)    : ~30 s
+  - inference (~290 test samples)  :
+      derived condition  : ~15-20 s/sample (4-step CoT, longer outputs)
+                          → ~75-95 min
+      given/implicit     : ~8-12 s/sample (shorter outputs)
+                          → ~40-60 min
+  TOTAL wall-time per condition    : ~50-100 min
+  Per-condition cost (A100-40GB)   : $1.75-3.50
+
+Zero-shot eval (3 conditions):
+  Wall-time (parallel)             : ~1.5 h
+  Cost                             : ~$6
+
+Trained eval (9 conditions):
+  Wall-time (parallel)             : ~1.5 h
+  Cost                             : ~$20
+
+Pull (`modal volume get navlm-eval ...`) + local scoring  : $0
+```
+
+#### Grand total
+
+```
+Annotation              ~$90
+Training (9 LoRAs)      ~$35
+Zero-shot eval (3)       ~$6
+Trained eval (9)        ~$20
+─────────────────────────────
+Total Modal + Gemini    ~$150
+Wall-time (parallel)    ~22 h (annotation bottleneck)
+```
+
+Gemini Pro 2.5 is only invoked during teacher annotation. All Qwen
+evaluation (including zero-shot) runs on Modal A100s — same Modal app
+as training, separate function.
 
 ---
 
-## 21. Per-variant SFT conversion (`src/a2_to_sft.py`)
+## 20. Per-variant SFT conversion (`src/a2_to_sft.py`)
 
 **Script**: `src/a2_to_sft.py`
 **Inputs**: `data/cities/zurich/a2/annotations_a2_{variant}.jsonl`
@@ -1273,7 +1504,340 @@ modal volume put navlm-data data/sft/a2_*.jsonl /sft/
 
 ---
 
-## 17. Glossary
+## 21. LoRA training pipeline (`src/a2_train_modal.py`)
+
+Modal A100-80GB, 4-bit NF4 base + BF16 LoRA. One Modal function call
+per (variant, rank) — 9 calls total for the full sweep.
+
+### Hyperparameters
+
+```
+base model              : Qwen/Qwen2.5-VL-7B-Instruct
+quantisation            : NF4 (4-bit) base, BF16 LoRA
+target modules          : q_proj, k_proj, v_proj, o_proj
+LoRA dropout            : 0.05
+LoRA alpha              : 2 × rank  (so 8 / 16 / 32 for r=4 / 8 / 16)
+LoRA rank (swept)       : 4, 8, 16
+optimiser               : AdamW (HF Trainer default)
+learning rate           : 2e-4
+LR schedule             : cosine, 3 % warmup
+epochs                  : 2
+per_device_batch_size   : 1
+gradient_accumulation   : 8         → effective batch size 8
+bf16                    : true
+max_pixels              : 448 × 448 (Qwen processor cap)
+eval_strategy           : per epoch (val loss)
+save_strategy           : end-of-run only
+```
+
+LoRA alpha is set to `2 × rank` (standard practice) so per-weight
+effective learning rate is rank-invariant; we are sweeping capacity,
+not effective LR.
+
+### Adapter naming convention
+
+`/ckpts/lora_a2_<variant>_r<rank>_e<epochs>/`
+
+Examples:
+```
+/ckpts/lora_a2_given_r16_e2/        ← variant=given, rank=16, 2 epochs
+/ckpts/lora_a2_derived_r8_e2/
+/ckpts/lora_a2_implicit_r4_e2/
+```
+
+### Per-adapter wall-time estimate
+
+```
+model load + 4-bit quantise + PEFT wrap     : ~10 min
+SFT (~2,900 train rows × 2 epochs, eff      : ~40-60 min
+  batch 8 → ~725 optimisation steps)
+save adapter + commit volume                : ~1 min
+─────────────────────────────────────────────────────────
+TOTAL per adapter (A100-80GB)               : ~55-75 min
+Cost per adapter                            : $3.46-4.30
+```
+
+Rank does not affect wall time — forward/backward dominated by the
+4-bit base, not the LoRA. r=4 and r=16 take the same time within
+noise.
+
+### Run
+
+Full sweep (9 trainings, sequential — for parallel use 9 terminals
+since `modal run` blocks):
+
+```bash
+for v in given derived implicit; do
+  for r in 4 8 16; do
+    modal run src/a2_train_modal.py --variant $v --lora-r $r --epochs 2
+  done
+done
+```
+
+Smoke (~5 min, A100-80GB cost ~$0.30):
+
+```bash
+modal run src/a2_train_modal.py --variant given --limit 32 --epochs 1
+```
+
+`--limit N` truncates train_rows to N (val to N/8). Use for harness
+verification before launching the full sweep.
+
+### Outputs per training run
+
+```
+/ckpts/lora_a2_<v>_r<r>_e2/
+   adapter_model.safetensors    ← LoRA weights (the only file eval needs)
+   adapter_config.json
+   summary.json                 ← {variant, epochs, lr, lora_r,
+                                   lora_alpha, n_train, n_val,
+                                   final_eval_loss}
+   history.json                 ← per-step loss + per-epoch val loss
+```
+
+`final_eval_loss` from `summary.json` is the per-epoch held-out val
+loss after the last epoch — useful for an early signal on which rank
+is helping before running the full 12-condition eval.
+
+---
+
+## 22. Inference pipeline (`src/a2_eval_modal.py`)
+
+Modal A100-40GB, 4-bit NF4 base, BF16 LoRA when loaded. One Modal
+function call per condition — 12 calls total for the full sweep.
+
+### Condition → variant → adapter mapping
+
+```python
+CONDITION_TO_VARIANT = {
+    "zs-heading-given"         : "given",
+    "zs-heading-derived"       : "derived",
+    "zs-heading-implicit"      : "implicit",
+    "trained-heading-given"    : "given",     # rank passed via --adapter
+    "trained-heading-derived"  : "derived",
+    "trained-heading-implicit" : "implicit",
+}
+```
+
+Each condition reads its variant's test split:
+`/sft/a2_{variant}_test.jsonl`.
+
+Zero-shot conditions: no adapter loaded; base Qwen 2.5 VL 7B answers
+the variant-specific student prompt cold.
+
+Trained conditions: pass `--adapter /lora_a2_<v>_r<r>_e2` explicitly
+(default in `DEFAULT_ADAPTER` is `r16`; override to evaluate r=4 / 8
+adapters by changing the rank suffix).
+
+The script drops the assistant turn from each test row before
+generating:
+
+```python
+messages_for_inference = [m for m in row["messages"] if m["role"] != "assistant"]
+```
+
+then decodes only the newly-generated tokens after the prompt.
+
+### Inference hyperparameters
+
+```
+max_new_tokens          : 4096    (room for 4-step CoT — usually ~200)
+temperature             : 0.0     (greedy, deterministic)
+do_sample               : False
+```
+
+### Per-condition wall-time estimate
+
+```
+model load + 4-bit quantise                 : ~5 min
+adapter load (trained conditions only)      : ~30 s
+inference per sample:
+   given / implicit (short outputs)         : ~8-12 s
+   derived (4-step CoT, longer outputs)     : ~15-20 s
+inference (~290 test samples):
+   given / implicit                         : ~40-60 min
+   derived                                  : ~75-95 min
+─────────────────────────────────────────────────────────
+TOTAL per condition (A100-40GB)             : ~50-100 min
+Cost per condition                          : $1.75-3.50
+```
+
+Trained and zero-shot conditions take the same wall time — adapter
+load is negligible vs. base load + inference.
+
+### Run
+
+Full sweep (12 conditions):
+
+```bash
+# 3 zero-shot:
+for v in given derived implicit; do
+  modal run src/a2_eval_modal.py --condition zs-heading-$v
+done
+
+# 9 trained (rank sweep):
+for v in given derived implicit; do
+  for r in 4 8 16; do
+    modal run src/a2_eval_modal.py \
+        --condition trained-heading-$v \
+        --adapter /lora_a2_${v}_r${r}_e2 \
+        --run-id sweep_r${r}_$(date +%Y%m%d)
+  done
+done
+```
+
+Smoke (~3 min, A100-40GB cost ~$0.15):
+
+```bash
+modal run src/a2_eval_modal.py --condition zs-heading-given --limit 16
+```
+
+### Outputs per eval run
+
+```
+/eval/<run_id>/<condition>/
+   per_sample.jsonl   ← one row per test sample with model_response,
+                        gt_verb, heading, image_rel, ...
+   summary.json       ← {condition, variant, is_trained, adapter,
+                          n_samples, wall_time_s, out_path}
+```
+
+### Pull + score
+
+```bash
+mkdir -p eval_pull
+modal volume get navlm-eval <run_id> eval_pull/
+
+python -m src.a2_score --run-dir eval_pull/<run_id>
+```
+
+Writes `per_sample_scored.jsonl` + `summary.json` per condition, plus
+prints the full 12-condition table (and writes
+`summary_table.txt`). See §19 for metric definitions.
+
+---
+
+## 23. Full reproducibility checklist (annotate → train × 9 → eval × 12)
+
+Assumes the data pipeline §1-§14 has already produced
+`routes.jsonl` and the matched cohort (1,219 frames).
+
+### Step A — Annotation (3 parallel Gemini passes, ~18 h, ~$90)
+
+Prereq: 3 GCP projects with Vertex AI enabled + service-account JSON
+keys (see `_setup_3_gcp_projects.sh`). Then:
+
+```bash
+bash _launch_3_annotation_passes.sh
+# Tails: logs/annot_{given,derived,implicit}.log
+# Outputs: data/cities/zurich/a2/annotations_a2_{variant}.jsonl
+```
+
+Each variant writes ~3,657 rows. The 3 GCP projects let you run in
+parallel without hitting any one project's quota.
+
+### Step B — SFT conversion (local, < 1 min, $0)
+
+```bash
+python -m src.a2_to_sft --variant given
+python -m src.a2_to_sft --variant derived
+python -m src.a2_to_sft --variant implicit
+```
+
+Produces `data/sft/a2_{variant}_{train,val,test}.jsonl` — 80/10/10
+random split per variant, format_pass rows only.
+
+### Step C — Upload to Modal (one-time, < 5 min, $0)
+
+```bash
+modal volume put navlm-data data/sft/a2_*.jsonl /sft/
+```
+
+Frame images already on `navlm-data:/data/frames/` from Attempt 1 —
+no re-upload needed unless cohort changed.
+
+### Step D — Training (9 LoRA adapters, ~1-1.5 h parallel, ~$35)
+
+```bash
+for v in given derived implicit; do
+  for r in 4 8 16; do
+    modal run src/a2_train_modal.py --variant $v --lora-r $r --epochs 2 &
+  done
+done
+wait
+```
+
+(Modal runs each `modal run` as a separate function on its own A100;
+the `&` + `wait` shell pattern launches 9 in parallel from one shell.
+Modal will queue if all 9 GPUs aren't immediately available.)
+
+Outputs `/ckpts/lora_a2_<v>_r<r>_e2/` × 9 on `navlm-ckpts`.
+
+### Step E — Evaluation (12 conditions, ~1.5 h parallel, ~$26)
+
+```bash
+RUN_ID=$(date +%Y%m%d_%H%M%S)_a2_sweep
+
+# 3 zero-shot:
+for v in given derived implicit; do
+  modal run src/a2_eval_modal.py --condition zs-heading-$v \
+      --run-id $RUN_ID &
+done
+
+# 9 trained (rank sweep):
+for v in given derived implicit; do
+  for r in 4 8 16; do
+    modal run src/a2_eval_modal.py \
+        --condition trained-heading-$v \
+        --adapter /lora_a2_${v}_r${r}_e2 \
+        --run-id ${RUN_ID}_r${r} &
+  done
+done
+wait
+```
+
+Outputs `/eval/<run_id>/<condition>/per_sample.jsonl` per condition.
+
+### Step F — Pull + score (local, < 5 min, $0)
+
+```bash
+mkdir -p eval_pull/$RUN_ID
+modal volume get navlm-eval $RUN_ID eval_pull/
+modal volume get navlm-eval ${RUN_ID}_r4 eval_pull/
+modal volume get navlm-eval ${RUN_ID}_r8 eval_pull/
+modal volume get navlm-eval ${RUN_ID}_r16 eval_pull/
+
+# combine per-rank run dirs into one tree then score
+python -m src.a2_score --run-dir eval_pull/$RUN_ID
+python -m src.a2_score --run-dir eval_pull/${RUN_ID}_r4
+python -m src.a2_score --run-dir eval_pull/${RUN_ID}_r8
+python -m src.a2_score --run-dir eval_pull/${RUN_ID}_r16
+```
+
+Each `a2_score` invocation prints the conditions in that run dir.
+For the final report, merge the four `summary.json` lists per
+condition into one 12-row table — `summary_table.txt` in each run dir
+is the printable view.
+
+### Total wall-time + cost
+
+```
+Step A  annotation       18 h   $90
+Step B  SFT conversion   <1 min  $0
+Step C  upload           <5 min  $0
+Step D  training         1-1.5 h $35
+Step E  evaluation       1.5 h   $26
+Step F  pull + score     <5 min  $0
+───────────────────────────────────────
+Total wall-time          ~22 h
+Total cost               ~$151
+```
+
+(Annotation dominates wall time; training + eval together are ~3 h.)
+
+---
+
+## 24. Glossary
 
 | Term | Definition |
 |---|---|
