@@ -924,17 +924,21 @@ python -m src.a2_viz_thin
 
 ---
 
-## 16. Status (as of 2026-06-01)
+## 16. Status (as of 2026-06-02)
 
 | Step | What | Status |
 |---|---|---|
 | Decide on 3 weak attractions | Kunsthaus / Bürkliplatz / Paradeplatz each have 1 matched frame — accepted as-is; routes.jsonl includes them via the destination-cohort sampler | **Resolved (accepted)** |
 | Per-attraction radii for long features | Multi-target routing (§10) addresses this — Bahnhofstrasse / Limmatquai / Lake Zurich / Limmat / Niederdorfstrasse use the matched-cohort node list + canonical fallback | **Resolved** |
-| Re-annotation prompt v2 | `src/a2_annotate.py` produces 3 variant-specific datasets (given/derived/implicit) via 3 parallel Gemini Pro 2.5 passes — see §18 | **Resolved (in flight)** |
+| Re-annotation prompt v2 | `src/a2_annotate.py` produces 3 variant-specific datasets (given/derived/implicit) via 3 parallel Gemini Pro 2.5 passes — see §18 | **In flight** — given 98.4 %, implicit 94.0 %, derived 74.5 %; ETA ~6 h to all-complete (derived bottleneck) |
 | Train/test split | Per-variant independent random 80/10/10 (`seed=42`, format_pass only by default) — see §20 | **Resolved** |
-| Modal infrastructure | volumes, upload/download patterns, Windows gotchas — see §21 | **Resolved** |
-| LoRA training | `src/a2_train_modal.py` ready; 9 adapters to train (3 variants × ranks 4/8/16) — see §22 | Pending — runs after annotation completes |
-| Eval harness | `src/a2_eval_modal.py` ready for all 12 conditions — see §23 | Pending — runs after training completes |
+| Modal infrastructure | 3 volumes (`navlm-data/ckpts/eval`), 2 apps (`navlm-train-a2/eval-a2`), CLI cheat sheet + Windows gotchas — see §21 | **Resolved** |
+| Frame upload to Modal | 1,030 needed frames (517 MB) discovered missing during trial; now uploaded to `navlm-data:/frames/` | **Resolved (2026-06-02)** |
+| **Loss masking** | `<thinking>` + `<answer>` only — system+user tokens masked from CE loss. Validated by 32-sample overfit test (train→0.005, masked eval U-shaped, peak min at epoch 5) — see §22 | **Resolved (2026-06-02)** |
+| **Early stopping** | `EarlyStoppingCallback(patience=2)` + `load_best_model_at_end=True` on `eval_loss` (the masked version) — see §22 | **Resolved (2026-06-02)** |
+| Trial smoke test | 3 zs evals + 3 train-on-32 + 1 overfit-test all green end-to-end; results in `_trial_snapshot/logs2/` | **Resolved (2026-06-02)** |
+| LoRA training (full sweep) | `src/a2_train_modal.py` ready; 9 adapters to train (3 variants × ranks 4/8/16) — see §22 | Pending — runs after annotation completes |
+| Eval harness (full sweep) | `src/a2_eval_modal.py` ready for all 12 conditions — see §23 | Pending — runs after training completes |
 | Eval scoring | `src/a2_score.py` ready (4 metrics, see §19) | **Resolved** |
 | **Final report** | CS231n + NeurIPS 2026 — uses the 12-condition × 4-metric table from §19 | Pending — assembled from `summary_table.txt` after eval scoring |
 
@@ -1686,7 +1690,7 @@ eval results back; everything else lives on Modal volumes.
 | Volume | Mounted at | What lives there |
 |---|---|---|
 | `navlm-data` | `/data` (in containers) | SFT JSONL: `/sft/a2_<v>_<split>.jsonl`<br>Frame images: `/frames/<video>/<frame_id>.jpg` |
-| `navlm-ckpts` | `/ckpts` | LoRA adapters: `/lora_a2_<v>_r<r>_e<e>/{adapter_model.safetensors, adapter_config.json, summary.json, history.json}` |
+| `navlm-ckpts` | `/ckpts` | LoRA adapters: `/ckpts/lora_a2_<v>_r<r>_e<e>/{adapter_model.safetensors, adapter_config.json, summary.json, history.json}` (volume root has them at `lora_a2_<v>_r<r>_e<e>/`; the `/ckpts/` prefix is the in-container mount path needed by `--adapter`) |
 | `navlm-eval` | `/eval` | Per-condition eval outputs: `/<run_id>/<condition>/{per_sample.jsonl, summary.json}` |
 
 When `navlm-data` is mounted at `/data` inside a Modal container, its
@@ -1765,7 +1769,7 @@ Whole directory (recursive):
 & $modal run src/a2_train_modal.py --variant given --lora-r 16 --epochs 2
 & $modal run src/a2_eval_modal.py  --condition zs-heading-given --limit 16
 & $modal run src/a2_eval_modal.py  --condition trained-heading-derived `
-                                    --adapter /lora_a2_derived_r8_e2
+                                    --adapter /ckpts/lora_a2_derived_r8_e2
 ```
 
 `modal run` BLOCKS until the function returns. Launch multiple in
@@ -2107,9 +2111,12 @@ Each condition reads its variant's test split:
 Zero-shot conditions: no adapter loaded; base Qwen 2.5 VL 7B answers
 the variant-specific student prompt cold.
 
-Trained conditions: pass `--adapter /lora_a2_<v>_r<r>_e2` explicitly
-(default in `DEFAULT_ADAPTER` is `r16`; override to evaluate r=4 / 8
-adapters by changing the rank suffix).
+Trained conditions: pass `--adapter /ckpts/lora_a2_<v>_r<r>_e2`
+explicitly — the `/ckpts/` prefix is REQUIRED because that is where
+the `navlm-ckpts` volume mounts inside the container; PEFT's
+`from_pretrained` opens this path directly (default in
+`DEFAULT_ADAPTER` is `r16`; override to evaluate r=4 / 8 adapters by
+changing the rank suffix).
 
 The script drops the assistant turn from each test row before
 generating:
@@ -2162,7 +2169,7 @@ for v in given derived implicit; do
   for r in 4 8 16; do
     modal run src/a2_eval_modal.py \
         --condition trained-heading-$v \
-        --adapter /lora_a2_${v}_r${r}_e2 \
+        --adapter /ckpts/lora_a2_${v}_r${r}_e2 \
         --run-id sweep_r${r}_$(date +%Y%m%d)
   done
 done
@@ -2271,7 +2278,7 @@ for v in given derived implicit; do
   for r in 4 8 16; do
     modal run src/a2_eval_modal.py \
         --condition trained-heading-$v \
-        --adapter /lora_a2_${v}_r${r}_e2 \
+        --adapter /ckpts/lora_a2_${v}_r${r}_e2 \
         --run-id ${RUN_ID}_r${r} &
   done
 done
