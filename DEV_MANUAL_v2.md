@@ -1107,7 +1107,7 @@ zs-heading-derived                  265  100.0%   26.8%   26.8%      baseline   
 zs-heading-implicit                 267  100.0%   28.1%   28.1%      baseline    −70.0 pp
 
 trained-heading-given-r4            320  100.0%   97.2%   97.2%      +52.5 pp     −0.9 pp
-trained-heading-given-r8 (partial)   34  100.0%   97.1%   97.1%      +52.4 pp     −1.0 pp
+trained-heading-given-r8            320  100.0%   97.8%   97.8%      +53.1 pp     −0.3 pp
 trained-heading-given-r16           320  100.0%   98.1%   98.1%      +53.4 pp     ← best given
 
 trained-heading-derived-r4          265  100.0%   58.5%   58.5%      +31.7 pp    −39.6 pp
@@ -1156,7 +1156,7 @@ trained-heading-derived-r16:  60.4 %  (n=265)
 ```
                   r=4         r=8         r=16
 ─────────────────────────────────────────────────
-given (98 % zone)  97.2 %  →  ~97 %  →    98.1 %   ← saturated at r=4
+given (98 % zone)  97.2 %  →  97.8 %  →   98.1 %   ← monotonic but tiny (Δ < 1 pp/step)
 derived            58.5 %  →  64.9 %  →   63.0 %   ← peaks at r=8
 implicit           50.2 %  →  54.3 %  →   55.1 %   ← monotonic, slowing
 ```
