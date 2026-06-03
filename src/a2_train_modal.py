@@ -63,11 +63,20 @@ def train_lora(variant: str = "given",
                lr: float = 2e-4,
                lora_r: int = 16,
                lora_alpha: int = 32,
-               limit: int = 0) -> dict:
-    """LoRA SFT for one Attempt-2 variant."""
+               limit: int = 0,
+               resume_adapter: str = "") -> dict:
+    """LoRA SFT for one Attempt-2 variant.
+
+    If `resume_adapter` is set, load that saved LoRA adapter as the
+    starting point (instead of a fresh LoRA). Optimizer + LR schedule
+    are still fresh — cosine restarts from peak LR over the new total
+    step count. The adapter's own r/alpha/dropout/target_modules
+    override the CLI flags so we don't get a rank mismatch.
+    """
+    import re
     import torch
     from PIL import Image
-    from peft import LoraConfig, get_peft_model
+    from peft import LoraConfig, PeftConfig, PeftModel, get_peft_model
     from transformers import (AutoProcessor, BitsAndBytesConfig,
                               EarlyStoppingCallback,
                               Qwen2_5_VLForConditionalGeneration,
@@ -101,10 +110,30 @@ def train_lora(variant: str = "given",
         BASE_MODEL, quantization_config=bnb,
         torch_dtype=torch.bfloat16, device_map="auto",
     )
-    model = get_peft_model(model, LoraConfig(
-        r=lora_r, lora_alpha=lora_alpha, lora_dropout=0.05,
-        target_modules=LORA_TARGETS, task_type="CAUSAL_LM",
-    ))
+    # ── Resume from existing adapter (Mode B: load weights, fresh optim) ──
+    resume_orig_epochs = 0   # used for output-dir naming
+    if resume_adapter:
+        assert Path(resume_adapter).exists(), (
+            f"resume_adapter not found: {resume_adapter}")
+        # adapter config governs r/alpha/dropout/targets — CLI flags ignored
+        cfg = PeftConfig.from_pretrained(resume_adapter)
+        lora_r = cfg.r
+        lora_alpha = cfg.lora_alpha
+        model = PeftModel.from_pretrained(model, resume_adapter,
+                                           is_trainable=True)
+        # Parse "_e<N>" from adapter dir for output naming continuity
+        m = re.search(r"_e(\d+)$", resume_adapter.rstrip("/"))
+        if m:
+            resume_orig_epochs = int(m.group(1))
+        print(f"[train.a2.{variant}] RESUMED from {resume_adapter} "
+              f"(r={lora_r}, alpha={lora_alpha}, orig_epochs="
+              f"{resume_orig_epochs}); will train +{epochs} more epochs "
+              f"with fresh cosine LR schedule", flush=True)
+    else:
+        model = get_peft_model(model, LoraConfig(
+            r=lora_r, lora_alpha=lora_alpha, lora_dropout=0.05,
+            target_modules=LORA_TARGETS, task_type="CAUSAL_LM",
+        ))
     model.print_trainable_parameters()
 
     # Pre-compute the assistant-turn marker so we only train on the model's
@@ -149,7 +178,10 @@ def train_lora(variant: str = "given",
         enc["labels"] = labels
         return enc
 
-    out_dir = f"/ckpts/lora_a2_{variant}_r{lora_r}_e{epochs}"
+    # Output dir: if resumed, total_epochs = orig + new (so r4 from e3 + 2
+    # more epochs writes to /ckpts/lora_a2_<v>_r4_e5).
+    total_epochs = resume_orig_epochs + epochs
+    out_dir = f"/ckpts/lora_a2_{variant}_r{lora_r}_e{total_epochs}"
     args = TrainingArguments(
         output_dir=out_dir + "/_trainer", num_train_epochs=epochs,
         per_device_train_batch_size=1, gradient_accumulation_steps=8,
@@ -180,7 +212,12 @@ def train_lora(variant: str = "given",
             for s in trainer.state.log_history]
     (Path(out_dir) / "history.json").write_text(json.dumps(hist, indent=2))
     (Path(out_dir) / "summary.json").write_text(json.dumps({
-        "variant": variant, "epochs": epochs, "lr": lr,
+        "variant": variant,
+        "epochs_this_run": epochs,
+        "resume_orig_epochs": resume_orig_epochs,
+        "total_epochs": total_epochs,
+        "resume_adapter": resume_adapter or None,
+        "lr": lr,
         "lora_r": lora_r, "lora_alpha": lora_alpha,
         "n_train": len(train_rows), "n_val": len(val_rows),
         "final_eval_loss": val_metrics.get("eval_loss"),
@@ -195,12 +232,21 @@ def train_lora(variant: str = "given",
 
 @app.local_entrypoint()
 def main(variant: str = "given", epochs: int = 2, lr: float = 2e-4,
-         lora_r: int = 16, lora_alpha: int = 0, limit: int = 0):
+         lora_r: int = 16, lora_alpha: int = 0, limit: int = 0,
+         resume_adapter: str = ""):
+    """CLI wrapper.
+
+    --resume-adapter <path>  : load a saved LoRA adapter (Mode B —
+        fresh optimizer + fresh cosine LR over the new epoch count).
+        e.g. --resume-adapter /ckpts/lora_a2_given_r4_e3
+        Output will be /ckpts/lora_a2_<v>_r<r>_e<orig+new>/
+        Adapter's own r/alpha override the CLI flags.
+    """
     if lora_alpha == 0:
         lora_alpha = 2 * lora_r          # default alpha = 2 * rank
     result = train_lora.remote(variant=variant, epochs=epochs, lr=lr,
                                lora_r=lora_r, lora_alpha=lora_alpha,
-                               limit=limit)
+                               limit=limit, resume_adapter=resume_adapter)
     print("=== TRAIN DONE ===")
     print(json.dumps({k: v for k, v in result.items() if k != "history"},
                      indent=2))
