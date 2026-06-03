@@ -2745,7 +2745,78 @@ implicit-r16  0.99     0.47     0.42     0.38     0.35     0.31     0.33
    continues to drop noticeably (epoch 2.5 → 3.0: ~5 % drop), which
    wouldn't happen with a flat or step LR.
 
-### Adapter naming convention
+### Continue-training support — `--resume-adapter` (added 2026-06-02)
+
+Because all 6 e3 trainings showed monotonic val_loss decrease (no
+overfit U-turn, no early-stop fired), there was reason to suspect
+more epochs would still buy meaningful loss reduction. The training
+script was extended with a `--resume-adapter <path>` CLI flag (Mode B
+— "load saved LoRA + fresh optimizer/LR + continue training"):
+
+```bash
+modal run src/a2_train_modal.py \
+    --variant given --lora-r 4 \
+    --resume-adapter /ckpts/lora_a2_given_r4_e3 \
+    --epochs 2
+# → loads existing r=4 e3 adapter, trains +2 more epochs (fresh cosine LR)
+# → writes /ckpts/lora_a2_given_r4_e5/   (orig 3 + new 2 = 5 total)
+```
+
+Behaviour:
+- LoRA weights start from the saved adapter (not random init).
+- **Optimizer + LR schedule are fresh** — cosine LR restarts from peak
+  2e-4 over the new total step count (a "warm restart" — sometimes
+  helps escape local minima, sometimes destabilises; comparable to
+  SGDR's warm restart).
+- The adapter's own `r`, `alpha`, `dropout`, `target_modules`
+  override the CLI flags so you can't accidentally rank-mismatch.
+- Output dir auto-derived: parses `_e<N>` from the input adapter path
+  and writes to `/ckpts/lora_a2_<variant>_r<r>_e<orig+new>/`.
+- `summary.json` records `resume_adapter`, `resume_orig_epochs`,
+  `epochs_this_run`, `total_epochs` for lineage.
+
+NOT supported:
+- True checkpoint resume (HF Trainer `resume_from_checkpoint=` to
+  continue optimizer state + step counter). Would be a small
+  additional CLI flag if needed for crash resilience.
+
+### In-flight experiment: e3 → e5 resume across all 6 given+implicit adapters
+
+Launched 2026-06-02. Each adapter from the original 3-epoch run is
+being extended by 2 more epochs (PowerShell `Start-Process` parallel
+fan-out — 6 jobs concurrent on Modal A100-80GB):
+
+```
+condition         input adapter (e3)         output adapter (e5)
+─────────────────────────────────────────────────────────────────
+given-r4 +e2      lora_a2_given_r4_e3     →  lora_a2_given_r4_e5
+given-r8 +e2      lora_a2_given_r8_e3     →  lora_a2_given_r8_e5
+given-r16 +e2     lora_a2_given_r16_e3    →  lora_a2_given_r16_e5
+implicit-r4 +e2   lora_a2_implicit_r4_e3  →  lora_a2_implicit_r4_e5
+implicit-r8 +e2   lora_a2_implicit_r8_e3  →  lora_a2_implicit_r8_e5
+implicit-r16 +e2  lora_a2_implicit_r16_e3 →  lora_a2_implicit_r16_e5
+```
+
+Per-adapter wall-time: ~45-55 min (vs. ~65 min for fresh `--epochs 5`
+since the first 3 epochs of compute are reused).
+Total cost: ~$15-20.
+
+Reporting expectations (will be filled in once the run finishes):
+| | val_loss e3 (existing) | val_loss e5 (resumed +2) | Δ |
+|---|---:|---:|---:|
+| given-r4 | 0.2224 | ? | ? |
+| given-r8 | 0.2177 | ? | ? |
+| given-r16 | 0.2130 | ? | ? |
+| implicit-r4 | 0.4135 | ? | ? |
+| implicit-r8 | 0.4031 | ? | ? |
+| implicit-r16 | 0.3923 | ? | ? |
+
+If `Δ_e3→e5 ≈ 0.005-0.01` per adapter, the additional epochs were
+worth it (similar marginal benefit to e2 → e3). If `Δ ≈ 0` or
+positive (loss climbing), e3 was the sweet spot and we should keep
+e3 as the production adapter. The headline 12-condition PASS table
+will use whichever epoch count gives the lowest masked val_loss
+per (variant, rank) pair.
 
 ### Adapter naming convention
 
