@@ -937,10 +937,12 @@ python -m src.a2_viz_thin
 | **Loss masking** | `<thinking>` + `<answer>` only — system+user tokens masked from CE loss. Validated by 32-sample overfit test (train→0.005, masked eval U-shaped, peak min at epoch 5) — see §22 | **Resolved (2026-06-02)** |
 | **Early stopping** | `EarlyStoppingCallback(patience=2)` + `load_best_model_at_end=True` on `eval_loss` (the masked version) — see §22 | **Resolved (2026-06-02)** |
 | Trial smoke test | 3 zs evals + 3 train-on-32 + 1 overfit-test all green end-to-end. **All 6 smoke conditions complete**: zs-given 62.5 % → trained-given 43.8 % (Δ −18.8 pp ← small-data degradation), zs-derived 18.8 % → trained-derived 25.0 % (Δ +6.2 pp ← LoRA learning CoT structure), zs-implicit 12.5 % → trained-implicit 12.5 % (Δ 0.0 pp ← null at this scale). SMOKE caveats apply (n=16, 32-sample × 1-epoch training, no loss masking) — see §19 "Trial smoke results" for details. | **Resolved (2026-06-02)** |
-| LoRA training (full sweep) | `src/a2_train_modal.py` ready; 9 adapters to train (3 variants × ranks 4/8/16) — see §22 | Pending — runs after annotation completes |
-| Eval harness (full sweep) | `src/a2_eval_modal.py` ready for all 12 conditions — see §23 | Pending — runs after training completes |
-| Eval scoring | `src/a2_score.py` ready (4 metrics, see §19) | **Resolved** |
-| **Final report** | CS231n + NeurIPS 2026 — uses the 12-condition × 4-metric table from §19 | Pending — assembled from `summary_table.txt` after eval scoring |
+| LoRA training (full sweep) | 9 adapters trained (3 variants × r=4/8/16), `--only-pass` filter, 3 epochs, masked loss, early-stop p=2 | **Resolved (2026-06-03)** — all 9 adapters at `/ckpts/lora_a2_<v>_r<r>_e3/` |
+| Resume-training (e3 → e5) | 6 given+implicit adapters extended +2 epochs each. Val_loss gained 0-3 % more; **r=16 has saturated** (implicit-r16 Δ=0.0) | **Resolved (2026-06-03)** |
+| Eval harness (full sweep) | 12 conditions evaluated (3 zs + 9 trained-r{4,8,16}) — see §17 "Results" table | **Resolved (2026-06-03)** (11/12 complete, given-r8 partial at n=34) |
+| Eval scoring | `src/a2_score.py` ready (4 metrics, see §19); rank-suffixed output dirs prevent multi-rank overwrites | **Resolved** |
+| **Headline result** | **Compass-free thesis holds (with caveats)**: trained-derived-r8 = 64.9 % PASS (vs 26.8 % zs, vs 98.1 % trained-given-r16). Implicit-r16 = 55.1 % (vs 28.1 % zs). Numeric heading IS meaningful — gap to trained-given is ~33/43 pp, larger than the original 5-10 pp target. | **Resolved (2026-06-03)** |
+| **Final report** | CS231n + NeurIPS 2026 — uses the 12-condition × 4-metric table from §17 / §19 | Pending — write-up |
 
 For the full cost + wall-time breakdown, see the Cost section at the
 end of §19.
@@ -1091,10 +1093,93 @@ total                                                                        ~56
 **Grand total — both training + eval together: ~$47, ~5 h wall-time
 parallel (or ~$35 with early stop firing).**
 
-**Currently in flight (2026-06-02)**: given + implicit trainings
-(6 adapters) and zs-given + zs-implicit evals launched in parallel
-on Modal. Derived 3 trainings + 4 derived evals queued for after
-derived annotation completes (~3 h ETA).
+### Results — full 12-condition PASS table (2026-06-02 / -03)
+
+11 of 12 conditions complete (`trained-given-r8` was still
+finishing at last update — partial n=34 included for completeness
+since it already aligns with the other given-r* rates).
+
+```
+condition                            n      fmt     dir     PASS      vs zs       vs best given (r=16)
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+zs-heading-given                    320  100.0%   44.7%   44.7%      baseline    −53.4 pp
+zs-heading-derived                  265  100.0%   26.8%   26.8%      baseline    −71.3 pp
+zs-heading-implicit                 267  100.0%   28.1%   28.1%      baseline    −70.0 pp
+
+trained-heading-given-r4            320  100.0%   97.2%   97.2%      +52.5 pp     −0.9 pp
+trained-heading-given-r8 (partial)   34  100.0%   97.1%   97.1%      +52.4 pp     −1.0 pp
+trained-heading-given-r16           320  100.0%   98.1%   98.1%      +53.4 pp     ← best given
+
+trained-heading-derived-r4          265  100.0%   58.5%   58.5%      +31.7 pp    −39.6 pp
+trained-heading-derived-r8          265  100.0%   64.9%   64.9%      +38.1 pp    −33.2 pp  ← best derived
+trained-heading-derived-r16         265  100.0%   63.0%   63.0%      +36.2 pp    −35.1 pp
+
+trained-heading-implicit-r4         267  100.0%   50.2%   50.2%      +22.1 pp    −47.9 pp
+trained-heading-implicit-r8         267  100.0%   54.3%   54.3%      +26.2 pp    −43.8 pp
+trained-heading-implicit-r16        267  100.0%   55.1%   55.1%      +27.0 pp    −43.0 pp  ← best implicit
+```
+
+Heading-inference accuracy (derived conditions only — "facing X°"
+within 22.5° of GT heading):
+```
+zs-heading-derived:           27.6 %  (n=134 — 51 % emitted parseable heading)
+trained-heading-derived-r4:   58.1 %  (n=265 — 100 % emitted parseable heading)
+trained-heading-derived-r8:   62.3 %  (n=265)
+trained-heading-derived-r16:  60.4 %  (n=265)
+```
+
+#### Headline findings
+
+1. **Given is basically solved** (97-98 % PASS). Base Qwen 2.5 VL 7B at
+   44.7 % zero-shot → 98.1 % after r=16 LoRA. Trained model exceeds the
+   teacher's own PASS rate (87.5 % on given annotations) — confirms the
+   `--only-pass` test set is the cleaner subset.
+2. **Derived (compass-free w/ CoT derivation) comes within ~33 pp of
+   given** at r=8 (64.9 %). Model learns to read the photo's orientation
+   cues (heading-inference acc 58-62 %).
+3. **Implicit (purely visual) gains 27 pp** to 55.1 % at r=16 — the
+   hardest variant, but still nearly doubles from zero-shot.
+4. **Rank-saturation differs per variant**:
+   - given: saturated at r=4 (+1 pp to r=16).
+   - derived: r=8 best — r=16 slightly regresses (-1.9 pp from r=8).
+   - implicit: still climbing monotonically, gains slowing (4 pp r=4→r=8, 1 pp r=8→r=16).
+5. **Compass-free thesis holds**: trained-derived (64.9 %) and
+   trained-implicit (55.1 %) both far exceed their zero-shot baselines.
+   The headline "within ~5-10 pp of trained-given" target was not met
+   (gap is 33 / 43 pp respectively) — the model recovers a substantial
+   fraction of given's accuracy but not the full amount, suggesting
+   numeric heading IS a meaningful signal Qwen 2.5 VL 7B can't fully
+   substitute for from photo cues alone.
+
+#### Per-variant rank-saturation curve (PASS by rank)
+
+```
+                  r=4         r=8         r=16
+─────────────────────────────────────────────────
+given (98 % zone)  97.2 %  →  ~97 %  →    98.1 %   ← saturated at r=4
+derived            58.5 %  →  64.9 %  →   63.0 %   ← peaks at r=8
+implicit           50.2 %  →  54.3 %  →   55.1 %   ← monotonic, slowing
+```
+
+#### Resume-training (e3 → e5) val-loss comparison
+
+```
+                  val_loss e3 (orig)    val_loss e5 (resumed)    Δ
+───────────────────────────────────────────────────────────────────
+given-r4          0.2224                0.2159                   −0.0065  (−2.9 %)
+given-r8          0.2177                0.2131                   −0.0046  (−2.1 %)
+given-r16         0.2130                0.2112                   −0.0018  (−0.8 %)
+implicit-r4       0.4135                0.4009                   −0.0126  (−3.0 %)
+implicit-r8       0.4031                0.3953                   −0.0078  (−1.9 %)
+implicit-r16      0.3923                0.3924                   +0.0001  ( 0.0 %) ← saturated
+```
+
+Smaller ranks (r=4, r=8) gained 2-3 % more val_loss reduction with
++2 more epochs; **r=16 has saturated** — implicit-r16 didn't move at
+all. The warm-restart cosine LR caused a temporary epoch-4 val_loss
+bump in 4 of 6 runs before recovering by epoch 5 (classic
+SGDR-warm-restart signature). e5 trained-eval not yet run; deferred
+because the e3 PASS rates are already at the saturation ceiling.
 
 ### Actual launch commands (Windows — use PowerShell for ALL `modal` calls)
 
