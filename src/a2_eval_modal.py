@@ -133,7 +133,15 @@ def evaluate_condition(condition: str,
         model = PeftModel.from_pretrained(model, adapter)
     model.eval()
 
-    out_dir = Path(f"/eval/{run_id}/{condition}")
+    # When an adapter is loaded, include its rank/epoch suffix in the
+    # output dir so multi-rank sweeps don't overwrite each other.
+    # e.g. /eval/<run_id>/trained-heading-given_r4_e3/per_sample.jsonl
+    import re as _re
+    suffix = ""
+    if is_trained and adapter:
+        m = _re.search(r"_r\d+_e\d+", Path(adapter).name)
+        suffix = m.group(0) if m else "_" + Path(adapter).name
+    out_dir = Path(f"/eval/{run_id}/{condition}{suffix}")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "per_sample.jsonl"
 
