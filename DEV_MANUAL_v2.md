@@ -3209,7 +3209,145 @@ Total cost               ~$151
 
 ---
 
-## 25. Glossary
+## 25. Code walkthrough — sanity-check the key scripts
+
+Five Python files implement everything in §17-§23. This section gives
+file-and-line pointers to the critical implementation moments so you
+can verify that the code actually does what the manual claims. Listed
+in execution order.
+
+### 25.1 `src/a2_annotate.py` — teacher annotation (3-pass Gemini Pro 2.5)
+
+| Implements | Where | What it does |
+|---|---|---|
+| 3-variant system prompts (`given`, `derived`, `implicit`) | `THINKING_RULE` dict at line 85 | Per-variant tail appended to `SYSTEM_PROMPT_COMMON_HEAD` |
+| **Teacher prompt = ALWAYS includes heading** | `build_teacher_prompt()` line 164 | `base = f"You are at this location, facing {heading:.0f}° ..."` is prepended for EVERY variant |
+| **Student prompt = heading hidden for derived/implicit** | `build_student_prompt()` line 196 | For `variant == "given"` only, the heading line is prepended; otherwise omitted |
+| Format-pass detection | `parse_answer()` line 225 | `t_open ≥ 0 AND a_open ≥ 0 AND first_verb is not None` |
+| Direction-pass detection | computed downstream after parsing | `parsed["first_verb"] == gt_verb` |
+
+**Sanity check — student should not see heading for derived/implicit**:
+```bash
+python -c "
+import json
+r = json.loads(open('data/cities/zurich/a2/annotations_a2_implicit.jsonl', encoding='utf-8').readline())
+print('CAMERA heading in student_prompt?',
+      'You are at this location, facing' in r['student_prompt'])
+"   # MUST print False for derived + implicit
+```
+
+### 25.2 `src/a2_to_sft.py` — SFT split conversion
+
+| Implements | Where | What it does |
+|---|---|---|
+| `--only-pass` filter | line 84 | `rows = [r for r in rows if r.get("direction_pass")]` |
+| **Per-row content uses STUDENT prompt, NOT teacher** | line 99 | `{"type": "text", "text": r["student_prompt"]}` ← critical line |
+| Variant-specific system prompt | line 88 | `sys_prompt_text = system_prompt(args.variant)` (imported from `a2_annotate.py`) |
+| Random 80/10/10 split with `seed=42` | lines 119-132 | `rng = random.Random(args.seed); rng.shuffle(qwen_rows)` |
+
+**Sanity check — SFT user-text matches student_prompt (not teacher)**:
+```python
+sft = json.loads(open('data/sft/a2_implicit_train.jsonl', encoding='utf-8').readline())
+user_text = next(c['text'] for c in sft['messages'][1]['content'] if c.get('type') == 'text')
+ann = ... # look up original annotation row by (video, frame_id, destination)
+assert user_text == ann['student_prompt']         # MUST hold
+assert user_text != ann['teacher_prompt']         # MUST hold (teacher has heading; student does not for derived/implicit)
+```
+
+### 25.3 `src/a2_train_modal.py` — LoRA SFT on Modal A100-80GB
+
+| Implements | Where | What it does |
+|---|---|---|
+| Base model — Qwen 2.5 VL 7B in 4-bit NF4 | line 100 | `Qwen2_5_VLForConditionalGeneration.from_pretrained(BASE_MODEL, quantization_config=bnb, ...)` |
+| LoRA target = q,k,v,o projection | line 44 | `LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj"]` |
+| Fresh LoRA init OR resume | lines 104-129 | `if resume_adapter: PeftModel.from_pretrained(model, resume_adapter, is_trainable=True) else: get_peft_model(model, LoraConfig(...))` |
+| **LOSS MASKED to assistant tokens only** | lines 113-150 | Per-row scan for `<\|im_start\|>assistant\n` tokens; `labels[:asst_start] = -100`. Pad + image-marker tokens also masked. |
+| Hyperparams (lr=2e-4, cosine, warmup=3%, bf16, batch=1×grad8) | lines 158-172 | `TrainingArguments(...)` |
+| Early stop + best-model load | lines 167-174 | `save_strategy="epoch"`, `load_best_model_at_end=True`, `metric_for_best_model="eval_loss"`, `EarlyStoppingCallback(patience=2)` |
+| Adapter naming (with resume support) | line 156 | `out_dir = f"/ckpts/lora_a2_{variant}_r{lora_r}_e{total_epochs}"` where `total_epochs = resume_orig_epochs + epochs` |
+
+**Sanity check — verify loss is masked to assistant tokens**:
+```python
+# In a fresh Python shell inside the Modal container (or run a dry collate test locally):
+from transformers import AutoProcessor
+proc = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
+asst_prefix = proc.tokenizer.encode("<|im_start|>assistant\n", add_special_tokens=False)
+# For a sample row, verify labels[:N] == -100 for all N before the assistant marker.
+```
+
+### 25.4 `src/a2_eval_modal.py` — inference on Modal A100-40GB
+
+| Implements | Where | What it does |
+|---|---|---|
+| Variant → test split mapping | line 109 | `test_path = Path(f"/data/sft/a2_{variant}_test.jsonl")` |
+| Adapter loading (trained conditions) | lines 130-133 | `if is_trained: model = PeftModel.from_pretrained(model, adapter)` |
+| **Assistant turn STRIPPED before inference** | line 152 | `messages_for_inference = [m for m in row["messages"] if m["role"] != "assistant"]` |
+| Greedy decoding | lines 160-166 | `model.generate(..., do_sample=False, temperature=0)` |
+| **Decode ONLY newly-generated tokens** | line 168 | `gen_ids = gen[0][inputs["input_ids"].shape[1]:]` (excludes prompt) |
+| Rank-suffixed output dir (multi-rank-safe) | lines 137-147 | Parses `_r<N>_e<M>` from adapter path → output `/eval/<run_id>/<condition>_r<r>_e<e>/per_sample.jsonl` |
+
+**Sanity check — assistant turn is removed at inference**:
+```python
+import json
+row = json.loads(open('data/sft/a2_given_test.jsonl', encoding='utf-8').readline())
+roles = [m['role'] for m in row['messages']]
+assert roles == ['system', 'user', 'assistant']            # original 3-turn
+roles_inf = [m['role'] for m in row['messages'] if m['role'] != 'assistant']
+assert roles_inf == ['system', 'user']                     # what model actually sees
+```
+
+### 25.5 `src/a2_score.py` — local scoring of eval outputs
+
+| Implements | Where | What it does |
+|---|---|---|
+| Verb-extraction (longest-match first) | `parse_response()` lines 56-79 | `for v in sorted(VERBS, key=len, reverse=True)` — prefers "continue ahead" over "ahead" |
+| Truncation-robust parsing | lines 64-74 | If `</answer>` missing, takes rest of text after `<answer>`. Pro 2.5 often omits the closing tag. |
+| Format-pass = both tags + verb | line 85-86 | `t_open >= 0 AND a_open >= 0 AND first_verb is not None` |
+| Direction-pass = match GT verb | line 120-121 | `parsed["first_verb"] == gt_verb` |
+| **PASS = format AND direction** | line 122 | `PASS = parsed["format_pass"] and direction_pass` |
+| Heading-inference accuracy (derived only) | lines 100-107, 131-138 | Regex `r"facing\s+(\d{1,3}(?:\.\d+)?)\s*°"` in `<thinking>`; circular diff < 22.5° |
+| Per-condition table | `main()` lines 184-246 | Glob `*/per_sample.jsonl` under run_dir, score each, print 6-column table |
+
+**Sanity check — scorer recognizes all 4 verbs from a synthetic response**:
+```python
+from src.a2_score import parse_response
+r = parse_response("<thinking>foo</thinking><answer>Turn around.</answer>")
+assert r["first_verb"] == "turn around" and r["format_pass"] is True
+r = parse_response("garbage no tags")
+assert r["format_pass"] is False
+```
+
+### 25.6 The 5-line sanity-check checklist (run before each big sweep)
+
+```bash
+# 1. Annotation files have all required fields:
+python -c "import json; r=json.loads(open('data/cities/zurich/a2/annotations_a2_given.jsonl', encoding='utf-8').readline()); print(sorted(r.keys()))"
+#    MUST include: student_prompt, teacher_prompt, response, format_pass, direction_pass, PASS, gt_verb, first_verb, heading
+
+# 2. SFT splits exist and reference STUDENT prompt:
+python -m src.a2_to_sft --variant given --only-pass    # (regen if you've re-annotated)
+ls data/sft/a2_*.jsonl
+# Then manually verify one row: heading hidden for derived/implicit, present for given
+
+# 3. Modal volumes have what training needs:
+modal volume ls navlm-data /sft     # 9 files for 3 variants × 3 splits
+modal volume ls navlm-data /frames  # 8 video dirs
+
+# 4. Training-script loss masking is in place:
+grep -A2 "asst_prefix_ids" src/a2_train_modal.py
+#    MUST find: "labels[i, :j + apl] = -100"   (assistant-prefix mask)
+
+# 5. Eval-script strips assistant turn:
+grep -n "messages_for_inference" src/a2_eval_modal.py
+#    MUST find: `[m for m in row["messages"] if m["role"] != "assistant"]`
+```
+
+If all five pass, the pipeline matches the manual. If any fails,
+inspect the relevant section above and the file at the listed line.
+
+---
+
+## 26. Glossary
 
 | Term | Definition |
 |---|---|
