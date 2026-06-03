@@ -1096,81 +1096,124 @@ parallel (or ~$35 with early stop firing).**
 on Modal. Derived 3 trainings + 4 derived evals queued for after
 derived annotation completes (~3 h ETA).
 
-### Actual launch commands used
+### Actual launch commands (Windows — use PowerShell for ALL `modal` calls)
 
-The 8 jobs (6 trainings + 2 zs evals) were launched in one Bash
-`& ... wait` loop so they run concurrently on Modal:
+> **⚠ PowerShell required on Windows.** Any `modal` invocation whose
+> argument list contains a `/`-prefixed path (volume put/get/ls/rm OR
+> `--adapter /ckpts/...` OR `--run-id /...`) is silently mangled by
+> Git Bash's path-conversion layer — `/ckpts/foo` becomes
+> `C:/Program Files/Git/ckpts/foo` and PEFT then errors with
+> `ValueError: Can't find 'adapter_config.json' at 'C:/Program Files/...'`.
+> Hit three times during the 2026-06-02 ablation launch. Always run
+> Modal commands from PowerShell (or set `MSYS_NO_PATHCONV=1` in Bash).
 
-```bash
-export PYTHONIOENCODING=utf-8 PYTHONLEGACYWINDOWSSTDIO=utf-8
-MODAL='/c/Users/z0502/anaconda3/envs/navlm_v2/Scripts/modal.exe'
-RUN_ID="ablation_$(date +%Y%m%d_%H%M%S)"
-mkdir -p _ablation_logs
-echo "RUN_ID=$RUN_ID" > _ablation_logs/RUN_ID
+#### Step 1 — generate `--only-pass` SFT splits (PowerShell or Bash, both fine)
 
-# 1. Generate SFT splits with --only-pass (rows passing fmt AND dir)
+```powershell
 python -m src.a2_to_sft --variant given    --only-pass
 python -m src.a2_to_sft --variant implicit --only-pass
-#  → data/sft/a2_{given,implicit}_{train,val,test}.jsonl
+python -m src.a2_to_sft --variant derived  --only-pass
+#  → data/sft/a2_{variant}_{train,val,test}.jsonl
 #    given:    2,561 train / 320 val / 320 test
 #    implicit: 2,137 train / 267 val / 267 test
-
-# 2. Upload to Modal (PowerShell — Git Bash path-converts /sft/...)
-#    PS> modal volume put navlm-data data/sft/a2_<v>_<split>.jsonl /sft/<...> --force
-
-# 3. Upload any new frames the test/train rows reference (PowerShell again)
-#    PS> modal volume put navlm-data _trial_snapshot/frames_to_upload /frames --force
-
-# 4. Launch 6 trainings in parallel (Bash, A100-80GB)
-for v in given implicit; do
-  for r in 4 8 16; do
-    $MODAL run src/a2_train_modal.py --variant $v --lora-r $r --epochs 3 \
-        > "_ablation_logs/train_${v}_r${r}.log" 2>&1 &
-  done
-done
-
-# 5. Launch 2 zero-shot evals in parallel (no adapter needed yet)
-for v in given implicit; do
-  $MODAL run src/a2_eval_modal.py --condition zs-heading-$v \
-      --run-id "$RUN_ID" \
-      > "_ablation_logs/zs_${v}.log" 2>&1 &
-done
-
-# 6. Wait for all 8 to finish
-wait
-
-# 7. (Once each adapter finishes, launch its matching trained-eval)
-#    These need /ckpts/ prefix on --adapter or PEFT can't find the config:
-for v in given implicit; do
-  for r in 4 8 16; do
-    $MODAL run src/a2_eval_modal.py \
-        --condition trained-heading-$v \
-        --adapter /ckpts/lora_a2_${v}_r${r}_e3 \
-        --run-id "$RUN_ID" \
-        > "_ablation_logs/trained_${v}_r${r}.log" 2>&1 &
-  done
-done
-wait
-
-# 8. Pull eval results + score (PowerShell for the volume get):
-#    PS> modal volume get navlm-eval $RUN_ID eval_pull/ --force
-python -m src.a2_score --run-dir eval_pull/$RUN_ID
+#    derived:  2,127 train / 265 val / 265 test
 ```
 
-Notes / lessons learned (real bugs hit during launch):
+#### Step 2 — upload SFT files + any new frames to Modal (PowerShell)
 
-1. The training CLI's `local_entrypoint` had no `--lora-r` flag — first
-   launch returned `Error: No such option '--lora-r'`. Added in commit
-   <SHA>: `main(variant, epochs, lr, lora_r=16, lora_alpha=0, limit=0)`
-   with `lora_alpha = 2 * lora_r` default.
-2. Test rows from the `--only-pass` cohort reference 1,187 unique
-   frames vs the 1,030 we had on Modal from the earlier trial. Staged
-   the extra 186 frames + re-uploaded the whole `frames/` tree
-   (566 MB total). PowerShell is required for `modal volume put` to
-   avoid Git Bash converting `/frames` to `C:/Program Files/Git/frames`.
-3. Trained-eval needs the `/ckpts/` prefix on `--adapter` (see §21
-   gotcha) — `PeftModel.from_pretrained` reads from the in-container
-   mount point, not the volume-root path.
+```powershell
+$env:PYTHONIOENCODING        = "utf-8"
+$env:PYTHONLEGACYWINDOWSSTDIO = "utf-8"
+$modal = "C:\Users\z0502\anaconda3\envs\navlm_v2\Scripts\modal.exe"
+cd "C:\Users\z0502\Desktop\cs231n\navlm_v2"
+
+foreach ($v in @("given","implicit","derived")) {
+  foreach ($s in @("train","val","test")) {
+    & $modal volume put navlm-data "data/sft/a2_${v}_${s}.jsonl" `
+                                   "/sft/a2_${v}_${s}.jsonl" --force
+  }
+}
+
+# Frames must also be present at /frames/<video>/<frame>.jpg.
+# If new test rows reference frames not yet on the volume, stage them:
+& $modal volume put navlm-data _trial_snapshot/frames_to_upload /frames --force
+```
+
+#### Step 3 — launch 6 trainings + 2 zs evals in parallel (PowerShell + Start-Process)
+
+`Start-Process -PassThru` keeps PIDs so you can wait on all 8 jobs.
+Each `modal run` blocks; running them this way fans them out:
+
+```powershell
+$RunId = "ablation_$(Get-Date -Format yyyyMMdd_HHmmss)"
+New-Item -ItemType Directory -Force -Path _ablation_logs | Out-Null
+"RUN_ID=$RunId" | Out-File -Encoding utf8 "_ablation_logs/RUN_ID"
+$jobs = @()
+
+# 6 trainings (A100-80GB)
+foreach ($v in @("given","implicit","derived")) {
+  foreach ($r in @(4, 8, 16)) {
+    $log = "_ablation_logs\train_${v}_r${r}.log"
+    $p = Start-Process -FilePath $modal `
+        -ArgumentList @("run","src/a2_train_modal.py",
+                        "--variant",$v,"--lora-r","$r","--epochs","3") `
+        -RedirectStandardOutput $log -RedirectStandardError "${log}.err" `
+        -NoNewWindow -PassThru
+    $jobs += $p
+  }
+}
+
+# 3 zero-shot evals (A100-40GB, no adapter needed)
+foreach ($v in @("given","implicit","derived")) {
+  $log = "_ablation_logs\zs_${v}.log"
+  $p = Start-Process -FilePath $modal `
+      -ArgumentList @("run","src/a2_eval_modal.py",
+                      "--condition","zs-heading-$v","--run-id",$RunId) `
+      -RedirectStandardOutput $log -RedirectStandardError "${log}.err" `
+      -NoNewWindow -PassThru
+  $jobs += $p
+}
+
+$jobs | Wait-Process
+```
+
+#### Step 4 — once trainings finish, launch 9 trained-evals (PowerShell, MUST keep `/ckpts/` prefix)
+
+```powershell
+$jobs2 = @()
+foreach ($v in @("given","implicit","derived")) {
+  foreach ($r in @(4, 8, 16)) {
+    $log = "_ablation_logs\trained_${v}_r${r}_ps.log"
+    $p = Start-Process -FilePath $modal `
+        -ArgumentList @("run","src/a2_eval_modal.py",
+                        "--condition","trained-heading-$v",
+                        "--adapter","/ckpts/lora_a2_${v}_r${r}_e3",
+                        "--run-id",$RunId) `
+        -RedirectStandardOutput $log -RedirectStandardError "${log}.err" `
+        -NoNewWindow -PassThru
+    $jobs2 += $p
+  }
+}
+$jobs2 | Wait-Process
+```
+
+#### Step 5 — pull eval results to local + score (PowerShell)
+
+```powershell
+& $modal volume get navlm-eval $RunId eval_pull/ --force
+python -m src.a2_score --run-dir "eval_pull/$RunId"
+# writes per_sample_scored.jsonl + summary.json per condition;
+# prints the 12-row PASS / fmt / dir / h_inf table.
+```
+
+### Lessons learned (real bugs hit during the 2026-06-02 ablation launch)
+
+| # | Bug | Fix |
+|---|---|---|
+| 1 | `modal run a2_train_modal.py --lora-r 4` → `Error: No such option '--lora-r'` — the `local_entrypoint` `main()` didn't expose `lora_r` | Added `lora_r: int = 16, lora_alpha: int = 0` to `main()`, with `lora_alpha = 2*lora_r` default. Commit `6e70ffe`. |
+| 2 | The `--only-pass` test set referenced 1,187 unique frames vs the 1,030 from the trial-2 trial cohort | Re-staged 1,216 frames (566 MB) and re-uploaded to `navlm-data:/frames/` via PowerShell. |
+| 3 | Trained-eval failed with `Can't find 'adapter_config.json' at '/lora_a2_X'` | DEFAULT_ADAPTER paths in `a2_eval_modal.py` were missing the `/ckpts/` mount prefix. Fixed in commit `d1fb09b`. |
+| 4 | Trained-eval re-launched from Bash → `Can't find 'adapter_config.json' at 'C:/Program Files/Git/ckpts/lora_a2_X'` | **Git Bash silently converts `/ckpts/...` arg to a Windows path.** Re-launch from PowerShell with `Start-Process`. **Now the universal rule: all Modal CLI from PowerShell.** |
 
 ### Hypotheses
 
