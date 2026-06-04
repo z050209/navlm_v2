@@ -1207,6 +1207,71 @@ derived-r16:  60.4 %  → 64.9 %   (+4.5)   ← best heading inference too
 
 The heading-inference improvement tracks the PASS improvement for derived-r16, suggesting the model's learning to extract orientation cues from photos *is* what drives the verb accuracy gain.
 
+#### Detailed heading-inference breakdown (multiple tolerances, all derived conditions, n=265)
+
+```
+                            within 5°   within 22.5°   within 45°   median |err|   mean |err|   emit%
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+zs-heading-derived           27.6 %      27.6 %         29.1 %        90.0 °        98.9 °     51 %
+trained-derived-r4  e3       58.1 %      58.1 %         60.0 %         0.0 °        52.2 °    100 %
+trained-derived-r4  e5       61.9 %      61.9 %         63.8 %         0.0 °        44.1 °    100 %
+trained-derived-r8  e3       62.3 %      62.3 %         64.5 %         0.0 °        46.0 °    100 %
+trained-derived-r8  e5       63.0 %      63.0 %         64.9 %         0.0 °        44.9 °    100 %
+trained-derived-r16 e3       60.0 %      60.4 %         62.3 %         0.0 °        47.3 °    100 %
+trained-derived-r16 e5       64.5 %      64.9 %         67.2 %         0.0 °        39.3 °    100 %   ← best
+```
+
+#### Three striking findings about heading inference
+
+##### 1. The model is BIMODAL — either nearly-exact or wildly-off, almost no middle ground
+
+For every trained-derived condition, `within 5°` is **essentially
+equal to** `within 22.5°` (e.g. r=16 e5: 64.5 % vs 64.9 %). Median
+absolute error is **0°** — the majority of predictions hit the GT
+heading exactly. The mean (39-52°) is dragged up by a tail of
+completely-wrong predictions (>90° off).
+
+The model's heading-inference distribution looks like:
+- ~65 % nail it within 5° (often EXACTLY right — landmark-lookup-like behaviour)
+- ~5 % land in the 5°-90° "close-ish" zone (rare — not interpolating gracefully)
+- ~30 % completely miss (>90° off — wrong direction entirely)
+
+This is unusual and informative — the model isn't doing fuzzy
+interpolation. When it can identify orientation cues (landmarks, sun,
+tram tracks, building axes), it gets them right. When it can't, it
+guesses, and the guess is just as likely to be backwards as anywhere
+else. The implication: gains will come from EXPANDING the recognisable
+landmark set, not from incremental fine-tuning of an interpolation
+function — there's no interpolation function to refine.
+
+##### 2. Emission rate jumps 51 % → 100 % after LoRA
+
+Zero-shot, Qwen only emits a parseable "facing X°" in **134 / 265**
+derived rows (51 %). After even r=4 LoRA, every single response
+follows the 4-step CoT template and emits a heading.
+
+The LoRA is teaching **the format** as much as the inference itself —
+on the 49 % of zero-shot responses that lack a "facing X°" statement
+entirely, the model is implicitly "refusing" to commit to a heading.
+After fine-tuning, the model learns to always commit. This means a
+substantial portion of the PASS-rate gain on derived comes from
+"forced commitment" rather than from improved orientation reasoning.
+
+##### 3. e5 reliably reduces MEAN error even when "within 22.5°" doesn't move much
+
+Across all 3 ranks, mean absolute error drops e3 → e5:
+- r=4:  52° → 44° (−8°)
+- r=8:  46° → 45° (−1°, basically flat)
+- r=16: 47° → **39°** (−8°, biggest drop, matches the +5.7 pp PASS jump)
+
+For r=16, the e5 model's wrong-direction tail is shorter — the wildly-off
+cases are less wild. This shows up in PASS (+5.7 pp) AND in
+mean-error (−8°) but barely in within-22.5° (+4.5 pp) — because the
+"within 22.5°" metric ignores anything past the threshold; the mean
+absorbs all of it. **For future work: report both a threshold-based
+accuracy AND mean absolute error**, because they capture different
+aspects of heading-inference quality.
+
 #### Two findings from the e5 experiment
 
 1. **Val_loss is an imperfect proxy for PASS.** `implicit-r16` had
