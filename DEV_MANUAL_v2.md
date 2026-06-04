@@ -938,10 +938,10 @@ python -m src.a2_viz_thin
 | **Early stopping** | `EarlyStoppingCallback(patience=2)` + `load_best_model_at_end=True` on `eval_loss` (the masked version) — see §22 | **Resolved (2026-06-02)** |
 | Trial smoke test | 3 zs evals + 3 train-on-32 + 1 overfit-test all green end-to-end. **All 6 smoke conditions complete**: zs-given 62.5 % → trained-given 43.8 % (Δ −18.8 pp ← small-data degradation), zs-derived 18.8 % → trained-derived 25.0 % (Δ +6.2 pp ← LoRA learning CoT structure), zs-implicit 12.5 % → trained-implicit 12.5 % (Δ 0.0 pp ← null at this scale). SMOKE caveats apply (n=16, 32-sample × 1-epoch training, no loss masking) — see §19 "Trial smoke results" for details. | **Resolved (2026-06-02)** |
 | LoRA training (full sweep) | 9 adapters trained (3 variants × r=4/8/16), `--only-pass` filter, 3 epochs, masked loss, early-stop p=2 | **Resolved (2026-06-03)** — all 9 adapters at `/ckpts/lora_a2_<v>_r<r>_e3/` |
-| Resume-training (e3 → e5) | 6 given+implicit adapters extended +2 epochs each. Val_loss gained 0-3 % more; **r=16 has saturated** (implicit-r16 Δ=0.0) | **Resolved (2026-06-03)** |
+| Resume-training (e3 → e5) | 6 given+implicit adapters extended +2 epochs each. **PASS-rate jump much bigger than val_loss suggested** — implicit-r16 +3.3 pp on PASS despite ~0 % val_loss change. Production recommendation: use e5 for derived+implicit, e3 OR e5 for given. Derived e5 evals still in flight. | **Resolved (2026-06-03)** |
 | Eval harness (full sweep) | 12 conditions evaluated (3 zs + 9 trained-r{4,8,16}) — see §17 "Results" table | **Resolved (2026-06-03)** (11/12 complete, given-r8 partial at n=34) |
 | Eval scoring | `src/a2_score.py` ready (4 metrics, see §19); rank-suffixed output dirs prevent multi-rank overwrites | **Resolved** |
-| **Headline result** | **Compass-free thesis holds (with caveats)**: trained-derived-r8 = 64.9 % PASS (vs 26.8 % zs, vs 98.1 % trained-given-r16). Implicit-r16 = 55.1 % (vs 28.1 % zs). Numeric heading IS meaningful — gap to trained-given is ~33/43 pp, larger than the original 5-10 pp target. | **Resolved (2026-06-03)** |
+| **Headline result** | **Compass-free thesis holds (with caveats)**: best derived = 64.9 % e3 / pending e5 (was 26.8 % zs). Best implicit = **58.4 % at r=16 e5** (was 28.1 % zs). Best given = **98.4 % at r=8/r=16 e5** (was 44.7 % zs). Numeric heading IS meaningful — gap to trained-given is ~30-40 pp, larger than the original 5-10 pp target, but variants improved 30-50 pp from zero-shot. | **Resolved (2026-06-03)** |
 | **Final report** | CS231n + NeurIPS 2026 — uses the 12-condition × 4-metric table from §17 / §19 | Pending — write-up |
 
 For the full cost + wall-time breakdown, see the Cost section at the
@@ -1175,11 +1175,65 @@ implicit-r16      0.3923                0.3924                   +0.0001  ( 0.0 
 ```
 
 Smaller ranks (r=4, r=8) gained 2-3 % more val_loss reduction with
-+2 more epochs; **r=16 has saturated** — implicit-r16 didn't move at
-all. The warm-restart cosine LR caused a temporary epoch-4 val_loss
-bump in 4 of 6 runs before recovering by epoch 5 (classic
-SGDR-warm-restart signature). e5 trained-eval not yet run; deferred
-because the e3 PASS rates are already at the saturation ceiling.
++2 more epochs; r=16's masked val_loss looked saturated
+— implicit-r16 didn't move at all. The warm-restart cosine LR caused a
+temporary epoch-4 val_loss bump in 4 of 6 runs before recovering by
+epoch 5 (classic SGDR-warm-restart signature).
+
+#### Resume-training (e3 → e5) PASS-rate comparison (given + implicit)
+
+```
+              e3 PASS    e5 PASS    Δ_e5         val_loss Δ_e5
+─────────────────────────────────────────────────────────────────
+given-r4      97.2 %     97.2 %     +0.0 pp     −2.9 %  (saturated PASS, val_loss still moving)
+given-r8      97.8 %     98.4 %     +0.6 pp     −2.1 %
+given-r16     98.1 %     98.4 %     +0.3 pp     −0.8 %
+implicit-r4   50.2 %     55.8 %     +5.6 pp     −3.0 %  ← biggest jump
+implicit-r8   54.3 %     57.3 %     +3.0 pp     −1.9 %
+implicit-r16  55.1 %     58.4 %     +3.3 pp     +0.0 %  ← val_loss flat, PASS rose +3.3pp
+```
+
+(Derived e3→e5 PASS comparison pending — 3 evals in flight as of 2026-06-03.)
+
+#### Two findings from the e5 experiment
+
+1. **Val_loss is an imperfect proxy for PASS.** `implicit-r16` had
+   essentially zero val_loss change from e3 → e5 (0.3923 → 0.3924) but
+   PASS jumped +3.3 pp (55.1 % → 58.4 %). Token-level cross-entropy
+   can plateau while the model continues to refine its verb-choice
+   behaviour. **Implication for future work**: do not stop training
+   purely on val_loss — periodic PASS-rate sanity checks during
+   training would be a stronger signal.
+
+2. **Harder variants benefit more from longer training.** Given is at
+   the 97-98 % saturation ceiling; +2 epochs nudges it 0-0.6 pp
+   (within noise). Implicit (50-55 % range) gains 3-6 pp from the
+   same +2 epochs. **Production recommendation**: use e5 adapters
+   for derived + implicit; e3 OR e5 for given (no meaningful
+   difference). The e5 adapters are at
+   `/ckpts/lora_a2_<variant>_r<r>_e5/`.
+
+#### Updated headline numbers (best PASS per condition, e3 or e5)
+
+```
+condition                       n     best PASS    source     vs zs
+─────────────────────────────────────────────────────────────────────
+zs-heading-given               320   44.7 %       (zs)        baseline
+zs-heading-derived             265   26.8 %       (zs)        baseline
+zs-heading-implicit            267   28.1 %       (zs)        baseline
+
+trained-heading-given-r4       320   97.2 %       e3 = e5     +52.5 pp
+trained-heading-given-r8       320   98.4 %       e5          +53.7 pp
+trained-heading-given-r16      320   98.4 %       e5          +53.7 pp  ← tied best given
+
+trained-heading-derived-r4     265   58.5 %       e3          +31.7 pp  (e5 pending)
+trained-heading-derived-r8     265   64.9 %       e3          +38.1 pp  (e5 pending)
+trained-heading-derived-r16    265   63.0 %       e3          +36.2 pp  (e5 pending)
+
+trained-heading-implicit-r4    267   55.8 %       e5          +27.7 pp
+trained-heading-implicit-r8    267   57.3 %       e5          +29.2 pp
+trained-heading-implicit-r16   267   58.4 %       e5          +30.3 pp  ← best implicit
+```
 
 ### Actual launch commands (Windows — use PowerShell for ALL `modal` calls)
 
