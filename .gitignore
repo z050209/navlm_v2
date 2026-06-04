@@ -4,9 +4,13 @@ venv/
 __pycache__/
 *.pyc
 
-# secrets
+# secrets — CRITICAL: never commit GCP/AWS/HF credentials
 .env
 *.key
+# contains GCP service-account JSONs (key-1.json etc.)
+keys/
+*-credentials.json
+*service-account*.json
 
 # video files
 *.mp4
@@ -47,3 +51,17 @@ preview/
 *.log
 logs/gemini_api.jsonl
 .DS_Store
+
+# Attempt-2 ephemeral build artifacts (large, regeneratable)
+# cache/: DINO/Vertex AI response caches (~500 MB)
+# _trial_snapshot/: local staging dirs for Modal uploads (~600 MB)
+# _ablation_logs/: per-run Modal job logs
+# eval_pull/: downloaded eval results from Modal
+# eval_results/: legacy eval outputs
+# data/sft/: SFT split files (regenerated from annotations)
+cache/
+_trial_snapshot/
+_ablation_logs/
+eval_pull/
+eval_results/
+data/sft/

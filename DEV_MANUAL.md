@@ -3824,3 +3824,440 @@ navlm_v2/
     costs.
 18. ⏳ Run the smoke matrix on Modal once the teacher annotation pass
     has produced an `annotations_*.jsonl` of any non-trivial size.
+
+---
+
+## 6. Attempt 2 — landmark-named destinations
+
+### 6.1 Why we are redoing the annotation
+
+Attempt 1 used the **top-30 OSM place names from the cohort** as the
+destination pool. The vast majority turned out to be **streets**
+(Bahnhofstrasse, Storchengasse, Limmatquai, Münstergasse, ...) because
+`gps_recovery`'s nearest-OSM-POI step picks the *polygon-distance*
+nearest feature — and the walker is always standing ON a street
+polyline, distance = 0. So the model was trained to *route to a street
+name* (e.g. `dest_name = "Storchengasse"`) — which is **not how a
+tourist asks for directions**. A tourist says "take me to Grossmünster"
+or "to the lake", not "to Storchengasse".
+
+The bug surfaces at inference time: the model has only ever seen
+street tokens as destinations, so `"navigate to Grossmünster"` is
+out-of-distribution.
+
+### 6.2 The reframing — source can be anywhere, destination is fixed
+
+Walking-tour frames are taken **on the way to a destination**. The
+walker's GPS at any given frame is just *where they happen to be on
+the path* — usually on a street. The street-name location tag is
+**not wrong** — it correctly identifies where the walker is right
+now.
+
+The error in attempt 1 was using that same street name as the
+**destination**. Source ≠ destination:
+
+| | What it is | Where the data comes from |
+|---|---|---|
+| **Source location** | Where the walker IS right now (the camera position) | DINOv2 GPS → nearest OSM POI; usually a street; **fine as-is** |
+| **Destination**     | Where the walker is heading to | One of a **small fixed list of famous attractions** the walker would actually ask for |
+
+So attempt 2 keeps the source-location pipeline unchanged (DINOv2 +
+VLM agreement on a street/area), and **changes only the destination
+vocabulary** to the 21 famous attractions below.
+
+### 6.3 The 21 famous attractions — destination vocabulary
+
+Sourced from three authoritative tourism resources and cross-referenced
+with our VLM coverage. Geographically filtered to the central
+walking-tour zone (excluded: Polyterrasse, Rietberg, Lindt Home of
+Chocolate, Uetliberg, Zurich West).
+
+| # | English | 中文 | Kind | Public sources | Category |
+|---:|---|---|---|---|---|
+| 1 | Grossmünster | 大教堂 | church | zuerich.com · PlanetWare · myswitzerland | church |
+| 2 | Fraumünster | 圣母大教堂 | church | zuerich.com · PlanetWare · myswitzerland | church |
+| 3 | St. Peter | 圣彼得教堂 | church | search snippets · PlanetWare | church |
+| 4 | Wasserkirche | 水教堂 | church | myswitzerland | church |
+| 5 | Lindenhof | 林登霍夫山丘 | hill | zuerich.com · PlanetWare · myswitzerland | hill/park |
+| 6 | Niederdorfstrasse | 下村街 | street | zuerich.com · PlanetWare · myswitzerland | street (represents Niederdorf quarter) |
+| 7 | Bahnhofstrasse | 班霍夫大街 | street | zuerich.com · PlanetWare | street |
+| 8 | Lake Zurich (Zürichsee) | 苏黎世湖 | water | zuerich.com · PlanetWare | water |
+| 9 | Limmat River | 利马特河 | water | PlanetWare · myswitzerland | water |
+| 10 | Landesmuseum (Swiss National Museum) | 瑞士国家博物馆 | museum | zuerich.com · PlanetWare | museum |
+| 11 | Kunsthaus | 苏黎世美术馆 | museum | zuerich.com · PlanetWare | museum |
+| 12 | Opernhaus | 苏黎世歌剧院 | culture | zuerich.com | culture |
+| 13 | Bürkliplatz (Ganymede / lake viewpoint) | 比尔克利广场 | square | zuerich.com | square |
+| 14 | Helmhaus | 赫尔姆豪斯 | civic | myswitzerland | civic/gallery |
+| 15 | Hauptbahnhof | 苏黎世中央车站 | station | search snippets | station |
+| 16 | Münsterhof | 明斯特霍夫广场 | square | — (navigation anchor) | square |
+| 17 | Paradeplatz | 阅兵广场 | square | — (navigation anchor) | square |
+| 18 | Rathaus | 市政厅 | civic | — (navigation anchor) | civic |
+| 19 | Münsterbrücke | 大教堂桥 | bridge | — (navigation anchor) | bridge |
+| 20 | Limmatquai | 利马特河滨道 | street | — (navigation anchor) | street |
+| 21 | Sechseläutenplatz | 六鸣节广场 | square | — (navigation anchor) | square |
+
+Sources:
+- Zürich Tourism official top-10 — https://www.zuerich.com/en/sightseeing-activities/places-to-visit/top-10-places-to-visit
+- PlanetWare top-12 — https://www.planetware.com/2037820/zurich-switzerland-most-popular-tourist-attractions-worth-visiting/
+- Switzerland Tourism — https://www.myswitzerland.com/en-us/experiences/zurichs-old-town/
+
+### 6.4 The 4-step matching pipeline (implemented)
+
+The original two-step plan was implemented as four explicit steps,
+each with its own script and output file under `data/cities/zurich/a2/`.
+The flow:
+
+```
+STEP 1 (GPS side)         STEP 2 (VLM side)
+GPS_GEO.jsonl     +       VLM_GEO.jsonl
+   |                          |
+   └──────── STEP 3 ──────────┘
+              ↓
+       GPS_VLM_GEO.jsonl   (per-frame coincidence match)
+              ↓
+       STEP 4: a2_vlmagreed.html (30 random matched frames for visual QC)
+              ↓
+       a2_target_frames.jsonl (per-attraction frame list — destination pool)
+```
+
+#### STEP 1 — GPS_GEO.jsonl (script: `src/a2_step1_gps_geo.py`)
+
+For every DINOv2-accepted frame in `gps_recovery_full.jsonl` (both
+tiers, 15,053 rows), derive **three lists from GPS + OSM only**:
+
+| List | Source | Size |
+|---|---|---:|
+| `attractions_within_R` | the 21-list, hand-curated GPS within R metres of frame's `g_dino` | 0-7 entries |
+| `landmarks_within_R` | OSM POIs whose `osm_kind` is in `LANDMARK_OSM_KINDS` (tourism/historic/place_of_worship/etc.) within R | typ. 1-10 |
+| `pois_within_R` | every OSM POI (any kind, including streets) within R | typ. 5-30 |
+
+Default radius R = 100 m. The 21-list also gets supplementary OSM
+entries from `data/cities/zurich/a2/extra_pois.json` (Paradeplatz,
+Rathaus — OSM has them but `src/pois.py` POINT_TAGS filter dropped
+them; verified via Nominatim queries).
+
+#### STEP 2 — VLM_GEO.jsonl (script: `src/a2_step2_vlm_geo.py`)
+
+For every VLM-scanned frame (merged `poi_scan.jsonl` +
+`poi_scan_cos0.75.jsonl`, deduped to 4,891 unique frames), derive
+**three lists from VLM output only**:
+
+| List | Source |
+|---|---|
+| `attractions_from_vlm` | 21-list names found in `visible[]` or `guess` (after fold + alias) |
+| `landmarks_from_vlm` | OSM landmark-class names found in `visible[]` or `guess` |
+| `pois_from_vlm` | any OSM POI name found in `visible[]` or `guess` |
+
+Compound strings ("Bahnhofstrasse am Paradeplatz", "Limmat |
+Limmatquai") are split on `/`, `,`, `|`, ` am `, ` at `, ` near `
+before lookup. Each entry tracks `source` = visible / guess / both.
+
+#### STEP 3 — GPS_VLM_GEO.jsonl (script: `src/a2_step3_gps_vlm_geo.py`)
+
+Per-frame **coincidence match** between GPS_GEO and VLM_GEO lists.
+A frame matches iff at least one name from the GPS-side union
+(attractions ∪ landmarks ∪ pois) coincides with at least one name
+from the VLM-side union. Three coincidence types:
+
+```
+exact      : fold(a) == fold(b)
+substring  : fold(a) ⊂ fold(b)  or  fold(b) ⊂ fold(a)
+             (catches "Grossmünster" ⊂ "Grossmünsterplatz",
+                       "Limmat" ⊂ "Limmatquai",
+                       "Stadthaus" ⊂ "Stadthausquai")
+word_share : both names share a meaningful word (≥4 chars, not common)
+             (catches "Hotel Storchen" / "Storchengasse")
+```
+
+No polygon-distance neighborhood check — coincidence is purely on
+the candidate-name sets (the radius gating is already done in STEP 1).
+
+Each row carries the strongest matched level (`best_level`):
+- **attraction** — at least one match has a 21-list canonical name
+  on either side (strongest)
+- **landmark** — at least one match on an OSM landmark POI name
+- **poi** — only matches on an OSM POI name (any kind, e.g. streets)
+
+Cohort-shaping flags:
+- `--cos-min 0.75` — keep only frames with DINOv2 `s_dino` ≥ threshold
+- `--drop-ambiguous-heading` — also drop frames whose `heading_v2`
+  decision is ambiguous (see §6.7)
+
+#### STEP 4 — `viz/a2_vlmagreed.html` (script: `src/a2_viz_matched.py`)
+
+Random-sample N matched frames (default 30) and render them
+side-by-side with: QUERY video frame, all 4 compass crops at the
+top-1 SV pano with cosines, GPS-side lists, VLM-side lists, the
+list of (gps_name ⇄ vlm_name, match_type) coincidences, the
+v1+v2 headings, and the heading decision. Used for visually
+verifying that matched frames are not DINOv2 lookalike false
+positives.
+
+### 6.5 Headline cohort results (cos≥0.75, 21-attraction list)
+
+```
+SV reference set (GT GPS photos we bought from Google):
+   4,431 crops × ~4 headings  =  4,431 images
+   1,108 unique pano locations
+DINOv2-accepted frames:                              15,053
+At cos ≥ 0.75:                                        2,527
+GPS_VLM_GEO matched (coincidence non-empty):          1,219
+   by best_level:
+      attraction:                                       774
+      landmark:                                         133
+      poi:                                              312
+Unique pano GPS spots in the 89-pano matched cohort:     89
+```
+
+### 6.6 Per-attraction frame counts (matched cohort)
+
+Written by `src/a2_target_frames.py` →
+`data/cities/zurich/a2/target_attraction_frames.jsonl` (one row per
+attraction with full frame list).
+
+| # | Attraction | 中文 | Kind | Frames | Panos | Attr-L | Land-L | POI-L |
+|---:|---|---|---|---:|---:|---:|---:|---:|
+| 1 | Grossmünster | 大教堂 | church | 118 | 20 | 100 | 4 | 14 |
+| 2 | Fraumünster | 圣母大教堂 | church | 282 | 20 | 200 | 13 | 69 |
+| 3 | St. Peter | 圣彼得教堂 | church | 347 | 22 | 179 | 63 | 105 |
+| 4 | Wasserkirche | 水教堂 | church | 52 | 8 | 49 | 0 | 3 |
+| 5 | Lindenhof | 林登霍夫山丘 | hill | 67 | 9 | 29 | 2 | 36 |
+| 6 | Niederdorfstrasse | 下村街 | street | 108 | 12 | 48 | 29 | 31 |
+| 7 | Bahnhofstrasse | 班霍夫大街 | street | 212 | 10 | 198 | 1 | 13 |
+| 8 | Lake Zurich | 苏黎世湖 | water | 38 | 10 | 35 | 1 | 2 |
+| 9 | Limmat river | 利马特河 | water | 312 | 15 | 221 | 60 | 31 |
+| 10 | Landesmuseum | 瑞士国家博物馆 | museum | 11 | 3 | 7 | 0 | 4 |
+| 11 | **Kunsthaus** | 苏黎世美术馆 | museum | **1** | 1 | 0 | 0 | 1 |
+| 12 | Opernhaus | 苏黎世歌剧院 | culture | 16 | 2 | 16 | 0 | 0 |
+| 13 | **Bürkliplatz** | 比尔克利广场 | square | **1** | 1 | 1 | 0 | 0 |
+| 14 | Helmhaus | 赫尔姆豪斯 | civic | 17 | 7 | 14 | 0 | 3 |
+| 15 | Hauptbahnhof | 苏黎世中央车站 | station | 106 | 8 | 105 | 1 | 0 |
+| 16 | Münsterhof | 明斯特霍夫广场 | square | 299 | 9 | 152 | 61 | 86 |
+| 17 | **Paradeplatz** | 阅兵广场 | square | **1** | 1 | 1 | 0 | 0 |
+| 18 | Rathaus | 市政厅 | civic | 238 | 10 | 157 | 55 | 26 |
+| 19 | Münsterbrücke | 大教堂桥 | bridge | 187 | 12 | 181 | 5 | 1 |
+| 20 | Limmatquai | 利马特河滨道 | street | 158 | 17 | 109 | 12 | 37 |
+| 21 | Sechseläutenplatz | 六鸣节广场 | square | 16 | 2 | 16 | 0 | 0 |
+| | | | TOTAL (sums) | 2,587 | — | 1,818 | 307 | 462 |
+| | | | unique frames (no double-count) | 1,219 | 89 | | | |
+| | | | avg attractions / frame | 2.12 | | | | |
+
+**Viable target set:** 18 attractions have ≥10 matched frames. The
+3 weak ones (**Kunsthaus, Bürkliplatz, Paradeplatz** each with 1
+frame) are too thin for training or evaluation — pending decision
+whether to drop, augment with SV crops, or accept.
+
+### 6.7 heading_v2 — gap-tiered heading decision
+
+Script: `src/a2_heading_v2.py` → `a2/heading_v2.jsonl` (15,053 rows).
+
+Replaces `gps_recovery`'s all-4-cosine-weighted heading with a
+gap-tiered rule based on the DINOv2 cosine difference between
+top-1 and top-2 compass crops at the same pano:
+
+```
+gap = sims[0] − sims[1]                      (absolute, not relative)
+
+gap > 0.20         →  decision = "top1"
+                       heading = top-1 crop's compass_angle
+                       (one direction clearly dominant)
+
+0.00 < gap ≤ 0.20  →  decision = "top1+top2"
+                       heading = cosine-weighted circular mean of
+                                 top-1 and top-2 angles only
+                       (two adjacent directions both strong)
+```
+
+Note: the user opted **not** to drop the gap ≤ 0.05 frames — instead
+they fall into the `top1+top2` bucket. The original 3-tier rule
+(with an `ambiguous` bucket for gap ≤ 0.05) is still available via
+`--lo 0.05`.
+
+Distribution at the current `--hi 0.20 --lo 0.0`:
+```
+top1        (gap > 0.20)    4,088 frames  (27.2 %)
+top1+top2   (gap ≤ 0.20)   10,965 frames  (72.8 %)
+ambiguous                       0
+```
+
+v1 vs v2 heading agreement:
+```
+< 5° apart    : 7,009 (47 %)
+5-15°         : 2,316 (15 %)
+15-45°        : 3,338 (22 %)
+≥ 45° apart   : 2,390 (16 %)
+```
+
+About 38 % of frames have a meaningfully different heading under
+the new rule (≥15° change). The large-disagreement cases are where
+the old all-4-weighted scheme was pulled toward a direction the
+top-2 didn't actually support — those headings were probably wrong.
+
+### 6.8 Heading visualisation (a2_vlmagreed.html)
+
+Each row in `viz/a2_vlmagreed.html` shows the 4 compass crops at
+the matched pano with their per-crop cosines, the best crop
+highlighted in red, and three heading numbers:
+- `heading v1` — the old all-4-weighted (from `gps_recovery_full.jsonl`)
+- `heading v2` — the new gap-tiered (from `a2/heading_v2.jsonl`)
+- `decision` — `top1` / `top1+top2` (color-coded green/yellow)
+
+### 6.9 GPS-slot map (a2_mapped_GPS_spot.html)
+
+Script: `src/a2_viz_map.py` → `viz/a2_mapped_GPS_spot.html`.
+Folium/Leaflet map showing the 89 unique panos in the matched
+cohort, each as a circle (size ∝ matched-frame count, colour by
+number of attractions visible at the pano: blue = 1, green = 2-3,
+orange = 4-7, red = 8+). Overlay: the 21 canonical attraction
+GPS as red star markers.
+
+Reveals the structural clustering of our data:
+- ~85 % of matched frames are within 200 m of Münsterhof / St. Peter
+- 5 "see-everything" panos each show 8-12 attractions simultaneously
+  (panoramic views from Münsterbrücke or Lindenhof)
+- 34 singleton panos show only 1 attraction (isolated views)
+
+### 6.10 SV-pano → attraction mapping (sv_attractions.jsonl)
+
+Script: `src/a2_sv_pano_attractions.py` → `a2/sv_attractions.jsonl`.
+
+For each of the 4,431 SV crops (the GT-GPS reference set DINOv2
+matches frames to), assign one consensus attraction using:
+- E1 — VLM `visible[]` mentions across matched video frames
+- E2 — VLM `guess` across matched video frames
+- E3 — proximity (≤100 m) of crop GPS to canonical attraction GPS
+
+Headline:
+```
+SV crops:                                          4,431
+matched by ≥1 video frame:                         1,023  (23 %)
+with a consensus attraction:                         809
+all-3-signals-agree (vlm_visible + guess + prox):     23  ← gold anchors
+```
+
+The 23 "all three signals agree" SV crops are the highest-confidence
+anchors — strong candidates for a clean evaluation set.
+
+### 6.11 Investigations of unmatched cases
+
+#### The 59 cos≥0.75-but-unmatched panos
+(of 148 panos accepted at cos≥0.75, only 89 ended up matched)
+
+Failure-mode split:
+```
+51  (C) both lists exist but no name coincidence  ← DINOv2 lookalikes
+                                                      and unknown-name VLM mentions
+ 5  (B) VLM_GEO empty — VLM saw nothing in our vocab
+ 3  (A) GPS_GEO empty — frame is genuinely far from any 21-list canonical
+```
+
+Diagnosis: the unmatched panos heavily mention `Bahnhofstrasse` (100×),
+`Utoquai` (18×), `Bahnhofplatz` (17×), `Schipfe` (17×), `Zürich
+Hauptbahnhof` (24×) in their VLM `guess`. These are mostly cases
+where the canonical GPS centroid of a long feature (Bahnhofstrasse
+1.4 km, Limmatquai 1 km) is >100 m from the frame's actual GPS even
+though the walker IS on that street.
+
+#### Tried fix — Central + Utoquai as a 22nd/23rd attraction (REVERTED)
+Adding the two most-mentioned non-list names only recovered +1 pano
+(89 → 90), because most unmatched panos have the same long-feature
+problem rather than missing-attraction problem. The proper fix is
+per-attraction radii or multi-anchor representation of long features
+— deferred to attempt 3.
+
+### 6.12 File manifest
+
+All Attempt 2 files follow a strict convention:
+
+- **Scripts**: `src/a2_*.py`
+- **Data outputs**: `data/cities/zurich/a2/*.jsonl`
+- **Visualisations**: `viz/a2_*.html`
+- **Terminology**: use **"attraction"** consistently (not "landmark" /
+  "POI" / "famous-X" — those terms appear in older code but new code
+  uses "attraction" for the 21-name vocabulary).
+
+For the full per-file index (purpose, inputs, outputs, command), see
+**[docs/A2_MANIFEST.md](docs/A2_MANIFEST.md)**. Key entries:
+
+| Script | Output | One-line purpose |
+|---|---|---|
+| `src/a2_attraction_slots.py`        | `a2/attraction_slots.jsonl`            | Defines the 21 attractions + aliases (source-of-truth constants) and produces a per-attraction list of frames |
+| `src/a2_step1_gps_geo.py`           | `a2/GPS_GEO.jsonl` (15,053 rows)        | STEP 1 — GPS-side list (attractions+landmarks+pois within R) per accepted frame; merges `pois.json` + `extra_pois.json`; appends `heading_v2` fields |
+| `src/a2_step2_vlm_geo.py`           | `a2/VLM_GEO.jsonl` (4,891 rows)         | STEP 2 — VLM-side list (resolves visible+guess against 21-list and OSM) per VLM-scanned frame |
+| `src/a2_step3_gps_vlm_geo.py`       | `a2/GPS_VLM_GEO.jsonl` (4,158 rows)     | STEP 3 — per-frame coincidence match (exact / substring / word_share); cohort-shaping flags |
+| `src/a2_target_frames.py`           | `a2/target_attraction_frames.jsonl` (21 rows) | Per-attraction frame list — the destination pool for re-annotation |
+| `src/a2_heading_v2.py`              | `a2/heading_v2.jsonl` (15,053 rows)     | Gap-tiered heading decision (top1 vs top1+top2) |
+| `src/a2_sv_pano_attractions.py`     | `a2/sv_attractions.jsonl` (4,431 rows)  | Per-SV-crop consensus attraction tag |
+| `src/a2_match_strict.py`            | `a2/match_strict.jsonl` (752 rows)      | Strict per-frame filter (alternative to STEP 3): exact VLM mention of nearby attraction |
+| `src/a2_proximity_tag.py`           | `a2/proximity_tag.jsonl` (2,470 rows)   | Per-frame "what attractions are near this GPS" lookup |
+| `src/a2_join_3way.py`               | `a2/join_3way.{jsonl,tsv}` (1,858 rows) | Per-frame audit table (Excel-friendly TSV for spot-checking) |
+| `src/a2_vlm_coverage.py`            | (stdout)                                | Diagnostic — how often the VLM mentioned each attraction |
+| `src/a2_raw_vlm_strings.py`         | (stdout)                                | Diagnostic — raw VLM `guess` and `visible[]` strings |
+| `src/a2_viz_matched.py`             | `viz/a2_vlmagreed.html`                 | STEP 4 — visual QC grid of 30 random matched frames |
+| `src/a2_viz_map.py`                 | `viz/a2_mapped_GPS_spot.html`           | Folium map of the 89 matched-cohort panos |
+| `src/a2_sanity_check.py`            | (stdout)                                | DINO↔VLM mapping sanity check (not yet run) |
+
+When **adding/removing an attraction or alias**, edit
+`src/a2_attraction_slots.py` (the constants are imported by every
+other a2_ script). Then re-run STEP 1 → 2 → 3 in order.
+
+Supplementary data:
+- `a2/extra_pois.json` — 2 manually-curated OSM entries that
+  `src/pois.py` extraction filter dropped (Paradeplatz, Rathaus).
+  Coords verified against Nominatim. Auto-merged by step1.
+
+### 6.13 Next steps (toward re-annotation)
+
+| Step | What | Status |
+|---|---|---|
+| Decide on 3 weak attractions | Kunsthaus, Bürkliplatz, Paradeplatz each have 1 matched frame — drop, augment with SV crops, or accept | Pending |
+| Per-attraction radii | Long features (Bahnhofstrasse, Limmatquai, Utoquai, river, lake) need larger R or multi-anchor — would recover ~30+ of the 59 unmatched panos | Pending |
+| Train/test holdout split | 89 panos × 20 % = ~18 panos for test; carve out so each viable attraction has panos in both buckets | Pending |
+| Re-annotation prompt v2 | New `src/a2_annotate.py` using `target_attraction_frames.jsonl` as destination pool; drop checkpoint step | Pending |
+| Retrain L-given | Same training code, new annotation file | Pending |
+
+Cost estimate (unchanged from §6.5 in the original plan):
+- Re-annotate: ~$30
+- Retrain L-given: ~$10 GPU
+- Total: ~$40, ~4 h wall-time
+
+### 6.5 What downstream changes
+
+| Pipeline stage | Change |
+|---|---|
+| `src/road_snap.py`           | No change — the road-snap uses GPS, not landmark names. |
+| `src/heading_qc.py`          | No change — heading verification is geometric. |
+| `src/annotate.py`            | Destination pool switches from "top-30 place_guess" to **the 21 attractions**. For each frame, pick 3 destinations from attractions within 50-1500 m walking distance, biased toward those in the frame's `visible[]`. Drop the checkpoint step from the prompt (we cannot verify it). |
+| `src/eval_split.py`          | Hold-out becomes "POI-region hold-out" over the 21 attractions (5-6 held out instead of 6 of 30). |
+| `src/train_modal.py`         | Unchanged — same code, new input. |
+| Cost estimate                | ~$30 to re-annotate, ~$10 to retrain L-given. Total ~$40 + ~4 h wall-time. |
+
+### 6.6 File manifest
+
+All Attempt 2 files follow a strict convention to avoid the
+script-proliferation problem we hit mid-exploration:
+
+- **Scripts**: `src/a2_*.py`
+- **Data outputs**: `data/cities/zurich/a2/*.jsonl`
+- **Visualisations**: `viz/a2_*.html`
+- **Terminology**: use **"attraction"** consistently (not "landmark" /
+  "POI" / "famous-X" — those terms appear in older code but new code
+  uses "attraction" for the 21-name vocabulary).
+
+For the full per-file index (purpose, inputs, outputs, command), see
+**[docs/A2_MANIFEST.md](docs/A2_MANIFEST.md)**. Key entries:
+
+| Script | Output | One-line purpose |
+|---|---|---|
+| `src/a2_attraction_slots.py`        | `a2/attraction_slots.jsonl`  | Defines the 21 attractions + aliases (source-of-truth constants) and produces a per-attraction list of frames |
+| `src/a2_sv_pano_attractions.py`     | `a2/sv_attractions.jsonl`    | Per-SV-crop attraction tag using GT-GPS proximity + VLM evidence — the cleanest anchor mapping |
+| `src/a2_match_strict.py`            | `a2/match_strict.jsonl`      | Strict per-frame filter (~752 frames) requiring exact VLM mention of a nearby attraction |
+| `src/a2_join_3way.py`               | `a2/join_3way.{jsonl,tsv}`   | Per-frame audit table joining proximity tag + gps_recovery + raw VLM (Excel-friendly TSV) |
+| `src/a2_proximity_tag.py`           | `a2/proximity_tag.jsonl`     | Per-frame "what attractions are near this GPS" lookup |
+| `src/a2_vlm_coverage.py`            | (stdout)                     | Diagnostic — how often the VLM mentioned each of 21 attractions |
+| `src/a2_raw_vlm_strings.py`         | (stdout)                     | Diagnostic — raw VLM `guess` and `visible[]` strings ranked by frequency |
+| `src/a2_sanity_check.py`            | (stdout)                     | DINO↔VLM mapping sanity check (not yet run) |
+
+When **adding/removing an attraction or alias**, edit
+`src/a2_attraction_slots.py` (the constants are imported by every
+other a2_ script). Then re-run any of the downstream scripts.

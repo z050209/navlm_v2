@@ -49,9 +49,35 @@ _TOKEN = {"value": "", "fetched": 0.0}
 
 
 def _access_token(force=False):
-    """Cached `gcloud` OAuth access token for Vertex AI. gcloud tokens
-    last ~1 h; this refreshes every 50 min (or on `force`)."""
+    """OAuth access token for Vertex AI.
+
+    Resolution order:
+      1. If env var ``GOOGLE_APPLICATION_CREDENTIALS`` points to a
+         service-account JSON, use google-auth to load it directly
+         (supports per-process credentials → safe for parallel runs).
+      2. Otherwise fall back to ``gcloud auth print-access-token``
+         (the historical behaviour; uses the ambient gcloud config).
+
+    Tokens last ~1h; refreshes every 50 min (or on ``force``)."""
     if force or not _TOKEN["value"] or time.time() - _TOKEN["fetched"] > 3000:
+        sa_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        if sa_path and Path(sa_path).is_file():
+            # service-account JSON — per-process auth, safe for parallel
+            try:
+                from google.oauth2 import service_account     # type: ignore
+                from google.auth.transport.requests import Request  # type: ignore
+                creds = service_account.Credentials.from_service_account_file(
+                    sa_path,
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"])
+                creds.refresh(Request())
+                if not creds.token:
+                    raise RuntimeError("service-account creds refresh "
+                                        "returned empty token")
+                _TOKEN["value"], _TOKEN["fetched"] = creds.token, time.time()
+                return _TOKEN["value"]
+            except ImportError:
+                # google-auth not installed → fall through to gcloud
+                pass
         r = subprocess.run("gcloud auth print-access-token", shell=True,
                            capture_output=True, text=True)
         token = r.stdout.strip()
@@ -94,7 +120,11 @@ def vertex_url(model, project, location):
 def _endpoint_and_auth(model, backend):
     """(url, headers, params) for the chosen backend."""
     if backend == "vertex":
-        url = vertex_url(model, config.GCP_PROJECT, config.VERTEX_LOCATION)
+        # env-var overrides for per-process parallel runs
+        project = os.environ.get("GCP_PROJECT") or config.GCP_PROJECT
+        location = (os.environ.get("VERTEX_LOCATION")
+                    or config.VERTEX_LOCATION)
+        url = vertex_url(model, project, location)
         return url, {"Authorization": f"Bearer {_access_token()}"}, {}
     key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not key:
