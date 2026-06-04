@@ -941,7 +941,7 @@ python -m src.a2_viz_thin
 | Resume-training (e3 → e5) | 6 given+implicit adapters extended +2 epochs each. **PASS-rate jump much bigger than val_loss suggested** — implicit-r16 +3.3 pp on PASS despite ~0 % val_loss change. Production recommendation: use e5 for derived+implicit, e3 OR e5 for given. Derived e5 evals still in flight. | **Resolved (2026-06-03)** |
 | Eval harness (full sweep) | 12 conditions evaluated (3 zs + 9 trained-r{4,8,16}) — see §17 "Results" table | **Resolved (2026-06-03)** (11/12 complete, given-r8 partial at n=34) |
 | Eval scoring | `src/a2_score.py` ready (4 metrics, see §19); rank-suffixed output dirs prevent multi-rank overwrites | **Resolved** |
-| **Headline result** | **Compass-free thesis holds (with caveats)**: best derived = 64.9 % e3 / pending e5 (was 26.8 % zs). Best implicit = **58.4 % at r=16 e5** (was 28.1 % zs). Best given = **98.4 % at r=8/r=16 e5** (was 44.7 % zs). Numeric heading IS meaningful — gap to trained-given is ~30-40 pp, larger than the original 5-10 pp target, but variants improved 30-50 pp from zero-shot. | **Resolved (2026-06-03)** |
+| **Headline result** | **Compass-free thesis holds (with caveats)**: best derived = **68.7 % at r=16 e5** (was 26.8 % zs, +41.9 pp). Best implicit = **58.4 % at r=16 e5** (was 28.1 % zs, +30.3 pp). Best given = **98.4 % at r=8/r=16 e5** (was 44.7 % zs, +53.7 pp). Numeric heading IS meaningful — gap to trained-given is ~30-40 pp, but variants improved 30-50 pp from zero-shot. **Derived heading-inference accuracy reached 64.9 %** at r=16 e5 — model genuinely learns to extract photo-orientation cues. | **Resolved (2026-06-03)** |
 | **Final report** | CS231n + NeurIPS 2026 — uses the 12-condition × 4-metric table from §17 / §19 | Pending — write-up |
 
 For the full cost + wall-time breakdown, see the Cost section at the
@@ -1180,7 +1180,7 @@ Smaller ranks (r=4, r=8) gained 2-3 % more val_loss reduction with
 temporary epoch-4 val_loss bump in 4 of 6 runs before recovering by
 epoch 5 (classic SGDR-warm-restart signature).
 
-#### Resume-training (e3 → e5) PASS-rate comparison (given + implicit)
+#### Resume-training (e3 → e5) PASS-rate comparison (all 3 variants)
 
 ```
               e3 PASS    e5 PASS    Δ_e5         val_loss Δ_e5
@@ -1188,12 +1188,24 @@ epoch 5 (classic SGDR-warm-restart signature).
 given-r4      97.2 %     97.2 %     +0.0 pp     −2.9 %  (saturated PASS, val_loss still moving)
 given-r8      97.8 %     98.4 %     +0.6 pp     −2.1 %
 given-r16     98.1 %     98.4 %     +0.3 pp     −0.8 %
-implicit-r4   50.2 %     55.8 %     +5.6 pp     −3.0 %  ← biggest jump
+
+derived-r4    58.5 %     63.0 %     +4.5 pp     n/a     (e5 best derived at r=4)
+derived-r8    64.9 %     63.8 %     −1.1 pp     n/a     ← REGRESSED (only condition where e5 is worse)
+derived-r16   63.0 %     68.7 %     +5.7 pp     n/a     ← BIGGEST jump, NEW BEST DERIVED
+
+implicit-r4   50.2 %     55.8 %     +5.6 pp     −3.0 %
 implicit-r8   54.3 %     57.3 %     +3.0 pp     −1.9 %
 implicit-r16  55.1 %     58.4 %     +3.3 pp     +0.0 %  ← val_loss flat, PASS rose +3.3pp
 ```
 
-(Derived e3→e5 PASS comparison pending — 3 evals in flight as of 2026-06-03.)
+Heading-inference accuracy for derived (e3 → e5, "facing X°" within 22.5°):
+```
+derived-r4:   58.1 %  → 61.9 %   (+3.8)
+derived-r8:   62.3 %  → 63.0 %   (+0.7)
+derived-r16:  60.4 %  → 64.9 %   (+4.5)   ← best heading inference too
+```
+
+The heading-inference improvement tracks the PASS improvement for derived-r16, suggesting the model's learning to extract orientation cues from photos *is* what drives the verb accuracy gain.
 
 #### Two findings from the e5 experiment
 
@@ -1226,9 +1238,9 @@ trained-heading-given-r4       320   97.2 %       e3 = e5     +52.5 pp
 trained-heading-given-r8       320   98.4 %       e5          +53.7 pp
 trained-heading-given-r16      320   98.4 %       e5          +53.7 pp  ← tied best given
 
-trained-heading-derived-r4     265   58.5 %       e3          +31.7 pp  (e5 pending)
-trained-heading-derived-r8     265   64.9 %       e3          +38.1 pp  (e5 pending)
-trained-heading-derived-r16    265   63.0 %       e3          +36.2 pp  (e5 pending)
+trained-heading-derived-r4     265   63.0 %       e5          +36.2 pp
+trained-heading-derived-r8     265   64.9 %       e3          +38.1 pp  (e5 regressed to 63.8 — only such case)
+trained-heading-derived-r16    265   68.7 %       e5          +41.9 pp  ← best derived (new)
 
 trained-heading-implicit-r4    267   55.8 %       e5          +27.7 pp
 trained-heading-implicit-r8    267   57.3 %       e5          +29.2 pp
