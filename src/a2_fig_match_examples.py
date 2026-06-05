@@ -100,8 +100,8 @@ fig.text(0.03, 0.30, "FAILURE",
          fontsize=12, fontweight="bold", color="tab:red",
          rotation=90, va="center")
 
-plt.subplots_adjust(left=0.07, right=0.99, top=0.96, bottom=0.04,
-                     wspace=0.005, hspace=0.18)
+plt.subplots_adjust(left=0.06, right=0.995, top=0.96, bottom=0.04,
+                     wspace=0.0, hspace=0.18)
 out_path = Path("docs/figures/fig4_match_success_failure.png")
 out_path.parent.mkdir(parents=True, exist_ok=True)
 plt.savefig(out_path, bbox_inches="tight")
