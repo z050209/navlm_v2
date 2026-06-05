@@ -100,19 +100,12 @@ fig.text(0.03, 0.30, "FAILURE",
          fontsize=12, fontweight="bold", color="tab:red",
          rotation=90, va="center")
 
-# Bottom captions explaining each row
-fig.text(0.5, 0.50,
-         "Top: SAME location — high-cos match correctly anchors GPS + heading.",
-         ha="center", fontsize=10, color="tab:green", style="italic")
-fig.text(0.5, 0.02,
-         "Bottom: DIFFERENT location, similar facade — DINOv2 'lookalike' produces noisy GPS / heading recovery.",
-         ha="center", fontsize=10, color="tab:red", style="italic")
-
 fig.suptitle(
     "DINOv2 frame → StreetView matching: successful localization vs. lookalike failure",
     fontsize=12, y=0.99)
 
-plt.tight_layout(rect=[0.05, 0.04, 1, 0.95])
+plt.subplots_adjust(left=0.07, right=0.99, top=0.93, bottom=0.04,
+                     wspace=0.005, hspace=0.18)
 out_path = Path("docs/figures/fig4_match_success_failure.png")
 out_path.parent.mkdir(parents=True, exist_ok=True)
 plt.savefig(out_path, bbox_inches="tight")
