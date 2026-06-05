@@ -69,14 +69,14 @@ for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("h
     ax.set_xticks([]); ax.set_yticks([])
     for s in ax.spines.values(): s.set_visible(False)
     ax.text(0.02, 0.97, label, transform=ax.transAxes,
-            fontsize=11, fontweight="bold", color="white", va="top",
-            bbox=dict(facecolor=color, edgecolor="none", pad=4))
+            fontsize=22, fontweight="bold", color="white", va="top",
+            bbox=dict(facecolor=color, edgecolor="none", pad=6))
     ax.text(0.98, 0.97, f"{vid}/{fid}", transform=ax.transAxes,
-            fontsize=8, color="white", va="top", ha="right",
-            bbox=dict(facecolor="black", edgecolor="none", pad=2, alpha=0.6))
-    ax.set_xlabel("query frame (walking-tour video)", fontsize=10)
+            fontsize=16, color="white", va="top", ha="right",
+            bbox=dict(facecolor="black", edgecolor="none", pad=4, alpha=0.6))
+    ax.set_xlabel("query frame (walking-tour video)", fontsize=20)
     if row == 0:
-        ax.set_title("Raw query frame", fontsize=11)
+        ax.set_title("Raw query frame", fontsize=22)
 
     # Right: matched StreetView crop
     ax = axes[row, 1]
@@ -89,21 +89,19 @@ for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("h
     ax.set_xticks([]); ax.set_yticks([])
     for s in ax.spines.values(): s.set_visible(False)
     ax.text(0.02, 0.97, f"cos={cos:.3f}", transform=ax.transAxes,
-            fontsize=10, fontweight="bold", color="white", va="top",
-            bbox=dict(facecolor="black", edgecolor="none", pad=3, alpha=0.6))
-    ax.text(0.98, 0.97, sv_id[:25] + "...", transform=ax.transAxes,
-            fontsize=7, color="white", va="top", ha="right",
-            bbox=dict(facecolor="black", edgecolor="none", pad=2, alpha=0.6))
-    ax.set_xlabel("DINOv2 top-1 matched StreetView crop", fontsize=10)
+            fontsize=20, fontweight="bold", color="white", va="top",
+            bbox=dict(facecolor="black", edgecolor="none", pad=5, alpha=0.6))
+    # (SV ID removed — long opaque hash, not informative)
+    ax.set_xlabel("DINOv2 top-1 match", fontsize=20)
     if row == 0:
-        ax.set_title("Matched StreetView crop", fontsize=11)
+        ax.set_title("Matched StreetView crop", fontsize=22)
 
 # Row label on the LEFT margin
-fig.text(0.03, 0.74, "SUCCESS",
-         fontsize=12, fontweight="bold", color="tab:green",
+fig.text(0.025, 0.72, "SUCCESS",
+         fontsize=24, fontweight="bold", color="tab:green",
          rotation=90, va="center")
-fig.text(0.03, 0.30, "FAILURE",
-         fontsize=12, fontweight="bold", color="tab:red",
+fig.text(0.025, 0.28, "FAILURE",
+         fontsize=24, fontweight="bold", color="tab:red",
          rotation=90, va="center")
 
 plt.subplots_adjust(left=0.06, right=0.995, top=0.96, bottom=0.04,
