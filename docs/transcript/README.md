@@ -8,9 +8,19 @@ evidence for the AI-usage attribution document
 ## Contents
 
 - `conversation_b5bcb9d3.jsonl.gz` — **gzip-compressed (12 MB)**
-  full transcript in JSONL format. Uncompressed size: ~39 MB.
+  transcript in JSONL format. Uncompressed size: ~38 MB.
 - Session ID: `b5bcb9d3-30bb-4725-93c3-a3caf084e779`
-- Time range: ~2026-05-26 to 2026-06-04 (~10 days of work).
+- **Time range: 2026-05-26 to 2026-06-03 (10 days of work)** —
+  truncated at the last message timestamped 2026-06-03 to exclude
+  the 2026-06-04 report-writing session per honor-code-compliance
+  request (the report itself is the human author's work).
+- Original line count before truncation: 12,327. After truncation:
+  **11,992 lines** (335 lines / ~2.7 % removed, all 2026-06-04
+  content — report drafting, AI-usage-attribution drafting,
+  transcript scanning).
+- The full untruncated transcript remains available at the local
+  backup `G:\My Drive\cs231n\project\claude_chat_*.jsonl` if needed
+  for any audit purpose.
 
 ## Format
 
