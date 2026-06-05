@@ -61,7 +61,7 @@ for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("h
     # Left: raw query frame
     ax = axes[row, 0]
     frame_path = FRAMES_ROOT / vid / f"{fid}.jpg"
-    ax.imshow(Image.open(frame_path).convert("RGB"))
+    ax.imshow(Image.open(frame_path).convert("RGB"), aspect="auto")
     ax.set_xticks([]); ax.set_yticks([])
     ax.text(0.02, 0.97, label, transform=ax.transAxes,
             fontsize=11, fontweight="bold", color="white", va="top",
@@ -77,7 +77,7 @@ for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("h
     ax = axes[row, 1]
     sv_path = SV_ROOT / f"{sv_id}.jpg"
     if sv_path.exists():
-        ax.imshow(Image.open(sv_path).convert("RGB"))
+        ax.imshow(Image.open(sv_path).convert("RGB"), aspect="auto")
     else:
         ax.text(0.5, 0.5, f"(missing {sv_path})", ha="center", va="center",
                 transform=ax.transAxes, fontsize=10)
