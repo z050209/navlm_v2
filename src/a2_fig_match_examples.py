@@ -51,7 +51,7 @@ for line in GPS_RECOVERY.open(encoding="utf-8"):
 # Query frames are 16:9 (≈1.78), SV crops are 1:1.
 # Width-ratios match those aspect ratios so each image's axis is
 # exactly the right shape and no inner-axis whitespace appears.
-fig, axes = plt.subplots(2, 2, figsize=(11, 5.7), dpi=300,
+fig, axes = plt.subplots(2, 2, figsize=(11, 8.3), dpi=300,
                           gridspec_kw={"width_ratios": [1.78, 1.0]})
 
 for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("hidden_streets", "frame_01894")]),
@@ -67,6 +67,7 @@ for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("h
     frame_path = FRAMES_ROOT / vid / f"{fid}.jpg"
     ax.imshow(Image.open(frame_path).convert("RGB"))
     ax.set_xticks([]); ax.set_yticks([])
+    for s in ax.spines.values(): s.set_visible(False)
     ax.text(0.02, 0.97, label, transform=ax.transAxes,
             fontsize=11, fontweight="bold", color="white", va="top",
             bbox=dict(facecolor=color, edgecolor="none", pad=4))
@@ -86,6 +87,7 @@ for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("h
         ax.text(0.5, 0.5, f"(missing {sv_path})", ha="center", va="center",
                 transform=ax.transAxes, fontsize=10)
     ax.set_xticks([]); ax.set_yticks([])
+    for s in ax.spines.values(): s.set_visible(False)
     ax.text(0.02, 0.97, f"cos={cos:.3f}", transform=ax.transAxes,
             fontsize=10, fontweight="bold", color="white", va="top",
             bbox=dict(facecolor="black", edgecolor="none", pad=3, alpha=0.6))
