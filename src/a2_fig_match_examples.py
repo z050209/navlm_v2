@@ -48,7 +48,11 @@ for line in GPS_RECOVERY.open(encoding="utf-8"):
         targets[k]["top_sv"] = r["top_sv_id"]
         targets[k]["cos"] = r["s_dino"]
 
-fig, axes = plt.subplots(2, 2, figsize=(11, 7), dpi=300)
+# Query frames are 16:9 (≈1.78), SV crops are 1:1.
+# Width-ratios match those aspect ratios so each image's axis is
+# exactly the right shape and no inner-axis whitespace appears.
+fig, axes = plt.subplots(2, 2, figsize=(11, 5.7), dpi=300,
+                          gridspec_kw={"width_ratios": [1.78, 1.0]})
 
 for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("hidden_streets", "frame_01894")]),
                                 (1, ("bahnhofstrasse", "frame_01593"), targets[("bahnhofstrasse", "frame_01593")])]:
@@ -61,7 +65,7 @@ for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("h
     # Left: raw query frame
     ax = axes[row, 0]
     frame_path = FRAMES_ROOT / vid / f"{fid}.jpg"
-    ax.imshow(Image.open(frame_path).convert("RGB"), aspect="auto")
+    ax.imshow(Image.open(frame_path).convert("RGB"))
     ax.set_xticks([]); ax.set_yticks([])
     ax.text(0.02, 0.97, label, transform=ax.transAxes,
             fontsize=11, fontweight="bold", color="white", va="top",
@@ -77,7 +81,7 @@ for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("h
     ax = axes[row, 1]
     sv_path = SV_ROOT / f"{sv_id}.jpg"
     if sv_path.exists():
-        ax.imshow(Image.open(sv_path).convert("RGB"), aspect="auto")
+        ax.imshow(Image.open(sv_path).convert("RGB"))
     else:
         ax.text(0.5, 0.5, f"(missing {sv_path})", ha="center", va="center",
                 transform=ax.transAxes, fontsize=10)
