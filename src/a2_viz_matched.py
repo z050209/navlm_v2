@@ -243,8 +243,7 @@ def main():
             f'<div class="cell q">'
             f'<img src="{_file_url(frame_path)}" loading="lazy">'
             f'<div class="label"><b>QUERY</b><br>{video}/{fid}<br>'
-            f'heading v1: <b>{heading:.0f}°</b><br>'
-            f'heading v2: <b>{h_v2_str}</b><br>'
+            f'heading: <b>{h_v2_str}</b><br>'
             f'decision: {dec_str}<br>'
             f'best={best_badge}</div>'
             f'</div>')
