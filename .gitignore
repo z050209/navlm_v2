@@ -19,7 +19,7 @@ keys/
 *.avi
 *.mkv
 
-# image files
+# image files (training frames + cached crops) — but DO commit paper figures
 *.jpg
 *.jpeg
 *.png
@@ -27,6 +27,9 @@ keys/
 *.bmp
 *.webp
 *.tiff
+# exception: paper figures live under docs/figures/ and SHOULD be tracked
+!docs/figures/
+!docs/figures/**
 
 # checkpoints / model weights
 checkpoints/
