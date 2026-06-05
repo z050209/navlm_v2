@@ -1,9 +1,11 @@
-"""Generate docs/figures/fig4_match_success_failure.png — a 2x2 grid
-showing 2 successful matched-cohort frames (row 1) and 2 failure cases
-(row 2) for the 'noisy localization' paragraph in the report.
+"""Generate docs/figures/fig4_match_success_failure.png — a 2x2 grid:
+  col 1 = raw query frame
+  col 2 = its DINOv2 top-1 StreetView crop (the "matched" location)
+  row 1 = SUCCESS case (visually identical → correct mapping)
+  row 2 = FAILURE case (visually similar but actually a different physical
+          location → DINOv2 lookalike, 'noisy localization')
 
-Success = matched at attraction level with multiple coincidences.
-Failure = matched at poi level only (just a generic street name).
+For the report's 'noisy localization' paragraph.
 """
 import io
 import json
@@ -15,71 +17,102 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from PIL import Image
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import config                                       # noqa: E402
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
+GPS_RECOVERY = Path("data/cities/zurich/gps_recovery_full.jsonl")
 FRAMES_ROOT = Path("data/cities/zurich/frames")
-GVG = Path("data/cities/zurich/a2/GPS_VLM_GEO.jsonl")
+SV_ROOT = config.STREETVIEW_DIR / "images"
 
 CASES = [
-    # (row, col, video, frame, label)
-    (0, 0, "hidden_streets", "frame_01894", "SUCCESS"),
-    (0, 1, "bahnhofstrasse", "frame_01412", "SUCCESS"),
-    (1, 0, "bahnhofstrasse", "frame_01593", "FAILURE"),
-    (1, 1, "hidden_streets", "frame_01633", "FAILURE"),
+    # (row, video, frame, label, color, summary)
+    (0, "hidden_streets", "frame_01894", "SUCCESS",
+     "tab:green",
+     "DINOv2 cosine 0.82 → matched StreetView crop is the SAME location "
+     "(Münsterhof, in front of Fraumünster)."),
+    (1, "bahnhofstrasse", "frame_01593", "FAILURE",
+     "tab:red",
+     "DINOv2 cosine 0.79 → matched StreetView crop is a DIFFERENT physical "
+     "location with similar Zurich old-town facade (lookalike)."),
 ]
 
-# Load match info from GPS_VLM_GEO
-lookup = {}
-for line in GVG.open(encoding="utf-8"):
+# Find top_sv_id per target frame
+targets = {(v, f): {"label": l, "color": c, "summary": s}
+            for _r, v, f, l, c, s in CASES}
+for line in GPS_RECOVERY.open(encoding="utf-8"):
     r = json.loads(line)
-    lookup[(r["video"], r["frame_id"])] = r
+    k = (r["video"], r["frame_id"])
+    if k in targets:
+        targets[k]["top_sv"] = r["top_sv_id"]
+        targets[k]["cos"] = r["s_dino"]
 
-fig, axes = plt.subplots(2, 2, figsize=(11, 7.5), dpi=300)
+fig, axes = plt.subplots(2, 2, figsize=(11, 7), dpi=300)
 
-for row, col, vid, fid, label in CASES:
-    ax = axes[row, col]
-    img_path = FRAMES_ROOT / vid / f"{fid}.jpg"
-    img = Image.open(img_path).convert("RGB")
-    ax.imshow(img)
+for row, (vid, fid), info in [(0, ("hidden_streets", "frame_01894"), targets[("hidden_streets", "frame_01894")]),
+                                (1, ("bahnhofstrasse", "frame_01593"), targets[("bahnhofstrasse", "frame_01593")])]:
+    label = info["label"]
+    color = info["color"]
+    summary = info["summary"]
+    cos = info.get("cos", 0)
+    sv_id = info.get("top_sv", "")
+
+    # Left: raw query frame
+    ax = axes[row, 0]
+    frame_path = FRAMES_ROOT / vid / f"{fid}.jpg"
+    ax.imshow(Image.open(frame_path).convert("RGB"))
     ax.set_xticks([]); ax.set_yticks([])
-
-    # Get match info
-    r = lookup.get((vid, fid), {})
-    matches = r.get("matches", [])
-    best = r.get("best_level", "?")
-    landmark_names = [m["vlm_name"] for m in matches]
-    landmark_str = ", ".join(landmark_names[:3])
-    if len(landmark_names) > 3:
-        landmark_str += f", +{len(landmark_names)-3}"
-
-    # Status badge color
-    color = "tab:green" if label == "SUCCESS" else "tab:red"
     ax.text(0.02, 0.97, label, transform=ax.transAxes,
             fontsize=11, fontweight="bold", color="white", va="top",
             bbox=dict(facecolor=color, edgecolor="none", pad=4))
-    # Frame ID at top right
     ax.text(0.98, 0.97, f"{vid}/{fid}", transform=ax.transAxes,
             fontsize=8, color="white", va="top", ha="right",
             bbox=dict(facecolor="black", edgecolor="none", pad=2, alpha=0.6))
+    ax.set_xlabel("query frame (walking-tour video)", fontsize=10)
+    if row == 0:
+        ax.set_title("Raw query frame", fontsize=11)
 
-    # Caption below image
-    caption = f"best_level: {best}   |   {len(matches)} match{'es' if len(matches)!=1 else ''}: {landmark_str}"
-    ax.set_xlabel(caption, fontsize=9, color="black")
+    # Right: matched StreetView crop
+    ax = axes[row, 1]
+    sv_path = SV_ROOT / f"{sv_id}.jpg"
+    if sv_path.exists():
+        ax.imshow(Image.open(sv_path).convert("RGB"))
+    else:
+        ax.text(0.5, 0.5, f"(missing {sv_path})", ha="center", va="center",
+                transform=ax.transAxes, fontsize=10)
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.text(0.02, 0.97, f"cos={cos:.3f}", transform=ax.transAxes,
+            fontsize=10, fontweight="bold", color="white", va="top",
+            bbox=dict(facecolor="black", edgecolor="none", pad=3, alpha=0.6))
+    ax.text(0.98, 0.97, sv_id[:25] + "...", transform=ax.transAxes,
+            fontsize=7, color="white", va="top", ha="right",
+            bbox=dict(facecolor="black", edgecolor="none", pad=2, alpha=0.6))
+    ax.set_xlabel("DINOv2 top-1 matched StreetView crop", fontsize=10)
+    if row == 0:
+        ax.set_title("Matched StreetView crop", fontsize=11)
 
-# Overall title
+# Row label on the LEFT margin
+fig.text(0.03, 0.74, "SUCCESS",
+         fontsize=12, fontweight="bold", color="tab:green",
+         rotation=90, va="center")
+fig.text(0.03, 0.30, "FAILURE",
+         fontsize=12, fontweight="bold", color="tab:red",
+         rotation=90, va="center")
+
+# Bottom captions explaining each row
+fig.text(0.5, 0.50,
+         "Top: SAME location — high-cos match correctly anchors GPS + heading.",
+         ha="center", fontsize=10, color="tab:green", style="italic")
+fig.text(0.5, 0.02,
+         "Bottom: DIFFERENT location, similar facade — DINOv2 'lookalike' produces noisy GPS / heading recovery.",
+         ha="center", fontsize=10, color="tab:red", style="italic")
+
 fig.suptitle(
-    "Matched-cohort QC: successful matches (top) vs. noisy-localization failures (bottom)",
+    "DINOv2 frame → StreetView matching: successful localization vs. lookalike failure",
     fontsize=12, y=0.99)
 
-# Subtitle row labels on the LEFT
-fig.text(0.02, 0.72, "SUCCESS",
-         fontsize=11, fontweight="bold", color="tab:green",
-         rotation=90, va="center")
-fig.text(0.02, 0.30, "FAILURE",
-         fontsize=11, fontweight="bold", color="tab:red",
-         rotation=90, va="center")
-
-plt.tight_layout(rect=[0.03, 0, 1, 0.96])
+plt.tight_layout(rect=[0.05, 0.04, 1, 0.95])
 out_path = Path("docs/figures/fig4_match_success_failure.png")
 out_path.parent.mkdir(parents=True, exist_ok=True)
 plt.savefig(out_path, bbox_inches="tight")
