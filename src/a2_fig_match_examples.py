@@ -100,11 +100,7 @@ fig.text(0.03, 0.30, "FAILURE",
          fontsize=12, fontweight="bold", color="tab:red",
          rotation=90, va="center")
 
-fig.suptitle(
-    "DINOv2 frame → StreetView matching: successful localization vs. lookalike failure",
-    fontsize=12, y=0.99)
-
-plt.subplots_adjust(left=0.07, right=0.99, top=0.93, bottom=0.04,
+plt.subplots_adjust(left=0.07, right=0.99, top=0.96, bottom=0.04,
                      wspace=0.005, hspace=0.18)
 out_path = Path("docs/figures/fig4_match_success_failure.png")
 out_path.parent.mkdir(parents=True, exist_ok=True)
