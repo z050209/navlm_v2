@@ -46,4 +46,8 @@ next, visualize some of the annotation samples and do the QC into a2_viz_sft.htm
 
 next, strategize the dataset speration for train/test/val 
 
+
+
+
+
 next, send for zero thought and finueting, I think the zero thought should also have three mode as sft as mentioned above 

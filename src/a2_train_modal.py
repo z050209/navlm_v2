@@ -64,7 +64,8 @@ def train_lora(variant: str = "given",
                lora_r: int = 16,
                lora_alpha: int = 32,
                limit: int = 0,
-               resume_adapter: str = "") -> dict:
+               resume_adapter: str = "",
+               suffix: str = "") -> dict:
     """LoRA SFT for one Attempt-2 variant.
 
     If `resume_adapter` is set, load that saved LoRA adapter as the
@@ -83,8 +84,8 @@ def train_lora(variant: str = "given",
                               Trainer, TrainingArguments)
 
     assert variant in ("given", "derived", "implicit"), variant
-    train_path = Path(f"/data/sft/a2_{variant}_train.jsonl")
-    val_path = Path(f"/data/sft/a2_{variant}_val.jsonl")
+    train_path = Path(f"/data/sft/a2_{variant}_train{suffix}.jsonl")
+    val_path = Path(f"/data/sft/a2_{variant}_val{suffix}.jsonl")
     assert train_path.exists(), (
         f"{train_path} not on navlm-data — upload first:\n"
         f"  modal volume put navlm-data data/sft/a2_{variant}_*.jsonl "
@@ -181,7 +182,7 @@ def train_lora(variant: str = "given",
     # Output dir: if resumed, total_epochs = orig + new (so r4 from e3 + 2
     # more epochs writes to /ckpts/lora_a2_<v>_r4_e5).
     total_epochs = resume_orig_epochs + epochs
-    out_dir = f"/ckpts/lora_a2_{variant}_r{lora_r}_e{total_epochs}"
+    out_dir = f"/ckpts/lora_a2_{variant}_r{lora_r}_e{total_epochs}{suffix}"
     args = TrainingArguments(
         output_dir=out_dir + "/_trainer", num_train_epochs=epochs,
         per_device_train_batch_size=1, gradient_accumulation_steps=8,
@@ -192,7 +193,10 @@ def train_lora(variant: str = "given",
         # Save one checkpoint per epoch so EarlyStopping +
         # load_best_model_at_end can pick the epoch with the lowest
         # MASKED eval loss (covers only <thinking>+<answer> tokens).
-        save_strategy="epoch", save_total_limit=3,
+        # save_total_limit=5: keep all 5 epoch checkpoints so we can
+        # later eval at intermediate epochs (e.g. e3 vs e5 comparison
+        # from a single 5-epoch run).
+        save_strategy="epoch", save_total_limit=5,
         load_best_model_at_end=True, metric_for_best_model="eval_loss",
         greater_is_better=False,
         report_to=[], remove_unused_columns=False,
@@ -233,7 +237,7 @@ def train_lora(variant: str = "given",
 @app.local_entrypoint()
 def main(variant: str = "given", epochs: int = 2, lr: float = 2e-4,
          lora_r: int = 16, lora_alpha: int = 0, limit: int = 0,
-         resume_adapter: str = ""):
+         resume_adapter: str = "", suffix: str = ""):
     """CLI wrapper.
 
     --resume-adapter <path>  : load a saved LoRA adapter (Mode B —
@@ -246,7 +250,8 @@ def main(variant: str = "given", epochs: int = 2, lr: float = 2e-4,
         lora_alpha = 2 * lora_r          # default alpha = 2 * rank
     result = train_lora.remote(variant=variant, epochs=epochs, lr=lr,
                                lora_r=lora_r, lora_alpha=lora_alpha,
-                               limit=limit, resume_adapter=resume_adapter)
+                               limit=limit, resume_adapter=resume_adapter,
+                               suffix=suffix)
     print("=== TRAIN DONE ===")
     print(json.dumps({k: v for k, v in result.items() if k != "history"},
                      indent=2))

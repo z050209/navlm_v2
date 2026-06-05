@@ -1,0 +1,175 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>a2 SFT QC — 3 variants</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+    body { font: 13px -apple-system, Segoe UI, Helvetica, sans-serif;
+           background: #f5f5f5; margin: 16px; }
+    h1 { font-size: 19px; margin: 0 0 8px; }
+    h2 { font-size: 15px; padding: 6px 12px; color: #fff;
+         border-radius: 4px; margin: 16px 0 10px; }
+    h2.given    { background: #2a9d8f; }
+    h2.derived  { background: #f4a261; }
+    h2.implicit { background: #e76f51; }
+    .ban { font-size: 12px; color: #666; margin-bottom: 16px; }
+    .grid-top { display: grid; grid-template-columns: 380px 1fr;
+                gap: 16px; background: #fff; padding: 12px;
+                border: 1px solid #ddd; border-radius: 8px;
+                margin-bottom: 18px; }
+    .grid-top img { width: 100%; height: auto; max-height: 240px;
+                     object-fit: cover; border-radius: 4px;
+                     outline: 3px solid #3a86ff; outline-offset: -3px; }
+    #map { height: 300px; width: 100%; border-radius: 4px;
+           border: 1px solid #ddd; }
+    .info { font-size: 12px; line-height: 1.6; }
+    .info table { border-collapse: collapse; width: 100%; }
+    .info td { padding: 3px 8px; vertical-align: top; }
+    .info td:first-child { color: #888; width: 40%; }
+    section.variant { background: #fff; border: 1px solid #ddd;
+                        padding: 16px; border-radius: 8px;
+                        margin-bottom: 16px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .col { font-size: 12px; }
+    .col h3 { font-size: 13px; margin: 0 0 6px;
+              color: #2c3e50; }
+    .input  { background: #eef5fa; border-left: 4px solid #3a86ff;
+              padding: 10px 12px; border-radius: 0 4px 4px 0;
+              white-space: pre-wrap; font-family: ui-monospace,
+              Menlo, Consolas, monospace; font-size: 11px; }
+    .target { background: #fff3cd; border-left: 4px solid #f4a261;
+              padding: 10px 12px; border-radius: 0 4px 4px 0;
+              white-space: pre-wrap; font-family: ui-monospace,
+              Menlo, Consolas, monospace; font-size: 11px; }
+    .badge { display: inline-block; padding: 2px 8px;
+             border-radius: 10px; font-size: 11px;
+             font-weight: 600; margin-right: 4px; }
+    .badge.ok  { background: #2a9d8f; color: #fff; }
+    .badge.bad { background: #c0392b; color: #fff; }
+    .verb { display: inline-block; padding: 4px 10px;
+            background: #2c3e50; color: #fff; border-radius: 4px;
+            font-weight: 600; font-size: 12px; }
+    details { margin-top: 8px; }
+    summary { cursor: pointer; color: #3a86ff; font-size: 11px; }
+    pre.diag { background: #f5f5f5; padding: 8px;
+                font-size: 10.5px; border-radius: 4px;
+                white-space: pre-wrap; max-height: 320px;
+                overflow-y: auto; }
+    </style></head><body>
+<h1>SFT training pairs — 3 variants on the same frame</h1>
+<div class="ban">Each variant shows the STUDENT PROMPT (blue, what the model sees at training and inference) and the TEACHER RESPONSE (orange, what the model is trained to emit). The teacher_prompt is foldable below — it is the labeller's shortcut input, never seen by the student.</div>
+<div class="grid-top">
+<div><img src="file:///C%3A/Users/z0502/Desktop/cs231n/navlm_v2/data/cities/zurich/frames/bahnhofstrasse/frame_00087.jpg"><div id="map" style="margin-top:8px;"></div></div>
+<div class="info"><table><tr><td>frame</td><td>bahnhofstrasse/frame_00087</td></tr><tr><td>destination</td><td>Niederdorfstrasse (下村街)</td></tr>
+<tr><td>heading (true)</td><td><b>0°</b></td></tr><tr><td>route 1st-seg bearing</td><td><b>112°</b></td></tr><tr><td>route distance</td><td>498 m</td></tr><tr><td>1st segment length</td><td>22 m</td></tr><tr><td># segments</td><td>18</td></tr><tr><td>visible landmarks</td><td>Hauptbahnhof</td></tr><tr><td>GT verb</td><td><span class="verb">turn right</span></td></tr>
+</table></div></div>
+<section class="variant">
+<h2 class="given">GIVEN  &middot;  <span class="badge ok">format PASS</span> <span class="badge ok">direction PASS</span>  &middot;  verb: <span class="verb">turn right</span> vs GT <span class="verb">turn right</span></h2>
+<div class="row">
+<div class="col"><h3>STUDENT PROMPT (input — what the model sees)</h3><div class="input">You are at this location, facing 0° (north).
+
+Destination: Niederdorfstrasse (下村街), about 498 m walking distance.
+
+OSM walking route:
+  First segment heads 112° (east-southeast) for 22 m, then 17 more turns over a total of 498 m.
+
+Decide the next action verb.</div></div>
+<div class="col"><h3>TEACHER RESPONSE (target — what the model is trained to emit)</h3><div class="target">&lt;thinking&gt;
+I am facing 0° (north), and the route&#x27;s first segment heads 112° (east-southeast). This is a clockwise rotation of 112°, which is best described as turning right.
+&lt;/thinking&gt;
+&lt;answer&gt;
+Notice you are inside the Hauptbahnhof with its shops and signs. Turn right.
+&lt;/answer&gt;</div></div>
+</div>
+<details><summary>diagnostic: teacher_prompt (sent to Gemini, NOT seen by student)</summary><pre class="diag">You are at this location, facing 0° (north).
+
+Destination: Niederdorfstrasse (下村街), about 498 m walking distance.
+
+OSM walking route:
+  First segment heads 112° (east-southeast) for 22 m, then 17 more turns over a total of 498 m.
+
+Visible landmarks at this spot:
+  Hauptbahnhof
+
+Decide the next action verb. In &lt;thinking&gt;, REASON USING the given heading number and the route&#x27;s first-segment bearing.</pre></details>
+</section>
+<section class="variant">
+<h2 class="derived">DERIVED  &middot;  <span class="badge ok">format PASS</span> <span class="badge ok">direction PASS</span>  &middot;  verb: <span class="verb">turn right</span> vs GT <span class="verb">turn right</span></h2>
+<div style="margin-top:6px;font-size:12px;"><b>Heading derivation:</b> estimated <span class="verb">0°</span> vs true <span class="verb">0°</span> &mdash; ✓ within 22.5°</div>
+<div class="row">
+<div class="col"><h3>STUDENT PROMPT (input — what the model sees)</h3><div class="input">Destination: Niederdorfstrasse (下村街), about 498 m walking distance.
+
+OSM walking route:
+  First segment heads 112° (east-southeast) for 22 m, then 17 more turns over a total of 498 m.
+
+The walker&#x27;s heading is NOT provided. In &lt;thinking&gt;, FIRST infer the heading from the photo by stating &quot;I estimate I&#x27;m facing X° (direction)&quot;, THEN reason about the route and verb.</div></div>
+<div class="col"><h3>TEACHER RESPONSE (target — what the model is trained to emit)</h3><div class="target">&lt;thinking&gt;
+STEP 1 (visual cues): I can see I am in a large underground concourse, which is part of the Hauptbahnhof. There are shopfronts like &quot;New York Beginning&quot; and blue and green directional signs with train pictograms pointing towards stairs and escalators.
+STEP 2 (apply geography): These signs and the general environment confirm I am inside Zurich Hauptbahnhof, likely in the ShopVille underground shopping area. The station&#x27;s main axis is roughly north-south. The prompt states the current heading is north, which means I am facing away from the city center and towards the northern exits of the station complex.
+STEP 3 (estimated heading): I estimate I&#x27;m facing 0° (North).
+STEP 4 (route comparison): My current heading is 0° (North). The first segment of the route to Niederdorfstrasse is 112° (East-Southeast). This requires a clockwise turn of about 112 degrees, which is best described as a right turn.
+&lt;/thinking&gt;
+&lt;answer&gt;
+Notice the signs for the Hauptbahnhof platforms on your right. Turn right.
+&lt;/answer&gt;</div></div>
+</div>
+<details><summary>diagnostic: teacher_prompt (sent to Gemini, NOT seen by student)</summary><pre class="diag">You are at this location, facing 0° (north).
+
+Destination: Niederdorfstrasse (下村街), about 498 m walking distance.
+
+OSM walking route:
+  First segment heads 112° (east-southeast) for 22 m, then 17 more turns over a total of 498 m.
+
+Visible landmarks at this spot:
+  Hauptbahnhof
+
+Decide the next action verb. In &lt;thinking&gt;, WRITE AS IF you derived the heading from the photo: start with &quot;I estimate I&#x27;m facing X° (direction).&quot; using the GIVEN heading value X. Then reason about the route and verb. Cite visual cues from the photo that support the heading estimate (shop signs, tram direction, sun position, recognisable buildings).</pre></details>
+</section>
+<section class="variant">
+<h2 class="implicit">IMPLICIT  &middot;  <span class="badge ok">format PASS</span> <span class="badge ok">direction PASS</span>  &middot;  verb: <span class="verb">turn right</span> vs GT <span class="verb">turn right</span></h2>
+<div class="row">
+<div class="col"><h3>STUDENT PROMPT (input — what the model sees)</h3><div class="input">Destination: Niederdorfstrasse (下村街), about 498 m walking distance.
+
+OSM walking route:
+  First segment heads 112° (east-southeast) for 22 m, then 17 more turns over a total of 498 m.
+
+The walker&#x27;s heading is NOT provided. Reason from visual cues in the photo about where the destination is and which verb is needed. Do NOT state a numeric heading.</div></div>
+<div class="col"><h3>TEACHER RESPONSE (target — what the model is trained to emit)</h3><div class="target">&lt;thinking&gt;
+STEP 1 (what I see): The scene is an underground concourse inside the Hauptbahnhof, with shops, travelers, and directional signs. No other listed landmarks are visible from this interior viewpoint.
+STEP 2 (where the destination is relative to me): The destination, Niederdorfstrasse, is outside the station and to my right. To exit the station in the correct direction, I must first turn towards the appropriate exit.
+STEP 3 (verb decision): Therefore the walker should turn right.
+&lt;/thinking&gt;
+&lt;answer&gt;
+There is no clear landmark in front of you.
+Turn right.</div></div>
+</div>
+<details><summary>diagnostic: teacher_prompt (sent to Gemini, NOT seen by student)</summary><pre class="diag">You are at this location, facing 0° (north).
+
+Destination: Niederdorfstrasse (下村街), about 498 m walking distance.
+
+OSM walking route:
+  First segment heads 112° (east-southeast) for 22 m, then 17 more turns over a total of 498 m.
+
+Visible landmarks at this spot:
+  Hauptbahnhof
+
+Decide the next action verb. In &lt;thinking&gt;, write 1-2 short sentences of PURELY VISUAL reasoning. Do NOT mention any numeric heading (neither given nor estimated). Describe where the destination is in the photo using visible cues, then state the verb.</pre></details>
+</section>
+</body></html>
+<script>
+(function() {
+  const map = L.map("map").fitBounds([[47.3759772, 8.539321099999999], [47.37909909999999, 8.5444258]]);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(map);
+  L.circleMarker([47.37869909999999, 8.5397211], {
+    radius: 8, color: "#1f77b4", fillColor: "#1f77b4", fillOpacity: 0.7
+  }).addTo(map).bindPopup("WALKER · heading 0°");
+  L.polyline([[47.37869909999999, 8.5397211], [47.37892432522521, 8.5397211]],
+             {color: "#1f77b4", weight: 4, opacity: 0.9}).addTo(map);
+  L.polyline([[47.37869909999999, 8.5397211], [47.37862479999999, 8.5399881], [47.3784348, 8.5407172], [47.3782885, 8.5411961], [47.3779333, 8.5414041], [47.3777517, 8.5414326], [47.3773125, 8.5412734], [47.3772219, 8.5414569], [47.37714890000001, 8.542068], [47.3770896, 8.5421318], [47.3769981, 8.5431467], [47.37685990000001, 8.5432012], [47.37683959999999, 8.543319], [47.37680240000001, 8.543416], [47.376768399999996, 8.5435603], [47.376724900000006, 8.5435601], [47.376596899999996, 8.5440258], [47.3765283, 8.544013], [47.3763772, 8.543946]],
+             {color: "#d62728", weight: 5, opacity: 0.7,
+              dashArray: '6,4'}).addTo(map)
+    .bindPopup("OSM route — 18 segment(s)");
+  L.marker([47.3763772, 8.543946]).addTo(map)
+    .bindPopup("DESTINATION · Niederdorfstrasse");
+})();
+</script>

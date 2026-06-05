@@ -21,7 +21,7 @@ used in this project. It catalogues:
 | Tool | Vendor / model | Role | Where used |
 |---|---|---|---|
 | **Claude Code** | Anthropic, `claude-opus-4-7` (interactive CLI) | Software-engineering assistance: writing Python scripts, debugging Modal/PowerShell issues, generating matplotlib figures, drafting documentation, proofreading | Used throughout — see §2 for per-component breakdown |
-| **Gemini Pro 2.5** | Google DeepMind (Vertex AI) | **Method-level use, not writing aid**: teacher model for SFT data annotation (3-pass per variant). Fully documented in REPORT.md §3.3 as part of the experimental method. | `src/a2_annotate.py`, 3 GCP service-account projects |
+| **Gemini Pro 2.5** | Google DeepMind (Vertex AI) | **Method-level use, not writing aid**: teacher model for SFT data annotation (3-pass per variant). Fully documented in material.md §3.3 as part of the experimental method. | `src/a2_annotate.py`, 3 GCP service-account projects |
 
 **Not used**: ChatGPT/GPT-4, Copilot, Gemini for writing/coding,
 DeepSeek, Llama, any other AI service for code or text generation.
@@ -332,7 +332,7 @@ number in the manual came from running the code; the AI only
 formatted and contextualised. Human-reviewed and frequently edited
 throughout the project.
 
-**`docs/REPORT.md`** (current file's sibling) — AI-drafted from the
+**`docs/material.md`** (current file's sibling) — AI-drafted from the
 manual content, restructured to match the CS231n guidelines.
 Mathematical formalisation in §1 and §3 was AI-authored from
 verbal/code descriptions of the algorithm. Citations were AI-
@@ -417,7 +417,7 @@ src/a2_train_modal.py                 yes            loss-mask, rank sweep
 src/a2_viz_*.py (5 files)             yes            QC content
 src/gemini_api.py (modifications)     yes            auth refactor
 viz/a2_*.html (5 files)               yes (rendered) -
-docs/REPORT.md                        yes (drafted)  results, claims
+docs/material.md                        yes (drafted)  results, claims
 DEV_MANUAL_v2.md                      yes (drafted)  all decisions
 docs/figures/*.png                    yes (generated)figure design
 docs/qualitative_examples.md          yes (extracted)-
@@ -447,10 +447,10 @@ The author affirms that:
    tested, and integrated by the human author.
 3. Gemini Pro 2.5's role as the SFT teacher model is a methodological
    choice (analogous to using a pretrained backbone) and is
-   documented in REPORT.md §3.3 and DEV_MANUAL §18, not as a writing
+   documented in material.md §3.3 and DEV_MANUAL §18, not as a writing
    aid.
 4. No AI-generated text was passed off as the human author's
-   independent prose without disclosure; the REPORT.md was AI-
+   independent prose without disclosure; the material.md was AI-
    drafted, human-reviewed, and revised before submission.
 5. The full conversation transcript (38.6 MB JSONL) is preserved as
    evidence at the paths in §1 above, available on request.

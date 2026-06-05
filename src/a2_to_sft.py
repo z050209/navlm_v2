@@ -66,6 +66,17 @@ def main():
     ap.add_argument("--val-frac", type=float, default=0.10)
     ap.add_argument("--test-frac", type=float, default=0.10)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--strip-visible", action="store_true",
+                    help="strip the 'Visible landmarks at this spot: ...' "
+                         "block from the student prompt. The teacher still "
+                         "saw V at annotation time (so its answers may name "
+                         "landmarks), but the student is trained / evaluated "
+                         "WITHOUT V — forcing it to recognise landmarks "
+                         "visually from the image itself.")
+    ap.add_argument("--suffix", default="",
+                    help="filename suffix for the output splits "
+                         "(e.g. '_nov' produces a2_<v>_train_nov.jsonl etc.) "
+                         "so a new rerun does not overwrite earlier files.")
     ap.add_argument("--only-pass", action="store_true",
                     help="keep only rows where direction_pass==True "
                          "(cleaner SFT but smaller; default: keep all "
@@ -93,9 +104,25 @@ def main():
         print(f"[to_sft] after direction_pass filter (--only-pass): "
               f"{len(rows):,}")
 
-    sys_prompt_text = system_prompt(args.variant)
+    sys_prompt_text = system_prompt(args.variant,
+                                     strip_visible=args.strip_visible)
+
+    # Pattern stripped when --strip-visible:
+    #   "Visible landmarks at this spot:\n  Limmatquai, Münsterbrücke\n\n"
+    #   "Visible landmarks at this spot:\n  (no notable landmarks listed)\n\n"
+    # Compile once.
+    import re as _re
+    _vis_re = _re.compile(
+        r"Visible landmarks at this spot:\n\s+[^\n]+\n\n", _re.MULTILINE)
+
+    def _strip_visible(prompt):
+        new, n = _vis_re.subn("", prompt)
+        return new
 
     def _to_qwen_row(r):
+        student_prompt = r["student_prompt"]
+        if args.strip_visible:
+            student_prompt = _strip_visible(student_prompt)
         return {
             "image_rel": f"{r['video']}/{r['frame_id']}.jpg",
             "messages": [
@@ -104,7 +131,7 @@ def main():
                 {"role": "user",
                  "content": [
                      {"type": "image"},
-                     {"type": "text", "text": r["student_prompt"]},
+                     {"type": "text", "text": student_prompt},
                  ]},
                 {"role": "assistant",
                  "content": [{"type": "text", "text": r["response"]}]},
@@ -151,7 +178,7 @@ def main():
 
     for split_name, split_rows in (("train", train), ("val", val),
                                     ("test", test)):
-        out = out_dir / f"a2_{args.variant}_{split_name}.jsonl"
+        out = out_dir / f"a2_{args.variant}_{split_name}{args.suffix}.jsonl"
         with out.open("w", encoding="utf-8") as f:
             for r in split_rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")

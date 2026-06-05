@@ -136,8 +136,19 @@ STEP 3 (verb decision): Therefore the walker should [verb].
 }
 
 
-def system_prompt(variant: str) -> str:
-    return SYSTEM_PROMPT_COMMON_HEAD + "\n" + THINKING_RULE[variant]
+def system_prompt(variant: str, strip_visible: bool = False) -> str:
+    """If strip_visible=True (no Visible-landmarks list in the user prompt),
+    rewrite the two lines that reference the list so the system prompt
+    stays consistent with what the user prompt actually contains."""
+    head = SYSTEM_PROMPT_COMMON_HEAD
+    if strip_visible:
+        head = head.replace(
+            "Reference only landmarks from the \"Visible landmarks\" list.",
+            "Reference only landmarks you can directly see in the image.")
+        head = head.replace(
+            "  - Naming places NOT in the Visible landmarks list.",
+            "  - Naming places NOT visible in the image (no hallucinated landmarks).")
+    return head + "\n" + THINKING_RULE[variant]
 
 
 def _shared_body(route_row, visible_landmarks):

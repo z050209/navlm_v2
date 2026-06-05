@@ -3478,7 +3478,117 @@ inspect the relevant section above and the file at the listed line.
 
 ---
 
-## 26. Glossary
+## 26. V-stripped rerun (no Visible landmarks in student prompt)
+
+**Motivation.** The default pipeline injects a "Visible landmarks at
+this spot: X, Y, Z" block into the student prompt — names that came
+from the upstream VLM scan, alias-folded to the 21-attraction
+vocabulary. This *helps the model name landmarks in its answer* but
+arguably leaks visual information ($V$ acts as a text-side landmark
+recogniser, partially substituting for the visual recognition the
+"purely visual" `implicit` variant is supposed to require).
+
+**Design.** For honor-code-clean compass-free + landmark-free
+training, we re-ran the entire SFT + rank sweep with `V` stripped
+from the student prompt. The teacher (Gemini Pro 2.5) STILL saw `V`
+at annotation time — its `<answer>` may still name landmarks
+("Look at the Münsterbrücke ahead. Continue ahead.") — but the
+student is trained AND evaluated without ever being told what
+landmarks are nearby. It must visually recognise landmarks from the
+image alone.
+
+**Implementation.** New CLI flag `--strip-visible` on
+`src/a2_to_sft.py` removes the block via regex; the system prompt's
+two references to "the Visible landmarks list" are also rewritten
+to "landmarks you can directly see in the image" via the
+`system_prompt(variant, strip_visible=True)` branch in
+`src/a2_annotate.py:139-152`. A `--suffix _nov` flag throughout the
+pipeline (a2_to_sft, a2_train_modal, a2_eval_modal) keeps the new
+files / adapters / SFT splits in parallel namespaces so the
+original results are preserved:
+
+```
+Original namespace:           New _nov namespace:
+data/sft/a2_given_train.jsonl data/sft/a2_given_train_nov.jsonl
+/sft/a2_given_train.jsonl     /sft/a2_given_train_nov.jsonl
+/ckpts/lora_a2_given_r4_e3/   /ckpts/lora_a2_given_r4_e5_nov/
+eval_pull/ablation_20260602/  eval_pull/nov_20260604_HHMMSS/
+```
+
+### Student-prompt examples (V-stripped, one per variant)
+
+#### `given` (heading shown to student, V hidden)
+```
+You are at this location, facing 0° (north).
+
+Destination: Niederdorfstrasse (下村街), about 498 m walking distance.
+
+OSM walking route:
+  First segment heads 112° (east-southeast) for 22 m, then 17 more
+  turns over a total of 498 m.
+
+Decide the next action verb.
+```
+
+#### `derived` (heading hidden, V hidden, 4-step CoT instruction)
+```
+Destination: Niederdorfstrasse (下村街), about 498 m walking distance.
+
+OSM walking route:
+  First segment heads 112° (east-southeast) for 22 m, then 17 more
+  turns over a total of 498 m.
+
+The walker's heading is NOT provided. In <thinking>, FIRST infer the
+heading from the photo by stating "I estimate I'm facing X°
+(direction)", THEN reason about the route and verb.
+```
+
+#### `implicit` (heading hidden, V hidden, purely-visual instruction)
+```
+Destination: Niederdorfstrasse (下村街), about 498 m walking distance.
+
+OSM walking route:
+  First segment heads 112° (east-southeast) for 22 m, then 17 more
+  turns over a total of 498 m.
+
+The walker's heading is NOT provided. Reason from visual cues in the
+photo about where the destination is and which verb is needed. Do
+NOT state a numeric heading.
+```
+
+Notice no `Visible landmarks at this spot:` block — gone in all 3.
+The model now has: image + destination + route-bearing line + the
+variant-specific instruction. Everything else (system prompt, image,
+route info) is identical to the original pipeline.
+
+**Interactive viz**: `viz/a2_viz_sft_nov.html` — side-by-side
+comparison of one (frame, dest) pair across the 3 variants, with the
+V-stripped student prompt on the left and the teacher's response on
+the right.
+
+### Execution log (2026-06-04, in flight at time of writing)
+
+Plan:
+1. Regenerate SFT with `--strip-visible --suffix _nov` (DONE — 9 files,
+   given 2,561 / derived 2,127 / implicit 2,137 train rows × 3 variants)
+2. Upload 9 `_nov` SFT files to Modal (DONE)
+3. Train 9 adapters × 5 epochs in parallel, with `save_total_limit=5`
+   so all 5 epoch checkpoints are preserved (in flight, ETA ~100 min)
+4. Launch 3 zero-shot evals in parallel with the same 9 trainings
+   (in flight, ETA ~30 min)
+5. After trainings finish: launch 18 trained-evals (9 × e3 from
+   intermediate checkpoint + 9 × e5 from best-saved adapter)
+6. Pull + score + regenerate paper figures + patch this manual with
+   the V-stripped numbers as a sibling table to §17's original table
+
+Expected wall time: ~2.5 h total. Cost: ~$80 Modal.
+
+Headline numbers + comparison vs V-included results will be filled
+in here once eval pulls land.
+
+---
+
+## 27. Glossary
 
 | Term | Definition |
 |---|---|

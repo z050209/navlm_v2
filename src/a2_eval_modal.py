@@ -90,7 +90,8 @@ def evaluate_condition(condition: str,
                         adapter: str = "",
                         max_new_tokens: int = 4096,
                         temperature: float = 0.0,
-                        limit: int = 0) -> dict:
+                        limit: int = 0,
+                        suffix: str = "") -> dict:
     """Run inference for one condition on its test split."""
     import time
     import torch
@@ -106,7 +107,7 @@ def evaluate_condition(condition: str,
     if is_trained and not adapter:
         adapter = DEFAULT_ADAPTER[condition]
 
-    test_path = Path(f"/data/sft/a2_{variant}_test.jsonl")
+    test_path = Path(f"/data/sft/a2_{variant}_test{suffix}.jsonl")
     assert test_path.exists(), (
         f"{test_path} not on navlm-data — upload it first")
     rows = [json.loads(l) for l in test_path.open(encoding="utf-8")
@@ -217,13 +218,14 @@ def main(condition: str = "zs-heading-given",
          run_id: str = "",
          adapter: str = "",
          max_new_tokens: int = 4096,
-         limit: int = 0):
+         limit: int = 0,
+         suffix: str = ""):
     import datetime as dt
     if not run_id:
         run_id = dt.datetime.now().strftime("%Y%m%d_%H%M%S") + "_a2"
     result = evaluate_condition.remote(
         condition=condition, run_id=run_id, adapter=adapter,
-        max_new_tokens=max_new_tokens, limit=limit)
+        max_new_tokens=max_new_tokens, limit=limit, suffix=suffix)
     print("=== EVAL DONE ===")
     print(json.dumps(result, indent=2))
     print(f"\nPull results:  modal volume get navlm-eval "

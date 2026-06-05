@@ -46,6 +46,9 @@ def _node_latlon(G, node_id, to_latlon):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     ap.add_argument("--out", default="viz/a2_viz_sft.html")
+    ap.add_argument("--strip-visible", action="store_true",
+                    help="Show the V-stripped student prompts (matching "
+                         "the SFT data when --strip-visible was used).")
     args = ap.parse_args()
 
     # Load the 3 single-row variant files
@@ -220,9 +223,17 @@ def main():
             out.append(derived_h_line)
 
         out.append('<div class="row">')
+        # If --strip-visible, hide the "Visible landmarks at this spot:" block
+        # from the displayed student_prompt (matching what the SFT pipeline does).
+        display_prompt = a["student_prompt"]
+        if args.strip_visible:
+            import re as _re
+            display_prompt = _re.sub(
+                r"Visible landmarks at this spot:\n\s+[^\n]+\n\n", "",
+                display_prompt, flags=_re.MULTILINE)
         out.append(
             f'<div class="col"><h3>STUDENT PROMPT (input — what the model sees)</h3>'
-            f'<div class="input">{html.escape(a["student_prompt"])}</div></div>')
+            f'<div class="input">{html.escape(display_prompt)}</div></div>')
         out.append(
             f'<div class="col"><h3>TEACHER RESPONSE (target — what the model is trained to emit)</h3>'
             f'<div class="target">{html.escape(a["response"])}</div></div>')
