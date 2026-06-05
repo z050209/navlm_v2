@@ -3583,8 +3583,140 @@ Plan:
 
 Expected wall time: ~2.5 h total. Cost: ~$80 Modal.
 
-Headline numbers + comparison vs V-included results will be filled
-in here once eval pulls land.
+### 26.1 Headline results — V-stripped 21-condition table (filled 2026-06-05)
+
+Run: `eval_pull/nov_20260604_223758/`. All 21 conditions (3 variants ×
+{zs, r4-e3, r4-e5, r8-e3, r8-e5, r16-e3, r16-e5}) now have a
+per-sample.jsonl pulled. Scored locally with `src/a2_score.py`.
+
+PASS rate (= `format_pass AND direction_pass`; `first_verb == gt_verb`).
+n is the test-split size for that variant: given 320 / derived 265 /
+implicit 267 — all variants are `--only-pass` filtered (frames that
+were not both format-pass and direction-pass in the teacher annotation
+are dropped from train/val/test).
+
+| variant   | zero-shot | r4-e3 | r4-e5 | r8-e3 | r8-e5 | r16-e3 | r16-e5 |
+|-----------|----------:|------:|------:|------:|------:|-------:|-------:|
+| given     | 49.7 %    | 98.1  | 97.5  | 97.5  | 98.8  | 98.8   | 98.8   |
+| derived   | 30.2 %    | 58.9  | 60.8  | 60.0  | 61.5  | **67.2** | 66.4   |
+| implicit  | 25.1 %    | 53.6  | 54.7  | 52.8  | 56.6  | 56.9   | **62.2** |
+
+Observations:
+- `given` plateaus by r=4 e=3 — heading really is the only signal the
+  model needs; bigger rank or longer training adds <1 pp. The 1.2 pp
+  gap between best r=4 (98.1 %) and best r=16 (98.8 %) is at the noise
+  floor.
+- `derived` peaks at **r=16, e=3 (67.2 %)** — the e=5 checkpoint
+  slightly regresses (66.4 %), consistent with mild over-fit. The rank
+  ladder is monotonic at e=3: r4 (58.9) < r8 (60.0) < r16 (67.2).
+- `implicit` keeps climbing through e=5; the best condition is r=16,
+  e=5 at **62.2 %**. Unlike `derived`, the model has no scaffold ("FIRST
+  estimate heading") and benefits from the extra epochs.
+- SFT lifts the two visual-only variants by ~30 pp; the absolute ceiling
+  for purely visual direction reasoning on this dataset is around the
+  60–65 % range — bounded by what DINOv2-recovered heading and OSM-snap
+  GPS allow as upper-bound label quality.
+
+### 26.2 Heading-angle error (derived variant)
+
+The derived variant explicitly asks the model to state `"I estimate
+I'm facing X°"` inside `<thinking>`. We parse that integer back out and
+compare to the GT heading from `heading_v2` (§7); circular |err| in
+degrees.
+
+| condition          | n emit / n total | mean &#124;err&#124; | median | within 22.5° | within 45° |
+|--------------------|------------------|---------------------:|-------:|-------------:|-----------:|
+| zs-derived         | 57 / 265 (22 %)  | 79.8°               | 90.0° | 33.3 %       | 33.3 %     |
+| derived-r16-e3 (best PASS) | 265 / 265 (100 %) | 42.6°       | 0.0°  | 62.6 %       | 64.9 %     |
+| derived-r16-e5     | 265 / 265 (100 %) | 43.9°               | 0.0°  | 63.8 %       | 65.3 %     |
+
+What this says:
+- Zero-shot Qwen rarely even emits the heading sentence (22 % compliance)
+  and when it does, |err| is essentially random (mean 80° on a [0°, 180°]
+  circular range).
+- LoRA-trained derived emits the line on every single sample, and the
+  **median error is 0°** — i.e. the model gets the heading exactly right
+  more than half the time. The mean is dragged up to ~43° by the long
+  tail of catastrophically-wrong samples (the 35 % outside the 45° band).
+- Compare to the verb-flip threshold of 22.5° (verbs are 90° bins;
+  half-bin = 22.5°): 62.6 % of trained-derived samples are within that
+  threshold, which is exactly the ceiling on direction_pass (compare to
+  derived-r16-e3 PASS = 67.2 % — a few percent above thanks to the
+  visual-route alignment in the `<answer>` step compensating for
+  borderline heading errors).
+
+Figure: `docs/figures/fig3_heading_scatter.png` — left panel
+(zero-shot) is mostly orange/red and emits sparsely; right panel
+(derived-r16-e5) is a tight green diagonal at 0/90/180/270 with a
+small cloud of off-axis errors. Bands at ±22.5° mark the verb-flip
+threshold.
+
+### 26.3 Derived-variant PASS by route distance and destination
+
+The derived test split has 265 samples spanning destination routes
+from 100 m to >1 km. We bin PASS rate by the (multi-target route
+distance per frame) and by destination attraction; rows below come
+from `derived-r16-e3` (the best derived condition).
+
+**By walking-route distance:**
+
+| route distance | n   | n PASS | PASS % |
+|----------------|----:|-------:|-------:|
+| 0–100 m        |   0 |     0  | —      |
+| 100–200 m      |   4 |     2  | 50.0 % |
+| 200–400 m      |  63 |    42  | 66.7 % |
+| 400–800 m      | 107 |    74  | 69.2 % |
+| 800 m+         |  91 |    60  | 65.9 % |
+
+PASS is roughly flat at 65–70 % across the long-route bins; the very
+short bins are noisy due to low n. Distance does not appear to be the
+dominant difficulty axis once the model has a heading and a route
+bearing — the difficulty comes from *visual ambiguity* of the
+current frame, not from route length.
+
+**By destination attraction** (top 12 by sample count):
+
+| destination       | n  | PASS % |
+|-------------------|---:|-------:|
+| Niederdorfstrasse | 18 | 83.3 % |
+| Bahnhofstrasse    | 16 | 81.2 % |
+| St. Peter         | 15 | 80.0 % |
+| Landesmuseum      | 16 | 75.0 % |
+| Lindenhof         | 15 | 73.3 % |
+| Rathaus           | 17 | 70.6 % |
+| Helmhaus          | 17 | 70.6 % |
+| Limmatquai        | 19 | 63.2 % |
+| Lake Zurich       | 13 | 61.5 % |
+| Limmat river      | 20 | 55.0 % |
+| Bürkliplatz       | 12 | 50.0 % |
+| Grossmünster      | 13 | 46.2 % |
+
+The two clear patterns:
+
+1. **Linear / well-aligned destinations score highest** (>80 %):
+   Niederdorfstrasse, Bahnhofstrasse and St. Peter are all
+   single-axis targets — once the model decides which direction
+   *along* the street it should be facing, the verb falls out
+   directly.
+2. **Multi-target / diffuse destinations score lowest** (45–55 %):
+   Grossmünster, Bürkliplatz, Limmat river and Lake Zurich all
+   resolve to multiple candidate snapping points on the OSM walking
+   graph. The GT verb for these is sensitive to which target
+   ((multi)-type with the *furthest* member chosen by routes.jsonl)
+   is the canonical one — the model has no way to know that in the
+   prompt. The fig5 failure case (looks_perfect/frame_02681 → Lake
+   Zurich, "turn right" but predicted "turn around") is an instance
+   of this difficulty.
+
+Figures: `docs/figures/fig3b_derived_err_by_distance.png` and
+`docs/figures/fig3c_derived_err_by_attraction.png`.
+
+All five updated figures (`fig1_rank_saturation`,
+`fig2_zs_vs_trained`, `fig3_heading_scatter`,
+`fig3b_derived_err_by_distance`, `fig3c_derived_err_by_attraction`)
+were regenerated from the V-stripped run via
+`python -m src.a2_figures_nov`. The script also writes a
+companion text dump to `docs/figures/_nov_stats.txt`.
 
 ---
 

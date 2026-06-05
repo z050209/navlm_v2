@@ -136,12 +136,25 @@ def evaluate_condition(condition: str,
 
     # When an adapter is loaded, include its rank/epoch suffix in the
     # output dir so multi-rank sweeps don't overwrite each other.
-    # e.g. /eval/<run_id>/trained-heading-given_r4_e3/per_sample.jsonl
+    # We look at the FULL adapter path so that intermediate checkpoints
+    # like /ckpts/lora_a2_given_r4_e5_nov/_trainer/checkpoint-963 also
+    # get a unique suffix that includes the rank.
     import re as _re
     suffix = ""
     if is_trained and adapter:
-        m = _re.search(r"_r\d+_e\d+", Path(adapter).name)
-        suffix = m.group(0) if m else "_" + Path(adapter).name
+        # 1. rank+epoch from the parent adapter dir name (e.g. "_r4_e5")
+        rk = ""
+        rk_match = _re.search(r"_r\d+_e\d+", adapter)
+        if rk_match:
+            rk = rk_match.group(0)
+        # 2. checkpoint number from the leaf (when intermediate)
+        ck = ""
+        ck_match = _re.search(r"checkpoint-(\d+)", adapter)
+        if ck_match:
+            ck = "_ckpt" + ck_match.group(1)
+        suffix = rk + ck
+        if not suffix:
+            suffix = "_" + Path(adapter).name
     out_dir = Path(f"/eval/{run_id}/{condition}{suffix}")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "per_sample.jsonl"
