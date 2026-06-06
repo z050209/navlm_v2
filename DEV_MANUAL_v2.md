@@ -3718,6 +3718,71 @@ were regenerated from the V-stripped run via
 `python -m src.a2_figures_nov`. The script also writes a
 companion text dump to `docs/figures/_nov_stats.txt`.
 
+### 26.4 Paper-table: representative destinations + coarser distance bands
+
+A condensed view for the report — best derived model (LoRA r=16, e=3)
+on the V-stripped test split, n = 265. Distance bands are coarser
+than §26.3's 5-bucket version so the table fits a single column in
+the paper.
+
+| Group              |   n |  PASS % | Error % |
+|--------------------|----:|--------:|--------:|
+| Lake Zurich        |  13 |   61.5  |   38.5  |
+| Münsterbrücke      |   6 |   66.7  |   33.3  |
+| Fraumünster        |   9 |   88.9  |   11.1  |
+| Münsterhof         |   5 |   40.0  |   60.0  |
+| Hauptbahnhof       |   9 |   66.7  |   33.3  |
+| Near, <500 m       |  96 |   67.7  |   32.3  |
+| Mid, 500–1000 m    | 106 |   64.2  |   35.8  |
+| Far, >1000 m       |  63 |   71.4  |   28.6  |
+
+LaTeX version (for the paper):
+
+```latex
+\begin{table}[t]
+\centering\small\setlength{\tabcolsep}{3pt}\renewcommand{\arraystretch}{1.05}
+\begin{tabular}{@{}lcc@{}}
+\hline
+Group & PASS & Error rate \\
+\hline
+Lake Zurich      & 61.5 & 38.5 \\
+Münsterbrücke    & 66.7 & 33.3 \\
+Fraumünster      & 88.9 & 11.1 \\
+Münsterhof       & 40.0 & 60.0 \\
+Hauptbahnhof     & 66.7 & 33.3 \\
+\hline
+Near, $<500$m    & 67.7 & 32.3 \\
+Mid, 500--1000m  & 64.2 & 35.8 \\
+Far, $>1000$m    & 71.4 & 28.6 \\
+\hline
+\end{tabular}
+\caption{VLM PASS breakdown by representative destinations and
+distance bands. Best derived model (LoRA r=16, e=3) on the
+V-stripped test split. Values are percentages.}
+\label{tab:error_breakdown}
+\end{table}
+```
+
+Two read-outs of this table:
+
+1. **Distance is not the dominant difficulty axis.** Error stays in a
+   narrow 28–36 % band across all three distance buckets, and the
+   Far-bucket (>1 km) actually has the *lowest* error (28.6 %). The
+   model is not getting worse with longer routes — if anything,
+   longer routes have less ambiguity in the first-segment bearing.
+2. **Destination geometry dominates.** Single-spire targets like
+   Fraumünster score 88.9 % (one well-defined point on the map);
+   diffuse multi-target landmarks like Münsterhof and Lake Zurich
+   score 40–62 %. This is the same pattern the fig5 failure
+   illustrates: when the destination resolves to one OSM node, the
+   model gets it; when it resolves to several candidate snapping
+   points, the model has no way to pick the canonical one.
+
+⚠️ Caveat for the per-destination rows: n ∈ {5, 6, 9} → 95 % CIs are
+≈ ±18–20 pp; treat the per-destination ordering as illustrative
+rather than statistically tight. The distance-band rows (n ≈ 60–110)
+are much tighter (~±9 pp).
+
 ---
 
 ## 27. Glossary

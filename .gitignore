@@ -30,6 +30,9 @@ keys/
 # exception: paper figures live under docs/figures/ and SHOULD be tracked
 !docs/figures/
 !docs/figures/**
+# exception: supplementary bundle (HTML viewers + bundled image assets + transcript)
+!docs/supplementary/
+!docs/supplementary/**
 
 # checkpoints / model weights
 checkpoints/

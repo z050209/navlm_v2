@@ -1,0 +1,4106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-glyphicons.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
+    
+            <meta name="viewport" content="width=device-width,
+                initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+                #map_615c0912b3d8eef6eff611c98b03811d {
+                    position: relative;
+                    width: 100.0%;
+                    height: 100.0%;
+                    left: 0.0%;
+                    top: 0.0%;
+                }
+                .leaflet-container { font-size: 1rem; }
+            </style>
+
+            <style>html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            </style>
+
+            <style>#map {
+                position:absolute;
+                top:0;
+                bottom:0;
+                right:0;
+                left:0;
+                }
+            </style>
+
+            <script>
+                L_NO_TOUCH = false;
+                L_DISABLE_3D = false;
+            </script>
+
+        
+</head>
+<body>
+    
+    
+    <div style="position: fixed; bottom: 20px; left: 20px;
+                background: white; padding: 10px 14px; border-radius: 8px;
+                border: 1px solid #bbb; font: 12px sans-serif; z-index: 9999;
+                box-shadow: 0 2px 6px rgba(0,0,0,.15);">
+      <div style="font-weight:600;margin-bottom:6px;">
+        89 matched-cohort GPS spots
+      </div>
+      <div><span style="color:#c0392b">●</span> 8+ attractions visible</div>
+      <div><span style="color:#e67e22">●</span> 4-7 attractions</div>
+      <div><span style="color:#27ae60">●</span> 2-3 attractions</div>
+      <div><span style="color:#2980b9">●</span> 1 attraction (singleton)</div>
+      <div style="margin-top:6px;color:#888;">
+        circle size ∝ # of matched video frames at the pano
+      </div>
+      <div style="margin-top:4px;">
+        <span style="color:red;font-weight:600;">★</span>
+        canonical attraction GPS (21 total)
+      </div>
+    </div>
+    
+    
+            <div class="folium-map" id="map_615c0912b3d8eef6eff611c98b03811d" ></div>
+        
+</body>
+<script>
+    
+    
+            var map_615c0912b3d8eef6eff611c98b03811d = L.map(
+                "map_615c0912b3d8eef6eff611c98b03811d",
+                {
+                    center: [47.37, 8.541],
+                    crs: L.CRS.EPSG3857,
+                    ...{
+  "zoom": 15,
+  "zoomControl": true,
+  "preferCanvas": false,
+}
+
+                }
+            );
+
+            
+
+        
+    
+            var tile_layer_fa32a1bfb173e6a68739820355abe52a = L.tileLayer(
+                "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {
+  "minZoom": 0,
+  "maxZoom": 19,
+  "maxNativeZoom": 19,
+  "noWrap": false,
+  "attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors",
+  "subdomains": "abc",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_fa32a1bfb173e6a68739820355abe52a.addTo(map_615c0912b3d8eef6eff611c98b03811d);
+        
+    
+            var feature_group_5eb23b73a3c8718b22a612b8b14fcca0 = L.featureGroup(
+                {
+}
+            );
+        
+    
+            var marker_db5a85b7487cf1b6bdf9c60853a9db1f = L.marker(
+                [47.37018, 8.54425],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_f6335f2a9f85892086a99895172fe53b = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_5ea652c38e04e18aec8c9c215f1e2a6b = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_e4d09e7707a886b0a5397868ca0c5641 = $(`<div id="html_e4d09e7707a886b0a5397868ca0c5641" style="width: 100.0%; height: 100.0%;"><b>Grossmünster</b><br>大教堂<br>kind: church</div>`)[0];
+                popup_5ea652c38e04e18aec8c9c215f1e2a6b.setContent(html_e4d09e7707a886b0a5397868ca0c5641);
+            
+        
+
+        marker_db5a85b7487cf1b6bdf9c60853a9db1f.bindPopup(popup_5ea652c38e04e18aec8c9c215f1e2a6b)
+        ;
+
+        
+    
+    
+            marker_db5a85b7487cf1b6bdf9c60853a9db1f.bindTooltip(
+                `<div>
+                     Grossmünster (大教堂)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_db5a85b7487cf1b6bdf9c60853a9db1f.setIcon(icon_f6335f2a9f85892086a99895172fe53b);
+            
+    
+            var marker_cafe9d24dcacf87d4438c4d67748a195 = L.marker(
+                [47.37005, 8.54148],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_6179913483c769c39af2600e6b47661b = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_d7915b530f04d13c8e5aa77ad6822b93 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_f1eade5031b0f77320ebc3b2b442cf7e = $(`<div id="html_f1eade5031b0f77320ebc3b2b442cf7e" style="width: 100.0%; height: 100.0%;"><b>Fraumünster</b><br>圣母大教堂<br>kind: church</div>`)[0];
+                popup_d7915b530f04d13c8e5aa77ad6822b93.setContent(html_f1eade5031b0f77320ebc3b2b442cf7e);
+            
+        
+
+        marker_cafe9d24dcacf87d4438c4d67748a195.bindPopup(popup_d7915b530f04d13c8e5aa77ad6822b93)
+        ;
+
+        
+    
+    
+            marker_cafe9d24dcacf87d4438c4d67748a195.bindTooltip(
+                `<div>
+                     Fraumünster (圣母大教堂)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_cafe9d24dcacf87d4438c4d67748a195.setIcon(icon_6179913483c769c39af2600e6b47661b);
+            
+    
+            var marker_8587a125bfae5d2448433e4abd042641 = L.marker(
+                [47.37154, 8.54126],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_058bd10053f72c0b067ae735ba3f1d9b = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_9900f1075e06152be68341bf9f2902f7 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_78343068bb564cb98152adc8935816ac = $(`<div id="html_78343068bb564cb98152adc8935816ac" style="width: 100.0%; height: 100.0%;"><b>St. Peter</b><br>圣彼得教堂<br>kind: church</div>`)[0];
+                popup_9900f1075e06152be68341bf9f2902f7.setContent(html_78343068bb564cb98152adc8935816ac);
+            
+        
+
+        marker_8587a125bfae5d2448433e4abd042641.bindPopup(popup_9900f1075e06152be68341bf9f2902f7)
+        ;
+
+        
+    
+    
+            marker_8587a125bfae5d2448433e4abd042641.bindTooltip(
+                `<div>
+                     St. Peter (圣彼得教堂)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_8587a125bfae5d2448433e4abd042641.setIcon(icon_058bd10053f72c0b067ae735ba3f1d9b);
+            
+    
+            var marker_8710ee0c61875f652833ea2ccb325e67 = L.marker(
+                [47.371, 8.5436],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_434fd651cf3fdba4590249ed93043aee = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_99ff989a51db4d2a35dc09ee8218e5cd = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_5a1480ce0896b46f8a04639acd3e9e45 = $(`<div id="html_5a1480ce0896b46f8a04639acd3e9e45" style="width: 100.0%; height: 100.0%;"><b>Wasserkirche</b><br>水教堂<br>kind: church</div>`)[0];
+                popup_99ff989a51db4d2a35dc09ee8218e5cd.setContent(html_5a1480ce0896b46f8a04639acd3e9e45);
+            
+        
+
+        marker_8710ee0c61875f652833ea2ccb325e67.bindPopup(popup_99ff989a51db4d2a35dc09ee8218e5cd)
+        ;
+
+        
+    
+    
+            marker_8710ee0c61875f652833ea2ccb325e67.bindTooltip(
+                `<div>
+                     Wasserkirche (水教堂)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_8710ee0c61875f652833ea2ccb325e67.setIcon(icon_434fd651cf3fdba4590249ed93043aee);
+            
+    
+            var marker_d389340aea465b795f2881e9e86bf54b = L.marker(
+                [47.3728, 8.54149],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_c0f3a988c3f885ab850d6001a369fa46 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_9c4f8b55c42b321d4c8e4a0d6b0e10f9 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_4df4ca17db5965b6f34c10fd0d87bc6d = $(`<div id="html_4df4ca17db5965b6f34c10fd0d87bc6d" style="width: 100.0%; height: 100.0%;"><b>Lindenhof</b><br>林登霍夫山丘<br>kind: hill</div>`)[0];
+                popup_9c4f8b55c42b321d4c8e4a0d6b0e10f9.setContent(html_4df4ca17db5965b6f34c10fd0d87bc6d);
+            
+        
+
+        marker_d389340aea465b795f2881e9e86bf54b.bindPopup(popup_9c4f8b55c42b321d4c8e4a0d6b0e10f9)
+        ;
+
+        
+    
+    
+            marker_d389340aea465b795f2881e9e86bf54b.bindTooltip(
+                `<div>
+                     Lindenhof (林登霍夫山丘)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_d389340aea465b795f2881e9e86bf54b.setIcon(icon_c0f3a988c3f885ab850d6001a369fa46);
+            
+    
+            var marker_5dd1b7193863deead650e9b7d2d52fac = L.marker(
+                [47.37318, 8.54417],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_765010f1811f0592ea8b63e14c50e247 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_2087e1eb3adc237271113982f2e4276f = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_5b872076cc1dcfe6b657adec261917d4 = $(`<div id="html_5b872076cc1dcfe6b657adec261917d4" style="width: 100.0%; height: 100.0%;"><b>Niederdorfstrasse</b><br>下村街<br>kind: street</div>`)[0];
+                popup_2087e1eb3adc237271113982f2e4276f.setContent(html_5b872076cc1dcfe6b657adec261917d4);
+            
+        
+
+        marker_5dd1b7193863deead650e9b7d2d52fac.bindPopup(popup_2087e1eb3adc237271113982f2e4276f)
+        ;
+
+        
+    
+    
+            marker_5dd1b7193863deead650e9b7d2d52fac.bindTooltip(
+                `<div>
+                     Niederdorfstrasse (下村街)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_5dd1b7193863deead650e9b7d2d52fac.setIcon(icon_765010f1811f0592ea8b63e14c50e247);
+            
+    
+            var marker_e668eafb75b63ba3c30311bf85b28a73 = L.marker(
+                [47.37367, 8.53924],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_801b67b433b6b648f9ae52ccb8ecab9c = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_d9c388c447d7e56c4282125b34cc53f7 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_a49b3dc525bb7021669e2ab2e75f5d42 = $(`<div id="html_a49b3dc525bb7021669e2ab2e75f5d42" style="width: 100.0%; height: 100.0%;"><b>Bahnhofstrasse</b><br>班霍夫大街<br>kind: street</div>`)[0];
+                popup_d9c388c447d7e56c4282125b34cc53f7.setContent(html_a49b3dc525bb7021669e2ab2e75f5d42);
+            
+        
+
+        marker_e668eafb75b63ba3c30311bf85b28a73.bindPopup(popup_d9c388c447d7e56c4282125b34cc53f7)
+        ;
+
+        
+    
+    
+            marker_e668eafb75b63ba3c30311bf85b28a73.bindTooltip(
+                `<div>
+                     Bahnhofstrasse (班霍夫大街)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_e668eafb75b63ba3c30311bf85b28a73.setIcon(icon_801b67b433b6b648f9ae52ccb8ecab9c);
+            
+    
+            var marker_f49de28bdf2eaf519ed3541dfcff2d8f = L.marker(
+                [47.365, 8.545],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_18e14e4b6ec603bf2f714dfbd22765a3 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_e44c107b026c45f0608ff9af92cdc1de = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_e5df90f2f12c6ebdb9d9e60639a32562 = $(`<div id="html_e5df90f2f12c6ebdb9d9e60639a32562" style="width: 100.0%; height: 100.0%;"><b>Lake Zurich</b><br>苏黎世湖<br>kind: water</div>`)[0];
+                popup_e44c107b026c45f0608ff9af92cdc1de.setContent(html_e5df90f2f12c6ebdb9d9e60639a32562);
+            
+        
+
+        marker_f49de28bdf2eaf519ed3541dfcff2d8f.bindPopup(popup_e44c107b026c45f0608ff9af92cdc1de)
+        ;
+
+        
+    
+    
+            marker_f49de28bdf2eaf519ed3541dfcff2d8f.bindTooltip(
+                `<div>
+                     Lake Zurich (苏黎世湖)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_f49de28bdf2eaf519ed3541dfcff2d8f.setIcon(icon_18e14e4b6ec603bf2f714dfbd22765a3);
+            
+    
+            var marker_cc713840a9f27a5c24cea4adab27c3bb = L.marker(
+                [47.371, 8.542],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_300489bb042ed6448719d43b20523727 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_df49a16bb590a9eca22918fe2c1434df = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_191668a14d557e0e26c4c6d0a6729b02 = $(`<div id="html_191668a14d557e0e26c4c6d0a6729b02" style="width: 100.0%; height: 100.0%;"><b>Limmat river</b><br>利马特河<br>kind: water</div>`)[0];
+                popup_df49a16bb590a9eca22918fe2c1434df.setContent(html_191668a14d557e0e26c4c6d0a6729b02);
+            
+        
+
+        marker_cc713840a9f27a5c24cea4adab27c3bb.bindPopup(popup_df49a16bb590a9eca22918fe2c1434df)
+        ;
+
+        
+    
+    
+            marker_cc713840a9f27a5c24cea4adab27c3bb.bindTooltip(
+                `<div>
+                     Limmat river (利马特河)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_cc713840a9f27a5c24cea4adab27c3bb.setIcon(icon_300489bb042ed6448719d43b20523727);
+            
+    
+            var marker_f05e63f0402afd308916e01ae27a3812 = L.marker(
+                [47.37926, 8.54021],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_9537f67fdc617ceccb6d2aa16cc84a4c = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_dace1a6cf653e38b93fc91e803b0bae7 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_6fbaea161a213a871331e32bb9f180e2 = $(`<div id="html_6fbaea161a213a871331e32bb9f180e2" style="width: 100.0%; height: 100.0%;"><b>Landesmuseum</b><br>瑞士国家博物馆<br>kind: museum</div>`)[0];
+                popup_dace1a6cf653e38b93fc91e803b0bae7.setContent(html_6fbaea161a213a871331e32bb9f180e2);
+            
+        
+
+        marker_f05e63f0402afd308916e01ae27a3812.bindPopup(popup_dace1a6cf653e38b93fc91e803b0bae7)
+        ;
+
+        
+    
+    
+            marker_f05e63f0402afd308916e01ae27a3812.bindTooltip(
+                `<div>
+                     Landesmuseum (瑞士国家博物馆)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_f05e63f0402afd308916e01ae27a3812.setIcon(icon_9537f67fdc617ceccb6d2aa16cc84a4c);
+            
+    
+            var marker_fe3712a2efb6b73efb50b142f2ba3e3c = L.marker(
+                [47.37021, 8.54793],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_51ab61326f66711b0dd729837c9b114d = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_2a4feb5a1317e4fc9c7cab11bffb6da1 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_9ee73141fe289babd08be5c0e2048158 = $(`<div id="html_9ee73141fe289babd08be5c0e2048158" style="width: 100.0%; height: 100.0%;"><b>Kunsthaus</b><br>苏黎世美术馆<br>kind: museum</div>`)[0];
+                popup_2a4feb5a1317e4fc9c7cab11bffb6da1.setContent(html_9ee73141fe289babd08be5c0e2048158);
+            
+        
+
+        marker_fe3712a2efb6b73efb50b142f2ba3e3c.bindPopup(popup_2a4feb5a1317e4fc9c7cab11bffb6da1)
+        ;
+
+        
+    
+    
+            marker_fe3712a2efb6b73efb50b142f2ba3e3c.bindTooltip(
+                `<div>
+                     Kunsthaus (苏黎世美术馆)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_fe3712a2efb6b73efb50b142f2ba3e3c.setIcon(icon_51ab61326f66711b0dd729837c9b114d);
+            
+    
+            var marker_1262278649118e4a3d8407f5d15f9d78 = L.marker(
+                [47.36548, 8.54683],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_b33c69b2233e516b411a3009d08cff4a = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_a8fa8cb55a39c2785456fc382c1f6cb8 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_13a3dcf7fc9351342beef11b0912dbca = $(`<div id="html_13a3dcf7fc9351342beef11b0912dbca" style="width: 100.0%; height: 100.0%;"><b>Opernhaus</b><br>苏黎世歌剧院<br>kind: culture</div>`)[0];
+                popup_a8fa8cb55a39c2785456fc382c1f6cb8.setContent(html_13a3dcf7fc9351342beef11b0912dbca);
+            
+        
+
+        marker_1262278649118e4a3d8407f5d15f9d78.bindPopup(popup_a8fa8cb55a39c2785456fc382c1f6cb8)
+        ;
+
+        
+    
+    
+            marker_1262278649118e4a3d8407f5d15f9d78.bindTooltip(
+                `<div>
+                     Opernhaus (苏黎世歌剧院)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_1262278649118e4a3d8407f5d15f9d78.setIcon(icon_b33c69b2233e516b411a3009d08cff4a);
+            
+    
+            var marker_9f8b1511c9b8edfe9c4f1b483ed85a92 = L.marker(
+                [47.36615, 8.54153],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_96d2f83fc83e33e6300194fd924352e0 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_dea3ba85713d81b19910e879cf33e25a = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_559203c75745f86f7b8ad79e3a0ad69e = $(`<div id="html_559203c75745f86f7b8ad79e3a0ad69e" style="width: 100.0%; height: 100.0%;"><b>Bürkliplatz</b><br>比尔克利广场<br>kind: square</div>`)[0];
+                popup_dea3ba85713d81b19910e879cf33e25a.setContent(html_559203c75745f86f7b8ad79e3a0ad69e);
+            
+        
+
+        marker_9f8b1511c9b8edfe9c4f1b483ed85a92.bindPopup(popup_dea3ba85713d81b19910e879cf33e25a)
+        ;
+
+        
+    
+    
+            marker_9f8b1511c9b8edfe9c4f1b483ed85a92.bindTooltip(
+                `<div>
+                     Bürkliplatz (比尔克利广场)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_9f8b1511c9b8edfe9c4f1b483ed85a92.setIcon(icon_96d2f83fc83e33e6300194fd924352e0);
+            
+    
+            var marker_2e519000b39f5edb501e124c39b73045 = L.marker(
+                [47.37088, 8.54363],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_966f9924bb1c84dde61280332a8cda21 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_776c814fee4da6f2e946c48239e9ec7b = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_75c2d1b1c2a25a1bfb9eed2770b5f308 = $(`<div id="html_75c2d1b1c2a25a1bfb9eed2770b5f308" style="width: 100.0%; height: 100.0%;"><b>Helmhaus</b><br>赫尔姆豪斯<br>kind: civic</div>`)[0];
+                popup_776c814fee4da6f2e946c48239e9ec7b.setContent(html_75c2d1b1c2a25a1bfb9eed2770b5f308);
+            
+        
+
+        marker_2e519000b39f5edb501e124c39b73045.bindPopup(popup_776c814fee4da6f2e946c48239e9ec7b)
+        ;
+
+        
+    
+    
+            marker_2e519000b39f5edb501e124c39b73045.bindTooltip(
+                `<div>
+                     Helmhaus (赫尔姆豪斯)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_2e519000b39f5edb501e124c39b73045.setIcon(icon_966f9924bb1c84dde61280332a8cda21);
+            
+    
+            var marker_d5d906e4439f8dcb87c52a35442b6a99 = L.marker(
+                [47.37802, 8.54023],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_b3d370622c2baf7732b0b10f4cdee2df = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_e94099952e3e22b9d1d7c273aa419ee3 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_373259e416a47ae63c4e6286de788ce7 = $(`<div id="html_373259e416a47ae63c4e6286de788ce7" style="width: 100.0%; height: 100.0%;"><b>Hauptbahnhof</b><br>苏黎世中央车站<br>kind: station</div>`)[0];
+                popup_e94099952e3e22b9d1d7c273aa419ee3.setContent(html_373259e416a47ae63c4e6286de788ce7);
+            
+        
+
+        marker_d5d906e4439f8dcb87c52a35442b6a99.bindPopup(popup_e94099952e3e22b9d1d7c273aa419ee3)
+        ;
+
+        
+    
+    
+            marker_d5d906e4439f8dcb87c52a35442b6a99.bindTooltip(
+                `<div>
+                     Hauptbahnhof (苏黎世中央车站)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_d5d906e4439f8dcb87c52a35442b6a99.setIcon(icon_b3d370622c2baf7732b0b10f4cdee2df);
+            
+    
+            var marker_4e0d8404425447ee404ec72b1da2c902 = L.marker(
+                [47.37072, 8.54128],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_ab78c6eab081313cf213e47504b7ec2a = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_086554b7ab4b0a3c838e965608dadc2c = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_536d8d9345c0e1a773baaeaec85a04a7 = $(`<div id="html_536d8d9345c0e1a773baaeaec85a04a7" style="width: 100.0%; height: 100.0%;"><b>Münsterhof</b><br>明斯特霍夫广场<br>kind: square</div>`)[0];
+                popup_086554b7ab4b0a3c838e965608dadc2c.setContent(html_536d8d9345c0e1a773baaeaec85a04a7);
+            
+        
+
+        marker_4e0d8404425447ee404ec72b1da2c902.bindPopup(popup_086554b7ab4b0a3c838e965608dadc2c)
+        ;
+
+        
+    
+    
+            marker_4e0d8404425447ee404ec72b1da2c902.bindTooltip(
+                `<div>
+                     Münsterhof (明斯特霍夫广场)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_4e0d8404425447ee404ec72b1da2c902.setIcon(icon_ab78c6eab081313cf213e47504b7ec2a);
+            
+    
+            var marker_0eb02e4c10ee9e8cb88fa80b344bfd9c = L.marker(
+                [47.36953, 8.53866],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_89367868bfd69d79c82dd03aecf760c4 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_ece12651b227db42cf41a3c8dc1944c5 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_533579cb10ff423b2e3bd327ca80b354 = $(`<div id="html_533579cb10ff423b2e3bd327ca80b354" style="width: 100.0%; height: 100.0%;"><b>Paradeplatz</b><br>阅兵广场<br>kind: square</div>`)[0];
+                popup_ece12651b227db42cf41a3c8dc1944c5.setContent(html_533579cb10ff423b2e3bd327ca80b354);
+            
+        
+
+        marker_0eb02e4c10ee9e8cb88fa80b344bfd9c.bindPopup(popup_ece12651b227db42cf41a3c8dc1944c5)
+        ;
+
+        
+    
+    
+            marker_0eb02e4c10ee9e8cb88fa80b344bfd9c.bindTooltip(
+                `<div>
+                     Paradeplatz (阅兵广场)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_0eb02e4c10ee9e8cb88fa80b344bfd9c.setIcon(icon_89367868bfd69d79c82dd03aecf760c4);
+            
+    
+            var marker_90881c09ff80fe3b98f5562f6aaf466c = L.marker(
+                [47.3716, 8.5428],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_cee539c3217b6b0969126b66da2f25de = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_0f94a365738088c3aed61e0b355bf17f = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_1177184aa1752188ef593bf89e424039 = $(`<div id="html_1177184aa1752188ef593bf89e424039" style="width: 100.0%; height: 100.0%;"><b>Rathaus</b><br>市政厅<br>kind: civic</div>`)[0];
+                popup_0f94a365738088c3aed61e0b355bf17f.setContent(html_1177184aa1752188ef593bf89e424039);
+            
+        
+
+        marker_90881c09ff80fe3b98f5562f6aaf466c.bindPopup(popup_0f94a365738088c3aed61e0b355bf17f)
+        ;
+
+        
+    
+    
+            marker_90881c09ff80fe3b98f5562f6aaf466c.bindTooltip(
+                `<div>
+                     Rathaus (市政厅)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_90881c09ff80fe3b98f5562f6aaf466c.setIcon(icon_cee539c3217b6b0969126b66da2f25de);
+            
+    
+            var marker_2d4c9270b4054a15ab6fcf623ea795fd = L.marker(
+                [47.3697, 8.542],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_11e1fe6597c33efc83d4379ae97910b3 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_a3920430705553e8aa437389be4c54bf = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_353fff3740f7108a0693eea482e5516f = $(`<div id="html_353fff3740f7108a0693eea482e5516f" style="width: 100.0%; height: 100.0%;"><b>Münsterbrücke</b><br>大教堂桥<br>kind: bridge</div>`)[0];
+                popup_a3920430705553e8aa437389be4c54bf.setContent(html_353fff3740f7108a0693eea482e5516f);
+            
+        
+
+        marker_2d4c9270b4054a15ab6fcf623ea795fd.bindPopup(popup_a3920430705553e8aa437389be4c54bf)
+        ;
+
+        
+    
+    
+            marker_2d4c9270b4054a15ab6fcf623ea795fd.bindTooltip(
+                `<div>
+                     Münsterbrücke (大教堂桥)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_2d4c9270b4054a15ab6fcf623ea795fd.setIcon(icon_11e1fe6597c33efc83d4379ae97910b3);
+            
+    
+            var marker_ae87a9b2f814c2958ddf03beb74fed0a = L.marker(
+                [47.372, 8.5433],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_9059940b65270622cae5d3d7cb8a5c91 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_c30ae51390db5aa48f629aaead68e179 = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_531549646da02ae66eda8ed0d58676f4 = $(`<div id="html_531549646da02ae66eda8ed0d58676f4" style="width: 100.0%; height: 100.0%;"><b>Limmatquai</b><br>利马特河滨道<br>kind: street</div>`)[0];
+                popup_c30ae51390db5aa48f629aaead68e179.setContent(html_531549646da02ae66eda8ed0d58676f4);
+            
+        
+
+        marker_ae87a9b2f814c2958ddf03beb74fed0a.bindPopup(popup_c30ae51390db5aa48f629aaead68e179)
+        ;
+
+        
+    
+    
+            marker_ae87a9b2f814c2958ddf03beb74fed0a.bindTooltip(
+                `<div>
+                     Limmatquai (利马特河滨道)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_ae87a9b2f814c2958ddf03beb74fed0a.setIcon(icon_9059940b65270622cae5d3d7cb8a5c91);
+            
+    
+            var marker_c3e70e990e6c24449dd8435106093088 = L.marker(
+                [47.3662, 8.54615],
+                {
+}
+            ).addTo(feature_group_5eb23b73a3c8718b22a612b8b14fcca0);
+        
+    
+            var icon_426bf98ad43815bee6b3f6e6c41a6d62 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "star",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_4155fe35173e52f208d23df2b25c1bec = L.popup({
+  "maxWidth": 240,
+});
+
+        
+            
+                var html_0821a3a7df76e5cb660efac1f3e6f82f = $(`<div id="html_0821a3a7df76e5cb660efac1f3e6f82f" style="width: 100.0%; height: 100.0%;"><b>Sechseläutenplatz</b><br>六鸣节广场<br>kind: square</div>`)[0];
+                popup_4155fe35173e52f208d23df2b25c1bec.setContent(html_0821a3a7df76e5cb660efac1f3e6f82f);
+            
+        
+
+        marker_c3e70e990e6c24449dd8435106093088.bindPopup(popup_4155fe35173e52f208d23df2b25c1bec)
+        ;
+
+        
+    
+    
+            marker_c3e70e990e6c24449dd8435106093088.bindTooltip(
+                `<div>
+                     Sechseläutenplatz (六鸣节广场)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_c3e70e990e6c24449dd8435106093088.setIcon(icon_426bf98ad43815bee6b3f6e6c41a6d62);
+            
+    
+            feature_group_5eb23b73a3c8718b22a612b8b14fcca0.addTo(map_615c0912b3d8eef6eff611c98b03811d);
+        
+    
+            var feature_group_3593a2f87146a08fa4b8ec91f7c05f34 = L.featureGroup(
+                {
+}
+            );
+        
+    
+            var circle_marker_61427387218ca703f5f5ec03ed648f6e = L.circleMarker(
+                [47.37839916898103, 8.539539615518123],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_a47a0841b3611b89a9dbb04832ca69f4 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_bc640c6c4144fbd853bddf4a19124925 = $(`<div id="html_bc640c6c4144fbd853bddf4a19124925" style="width: 100.0%; height: 100.0%;"><b>pano</b> XNVYtLEB2eu-QpWuBYmymg<br><b>frames:</b> 1<br><b>attractions (1):</b><br>&nbsp;&nbsp;Hauptbahnhof<br><b>videos:</b><br>&nbsp;&nbsp;bahnhofstrasse(1)</div>`)[0];
+                popup_a47a0841b3611b89a9dbb04832ca69f4.setContent(html_bc640c6c4144fbd853bddf4a19124925);
+            
+        
+
+        circle_marker_61427387218ca703f5f5ec03ed648f6e.bindPopup(popup_a47a0841b3611b89a9dbb04832ca69f4)
+        ;
+
+        
+    
+    
+            circle_marker_61427387218ca703f5f5ec03ed648f6e.bindTooltip(
+                `<div>
+                     1 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_9eb83cdbae3920ce4954144a7189fd30 = L.circleMarker(
+                [47.37929390287984, 8.53701332268136],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_bb6c00ba311554125a2b51d6714f2920 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_827a734f9972208a9834d545b4d1e408 = $(`<div id="html_827a734f9972208a9834d545b4d1e408" style="width: 100.0%; height: 100.0%;"><b>pano</b> gXT9Q-RhYDM5bFtEU1Heew<br><b>frames:</b> 1<br><b>attractions (1):</b><br>&nbsp;&nbsp;Hauptbahnhof<br><b>videos:</b><br>&nbsp;&nbsp;bahnhofstrasse(1)</div>`)[0];
+                popup_bb6c00ba311554125a2b51d6714f2920.setContent(html_827a734f9972208a9834d545b4d1e408);
+            
+        
+
+        circle_marker_9eb83cdbae3920ce4954144a7189fd30.bindPopup(popup_bb6c00ba311554125a2b51d6714f2920)
+        ;
+
+        
+    
+    
+            circle_marker_9eb83cdbae3920ce4954144a7189fd30.bindTooltip(
+                `<div>
+                     1 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_a1c6dc790f18670ef0d2b1bbc84d92be = L.circleMarker(
+                [47.37649314251876, 8.539318477536805],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_869b6dd4e2f8905dceb3259b5344aee2 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_7ae74989d43e9ca702baa7b50360f8c5 = $(`<div id="html_7ae74989d43e9ca702baa7b50360f8c5" style="width: 100.0%; height: 100.0%;"><b>pano</b> kHp4MfVePdTDVat2CSWPbw<br><b>frames:</b> 1<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;bahnhofstrasse(1)</div>`)[0];
+                popup_869b6dd4e2f8905dceb3259b5344aee2.setContent(html_7ae74989d43e9ca702baa7b50360f8c5);
+            
+        
+
+        circle_marker_a1c6dc790f18670ef0d2b1bbc84d92be.bindPopup(popup_869b6dd4e2f8905dceb3259b5344aee2)
+        ;
+
+        
+    
+    
+            circle_marker_a1c6dc790f18670ef0d2b1bbc84d92be.bindTooltip(
+                `<div>
+                     1 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_3e64273557d804eac357f9b387326fd8 = L.circleMarker(
+                [47.3734304063081, 8.53827707547269],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 16, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_50ce0936d717b6f19df4e4b06a83d82a = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_2d6fa564f77c371a7cabd5debc12dab3 = $(`<div id="html_2d6fa564f77c371a7cabd5debc12dab3" style="width: 100.0%; height: 100.0%;"><b>pano</b> Hv7nWAERIpr8EJBtXU_CQQ<br><b>frames:</b> 114<br><b>attractions (3):</b><br>&nbsp;&nbsp;Bahnhofstrasse, Hauptbahnhof, Paradeplatz<br><b>videos:</b><br>&nbsp;&nbsp;bahnhofstrasse(34), looks_perfect(29), hidden_streets(25), most_elegant(21), zurich_main(4), saturday_morning(1)</div>`)[0];
+                popup_50ce0936d717b6f19df4e4b06a83d82a.setContent(html_2d6fa564f77c371a7cabd5debc12dab3);
+            
+        
+
+        circle_marker_3e64273557d804eac357f9b387326fd8.bindPopup(popup_50ce0936d717b6f19df4e4b06a83d82a)
+        ;
+
+        
+    
+    
+            circle_marker_3e64273557d804eac357f9b387326fd8.bindTooltip(
+                `<div>
+                     114 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_77bdc90de7ae5345e15643b1beb291e8 = L.circleMarker(
+                [47.37388908263569, 8.538280133326968],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 12.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_7e3af23690e3329fa7d348fd3ffd7505 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_caf125a691ea69b629ae71249ade51b9 = $(`<div id="html_caf125a691ea69b629ae71249ade51b9" style="width: 100.0%; height: 100.0%;"><b>pano</b> 6k2-gBaZI_758mRQAoJsAQ<br><b>frames:</b> 71<br><b>attractions (3):</b><br>&nbsp;&nbsp;Bahnhofstrasse, Landesmuseum, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(46), bahnhofstrasse(11), saturday_morning(7), most_elegant(6), hidden_streets(1)</div>`)[0];
+                popup_7e3af23690e3329fa7d348fd3ffd7505.setContent(html_caf125a691ea69b629ae71249ade51b9);
+            
+        
+
+        circle_marker_77bdc90de7ae5345e15643b1beb291e8.bindPopup(popup_7e3af23690e3329fa7d348fd3ffd7505)
+        ;
+
+        
+    
+    
+            circle_marker_77bdc90de7ae5345e15643b1beb291e8.bindTooltip(
+                `<div>
+                     71 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_fd658656161d1b605cf650ac145f8136 = L.circleMarker(
+                [47.37427141843309, 8.538493164407566],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_767470857a0a1359584bdb983ea43923 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_5ea8bed3b4c9498f73e566950da6315c = $(`<div id="html_5ea8bed3b4c9498f73e566950da6315c" style="width: 100.0%; height: 100.0%;"><b>pano</b> QoyGq8R3TeRdpAoSW0FqDw<br><b>frames:</b> 9<br><b>attractions (3):</b><br>&nbsp;&nbsp;Bahnhofstrasse, Hauptbahnhof, Lindenhof<br><b>videos:</b><br>&nbsp;&nbsp;bahnhofstrasse(3), hidden_streets(3), looks_perfect(2), most_elegant(1)</div>`)[0];
+                popup_767470857a0a1359584bdb983ea43923.setContent(html_5ea8bed3b4c9498f73e566950da6315c);
+            
+        
+
+        circle_marker_fd658656161d1b605cf650ac145f8136.bindPopup(popup_767470857a0a1359584bdb983ea43923)
+        ;
+
+        
+    
+    
+            circle_marker_fd658656161d1b605cf650ac145f8136.bindTooltip(
+                `<div>
+                     9 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_23ff4f2aa0dc346cdd3c284afb7e1c9d = L.circleMarker(
+                [47.36976090813507, 8.541858838053772],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.625, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_3352f78ff3bb92b59f39424dbc4044fd = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_4ac1fa15b4a1f61688d19e53ac0da0f3 = $(`<div id="html_4ac1fa15b4a1f61688d19e53ac0da0f3" style="width: 100.0%; height: 100.0%;"><b>pano</b> UkV6BqlscR_n7vEGHhWRTA<br><b>frames:</b> 5<br><b>attractions (4):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Münsterbrücke, Münsterhof<br><b>videos:</b><br>&nbsp;&nbsp;bahnhofstrasse(5)</div>`)[0];
+                popup_3352f78ff3bb92b59f39424dbc4044fd.setContent(html_4ac1fa15b4a1f61688d19e53ac0da0f3);
+            
+        
+
+        circle_marker_23ff4f2aa0dc346cdd3c284afb7e1c9d.bindPopup(popup_3352f78ff3bb92b59f39424dbc4044fd)
+        ;
+
+        
+    
+    
+            circle_marker_23ff4f2aa0dc346cdd3c284afb7e1c9d.bindTooltip(
+                `<div>
+                     5 frames · 4 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_19a0bc3d553872aed517a9563ffe8369 = L.circleMarker(
+                [47.3715206975258, 8.541677665818318],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 16, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_1e95bce0897f4487d09fe5b6fb17d28a = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_e0b1543ccabd7bf25656596ef9eae854 = $(`<div id="html_e0b1543ccabd7bf25656596ef9eae854" style="width: 100.0%; height: 100.0%;"><b>pano</b> 1alvm3pr_W-fYZx9VKq7DA<br><b>frames:</b> 165<br><b>attractions (6):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Limmat river, Münsterhof, Rathaus, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(49), bahnhofstrasse(28), hidden_streets(22), most_famous(21), old_town_limmat(15), saturday_morning(14), most_elegant(10), zurich_main(6)</div>`)[0];
+                popup_1e95bce0897f4487d09fe5b6fb17d28a.setContent(html_e0b1543ccabd7bf25656596ef9eae854);
+            
+        
+
+        circle_marker_19a0bc3d553872aed517a9563ffe8369.bindPopup(popup_1e95bce0897f4487d09fe5b6fb17d28a)
+        ;
+
+        
+    
+    
+            circle_marker_19a0bc3d553872aed517a9563ffe8369.bindTooltip(
+                `<div>
+                     165 frames · 6 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_1fd89c6dda180ae93290e9ab1631f993 = L.circleMarker(
+                [47.37015542852662, 8.54056161568129],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.625, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_85b5e9b1f63d314e23dcc4444fd059bd = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_1273b3d33ece71a925abbbb161652284 = $(`<div id="html_1273b3d33ece71a925abbbb161652284" style="width: 100.0%; height: 100.0%;"><b>pano</b> TYqE5SYIeGlOy_LZPk64UA<br><b>frames:</b> 13<br><b>attractions (2):</b><br>&nbsp;&nbsp;Fraumünster, Münsterhof<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(11), bahnhofstrasse(1), hidden_streets(1)</div>`)[0];
+                popup_85b5e9b1f63d314e23dcc4444fd059bd.setContent(html_1273b3d33ece71a925abbbb161652284);
+            
+        
+
+        circle_marker_1fd89c6dda180ae93290e9ab1631f993.bindPopup(popup_85b5e9b1f63d314e23dcc4444fd059bd)
+        ;
+
+        
+    
+    
+            circle_marker_1fd89c6dda180ae93290e9ab1631f993.bindTooltip(
+                `<div>
+                     13 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_bab9754c331d398d1e449d77a5b3185d = L.circleMarker(
+                [47.3706415804185, 8.540699780563076],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 13.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_ee57c39c103002ab142013bd39bb60ee = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_ac7e6acf61c3a51aab448499b888e5b1 = $(`<div id="html_ac7e6acf61c3a51aab448499b888e5b1" style="width: 100.0%; height: 100.0%;"><b>pano</b> 7HYRsIcXzkjpI7GgBd6RCg<br><b>frames:</b> 75<br><b>attractions (3):</b><br>&nbsp;&nbsp;Fraumünster, Münsterhof, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(23), looks_perfect(12), bahnhofstrasse(9), most_famous(9), hidden_streets(8), most_elegant(8), saturday_morning(3), zurich_main(3)</div>`)[0];
+                popup_ee57c39c103002ab142013bd39bb60ee.setContent(html_ac7e6acf61c3a51aab448499b888e5b1);
+            
+        
+
+        circle_marker_bab9754c331d398d1e449d77a5b3185d.bindPopup(popup_ee57c39c103002ab142013bd39bb60ee)
+        ;
+
+        
+    
+    
+            circle_marker_bab9754c331d398d1e449d77a5b3185d.bindTooltip(
+                `<div>
+                     75 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_3d24723f71185aba1291eca0527b5df3 = L.circleMarker(
+                [47.37205381280043, 8.540881864976967],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 7.75, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_57278ffdcb05a25255e75d4ac180fd32 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_9187ce4e10da0c9009d54ccd717aa29c = $(`<div id="html_9187ce4e10da0c9009d54ccd717aa29c" style="width: 100.0%; height: 100.0%;"><b>pano</b> ZvrmIKLvgXtif8uVB3_dHA<br><b>frames:</b> 30<br><b>attractions (2):</b><br>&nbsp;&nbsp;Lindenhof, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(16), most_elegant(10), zurich_main(2), bahnhofstrasse(1), hidden_streets(1)</div>`)[0];
+                popup_57278ffdcb05a25255e75d4ac180fd32.setContent(html_9187ce4e10da0c9009d54ccd717aa29c);
+            
+        
+
+        circle_marker_3d24723f71185aba1291eca0527b5df3.bindPopup(popup_57278ffdcb05a25255e75d4ac180fd32)
+        ;
+
+        
+    
+    
+            circle_marker_3d24723f71185aba1291eca0527b5df3.bindTooltip(
+                `<div>
+                     30 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_ee5d96add49f0ae8b436739cd556f9cc = L.circleMarker(
+                [47.37068642747708, 8.541916917287477],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_0b9bb1a04a98b1458ba99742af60696c = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_243e3e64d12f61d854238837ddd5de50 = $(`<div id="html_243e3e64d12f61d854238837ddd5de50" style="width: 100.0%; height: 100.0%;"><b>pano</b> e-V472qD_BEJMsfuWoghfQ<br><b>frames:</b> 2<br><b>attractions (6):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Limmat river, Münsterbrücke, Münsterhof, Rathaus<br><b>videos:</b><br>&nbsp;&nbsp;bahnhofstrasse(1), most_elegant(1)</div>`)[0];
+                popup_0b9bb1a04a98b1458ba99742af60696c.setContent(html_243e3e64d12f61d854238837ddd5de50);
+            
+        
+
+        circle_marker_ee5d96add49f0ae8b436739cd556f9cc.bindPopup(popup_0b9bb1a04a98b1458ba99742af60696c)
+        ;
+
+        
+    
+    
+            circle_marker_ee5d96add49f0ae8b436739cd556f9cc.bindTooltip(
+                `<div>
+                     2 frames · 6 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_5da06e09175103c9e22b27de0eabbd05 = L.circleMarker(
+                [47.37021815507708, 8.541906728425595],
+                {"bubblingMouseEvents": true, "color": "#c0392b", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#c0392b", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 6.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_c8b58c7b83d0da425b0d3f4821b9090d = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_e16fff26382fba4c713213ece48daf71 = $(`<div id="html_e16fff26382fba4c713213ece48daf71" style="width: 100.0%; height: 100.0%;"><b>pano</b> LAEYQpFg6Uk_dR0uwXOCWw<br><b>frames:</b> 23<br><b>attractions (9):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Lake Zurich, Limmat river, Limmatquai, Münsterbrücke, Münsterhof, Rathaus, Wasserkirche<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(6), saturday_morning(5), hidden_streets(4), old_town_limmat(4), looks_perfect(3), bahnhofstrasse(1)</div>`)[0];
+                popup_c8b58c7b83d0da425b0d3f4821b9090d.setContent(html_e16fff26382fba4c713213ece48daf71);
+            
+        
+
+        circle_marker_5da06e09175103c9e22b27de0eabbd05.bindPopup(popup_c8b58c7b83d0da425b0d3f4821b9090d)
+        ;
+
+        
+    
+    
+            circle_marker_5da06e09175103c9e22b27de0eabbd05.bindTooltip(
+                `<div>
+                     23 frames · 9 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_d536368897042c6320b5676fa32da18c = L.circleMarker(
+                [47.36991938036456, 8.542284358678053],
+                {"bubblingMouseEvents": true, "color": "#c0392b", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#c0392b", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 16, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_c2a5976e0565667bf545df3f47f37bbf = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_adddefce42b46fe9800bebdafc2d10eb = $(`<div id="html_adddefce42b46fe9800bebdafc2d10eb" style="width: 100.0%; height: 100.0%;"><b>pano</b> 6ZYzPnAGahiwdoHvPd1atg<br><b>frames:</b> 114<br><b>attractions (12):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Helmhaus, Lake Zurich, Limmat river, Limmatquai, Lindenhof, Münsterbrücke, Münsterhof, Rathaus, St. Peter, Wasserkirche<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(27), looks_perfect(21), hidden_streets(20), most_elegant(20), zurich_main(16), old_town_limmat(10)</div>`)[0];
+                popup_c2a5976e0565667bf545df3f47f37bbf.setContent(html_adddefce42b46fe9800bebdafc2d10eb);
+            
+        
+
+        circle_marker_d536368897042c6320b5676fa32da18c.bindPopup(popup_c2a5976e0565667bf545df3f47f37bbf)
+        ;
+
+        
+    
+    
+            circle_marker_d536368897042c6320b5676fa32da18c.bindTooltip(
+                `<div>
+                     114 frames · 12 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_c178416c742a54cebf6eb732d7d39b66 = L.circleMarker(
+                [47.37792723613011, 8.539655134089315],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_f22e08ecf85a8469b47058f4c3a7780e = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_88188356b6305e607b799d714fd01315 = $(`<div id="html_88188356b6305e607b799d714fd01315" style="width: 100.0%; height: 100.0%;"><b>pano</b> NdvL778LkOETXNlNIWkBVQ<br><b>frames:</b> 43<br><b>attractions (1):</b><br>&nbsp;&nbsp;Hauptbahnhof<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(30), zurich_main(13)</div>`)[0];
+                popup_f22e08ecf85a8469b47058f4c3a7780e.setContent(html_88188356b6305e607b799d714fd01315);
+            
+        
+
+        circle_marker_c178416c742a54cebf6eb732d7d39b66.bindPopup(popup_f22e08ecf85a8469b47058f4c3a7780e)
+        ;
+
+        
+    
+    
+            circle_marker_c178416c742a54cebf6eb732d7d39b66.bindTooltip(
+                `<div>
+                     43 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_76ca94a1296fcf16c2219fbda24d760d = L.circleMarker(
+                [47.3783711606783, 8.53899990379773],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.5, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_2e8722bdf744b20ede246853297a6a90 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_3884dfe587ef2f7eb2530c267fc647c8 = $(`<div id="html_3884dfe587ef2f7eb2530c267fc647c8" style="width: 100.0%; height: 100.0%;"><b>pano</b> 1ncDT6_WsuPWkB7pR4XkNQ<br><b>frames:</b> 4<br><b>attractions (1):</b><br>&nbsp;&nbsp;Hauptbahnhof<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(3), zurich_main(1)</div>`)[0];
+                popup_2e8722bdf744b20ede246853297a6a90.setContent(html_3884dfe587ef2f7eb2530c267fc647c8);
+            
+        
+
+        circle_marker_76ca94a1296fcf16c2219fbda24d760d.bindPopup(popup_2e8722bdf744b20ede246853297a6a90)
+        ;
+
+        
+    
+    
+            circle_marker_76ca94a1296fcf16c2219fbda24d760d.bindTooltip(
+                `<div>
+                     4 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_94dc3cf0b5a55c0c55208518bacf283e = L.circleMarker(
+                [47.37754003963374, 8.54104492604921],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 6.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_789357657468c5dd96e3136c9592725c = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_93624550f51b9dee97201ea2cafa880d = $(`<div id="html_93624550f51b9dee97201ea2cafa880d" style="width: 100.0%; height: 100.0%;"><b>pano</b> 7cBXbveCIe9TT7V-zYDO6A<br><b>frames:</b> 23<br><b>attractions (1):</b><br>&nbsp;&nbsp;Hauptbahnhof<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(23)</div>`)[0];
+                popup_789357657468c5dd96e3136c9592725c.setContent(html_93624550f51b9dee97201ea2cafa880d);
+            
+        
+
+        circle_marker_94dc3cf0b5a55c0c55208518bacf283e.bindPopup(popup_789357657468c5dd96e3136c9592725c)
+        ;
+
+        
+    
+    
+            circle_marker_94dc3cf0b5a55c0c55208518bacf283e.bindTooltip(
+                `<div>
+                     23 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_72fedfa8ff9a32a5f091dc030741f468 = L.circleMarker(
+                [47.37787299099022, 8.540969854162938],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 8.0, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_7ab876e834bd78dd320b78a613383a03 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_2cb84242a85716d2c53e00d4ddf2fd98 = $(`<div id="html_2cb84242a85716d2c53e00d4ddf2fd98" style="width: 100.0%; height: 100.0%;"><b>pano</b> otMYWNhkgRi3v5sRN2JCbA<br><b>frames:</b> 32<br><b>attractions (1):</b><br>&nbsp;&nbsp;Hauptbahnhof<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(31), zurich_main(1)</div>`)[0];
+                popup_7ab876e834bd78dd320b78a613383a03.setContent(html_2cb84242a85716d2c53e00d4ddf2fd98);
+            
+        
+
+        circle_marker_72fedfa8ff9a32a5f091dc030741f468.bindPopup(popup_7ab876e834bd78dd320b78a613383a03)
+        ;
+
+        
+    
+    
+            circle_marker_72fedfa8ff9a32a5f091dc030741f468.bindTooltip(
+                `<div>
+                     32 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_2f9e7b5861972b58773b73ead98d57c1 = L.circleMarker(
+                [47.3750272433867, 8.539594646456822],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 7.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_2bafda82b54a8309658e8147620f3ff4 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_a7fa7466b7f6dda9f03571cc5e2e0172 = $(`<div id="html_a7fa7466b7f6dda9f03571cc5e2e0172" style="width: 100.0%; height: 100.0%;"><b>pano</b> VS_SWdUZEtrkMN2QAmpIXQ<br><b>frames:</b> 27<br><b>attractions (1):</b><br>&nbsp;&nbsp;Bahnhofstrasse<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(10), looks_perfect(9), hidden_streets(8)</div>`)[0];
+                popup_2bafda82b54a8309658e8147620f3ff4.setContent(html_a7fa7466b7f6dda9f03571cc5e2e0172);
+            
+        
+
+        circle_marker_2f9e7b5861972b58773b73ead98d57c1.bindPopup(popup_2bafda82b54a8309658e8147620f3ff4)
+        ;
+
+        
+    
+    
+            circle_marker_2f9e7b5861972b58773b73ead98d57c1.bindTooltip(
+                `<div>
+                     27 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_793f4479b7587200b38241772c9e37e6 = L.circleMarker(
+                [47.37471835331267, 8.539611557810145],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_dbd7486c970968ea66dd044af7a055c9 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_cecca6f17ff6926991e299b43230d42f = $(`<div id="html_cecca6f17ff6926991e299b43230d42f" style="width: 100.0%; height: 100.0%;"><b>pano</b> bCLrQEiZqmhFx9rDTpdt5Q<br><b>frames:</b> 9<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(4), hidden_streets(3), looks_perfect(2)</div>`)[0];
+                popup_dbd7486c970968ea66dd044af7a055c9.setContent(html_cecca6f17ff6926991e299b43230d42f);
+            
+        
+
+        circle_marker_793f4479b7587200b38241772c9e37e6.bindPopup(popup_dbd7486c970968ea66dd044af7a055c9)
+        ;
+
+        
+    
+    
+            circle_marker_793f4479b7587200b38241772c9e37e6.bindTooltip(
+                `<div>
+                     9 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_849c5c239704a7e569a5278d5bc80ec4 = L.circleMarker(
+                [47.37438650928551, 8.542758097769473],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_f72a0f2ae932584c18bad8ce9f08868a = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_203f7ff6044e065b99ee92e3689cb6bf = $(`<div id="html_203f7ff6044e065b99ee92e3689cb6bf" style="width: 100.0%; height: 100.0%;"><b>pano</b> Fofx446x7XGjXABDJrDxhg<br><b>frames:</b> 3<br><b>attractions (3):</b><br>&nbsp;&nbsp;Grossmünster, Limmat river, Limmatquai<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(1), most_elegant(1), most_famous(1)</div>`)[0];
+                popup_f72a0f2ae932584c18bad8ce9f08868a.setContent(html_203f7ff6044e065b99ee92e3689cb6bf);
+            
+        
+
+        circle_marker_849c5c239704a7e569a5278d5bc80ec4.bindPopup(popup_f72a0f2ae932584c18bad8ce9f08868a)
+        ;
+
+        
+    
+    
+            circle_marker_849c5c239704a7e569a5278d5bc80ec4.bindTooltip(
+                `<div>
+                     3 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_83b3bc5b358d4f5f008377c182a7b9e5 = L.circleMarker(
+                [47.37392646984321, 8.541959982383892],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.5, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_8e3c4f9ca620cab3db97b5197f43c607 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_176cff5336f2f809e620cf68a6bb6b0e = $(`<div id="html_176cff5336f2f809e620cf68a6bb6b0e" style="width: 100.0%; height: 100.0%;"><b>pano</b> 5C07Z8OrO-ayHV0N3_3b0g<br><b>frames:</b> 12<br><b>attractions (7):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Limmat river, Limmatquai, Lindenhof, Münsterbrücke, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(9), most_famous(2), hidden_streets(1)</div>`)[0];
+                popup_8e3c4f9ca620cab3db97b5197f43c607.setContent(html_176cff5336f2f809e620cf68a6bb6b0e);
+            
+        
+
+        circle_marker_83b3bc5b358d4f5f008377c182a7b9e5.bindPopup(popup_8e3c4f9ca620cab3db97b5197f43c607)
+        ;
+
+        
+    
+    
+            circle_marker_83b3bc5b358d4f5f008377c182a7b9e5.bindTooltip(
+                `<div>
+                     12 frames · 7 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_35013ce48e2b3007b06f8344bf760dea = L.circleMarker(
+                [47.37117138775655, 8.543035927966155],
+                {"bubblingMouseEvents": true, "color": "#c0392b", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#c0392b", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.5, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_e544eb03b6bf9202462636130f768c16 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_21504d33e270cd49f3c7bb75dc62c673 = $(`<div id="html_21504d33e270cd49f3c7bb75dc62c673" style="width: 100.0%; height: 100.0%;"><b>pano</b> A5DfOPJups0IpcIPXlYJCQ<br><b>frames:</b> 4<br><b>attractions (8):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Helmhaus, Limmat river, Limmatquai, Rathaus, St. Peter, Wasserkirche<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(3), hidden_streets(1)</div>`)[0];
+                popup_e544eb03b6bf9202462636130f768c16.setContent(html_21504d33e270cd49f3c7bb75dc62c673);
+            
+        
+
+        circle_marker_35013ce48e2b3007b06f8344bf760dea.bindPopup(popup_e544eb03b6bf9202462636130f768c16)
+        ;
+
+        
+    
+    
+            circle_marker_35013ce48e2b3007b06f8344bf760dea.bindTooltip(
+                `<div>
+                     4 frames · 8 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_f3419fd4af911f6ace96c5b182c28484 = L.circleMarker(
+                [47.37390695464353, 8.54298864224185],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_dee41826d2e57773bf27e733fb44ad2f = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_d0281b209c705f15a3c2cd272aba1191 = $(`<div id="html_d0281b209c705f15a3c2cd272aba1191" style="width: 100.0%; height: 100.0%;"><b>pano</b> bHGZr6vAF9pisrmkkA5zRA<br><b>frames:</b> 1<br><b>attractions (2):</b><br>&nbsp;&nbsp;Fraumünster, Limmatquai<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(1)</div>`)[0];
+                popup_dee41826d2e57773bf27e733fb44ad2f.setContent(html_d0281b209c705f15a3c2cd272aba1191);
+            
+        
+
+        circle_marker_f3419fd4af911f6ace96c5b182c28484.bindPopup(popup_dee41826d2e57773bf27e733fb44ad2f)
+        ;
+
+        
+    
+    
+            circle_marker_f3419fd4af911f6ace96c5b182c28484.bindTooltip(
+                `<div>
+                     1 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_c7016cfe03573cac20927953e7432e00 = L.circleMarker(
+                [47.37250748198248, 8.54279518903833],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 6.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_131f227603f1159e8ad28e9c13dbedb6 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_79d161aae94b15623cad91e915c040da = $(`<div id="html_79d161aae94b15623cad91e915c040da" style="width: 100.0%; height: 100.0%;"><b>pano</b> K2dOMKOmMd3q1ZJzQOybxQ<br><b>frames:</b> 23<br><b>attractions (3):</b><br>&nbsp;&nbsp;Fraumünster, Limmatquai, Rathaus<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(12), most_famous(7), hidden_streets(4)</div>`)[0];
+                popup_131f227603f1159e8ad28e9c13dbedb6.setContent(html_79d161aae94b15623cad91e915c040da);
+            
+        
+
+        circle_marker_c7016cfe03573cac20927953e7432e00.bindPopup(popup_131f227603f1159e8ad28e9c13dbedb6)
+        ;
+
+        
+    
+    
+            circle_marker_c7016cfe03573cac20927953e7432e00.bindTooltip(
+                `<div>
+                     23 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_79061cdd2ffa23a764c9049e74cbdd45 = L.circleMarker(
+                [47.37153843330839, 8.540330861531082],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 6.625, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_d5c95f3307baa355889cacf50be1644e = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_bc3ea639939f558d79554eb3cb5f5033 = $(`<div id="html_bc3ea639939f558d79554eb3cb5f5033" style="width: 100.0%; height: 100.0%;"><b>pano</b> 7IAXrVapAl5MdQUzF5gXRQ<br><b>frames:</b> 21<br><b>attractions (3):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;saturday_morning(7), hidden_streets(5), most_elegant(5), zurich_main(3), looks_perfect(1)</div>`)[0];
+                popup_d5c95f3307baa355889cacf50be1644e.setContent(html_bc3ea639939f558d79554eb3cb5f5033);
+            
+        
+
+        circle_marker_79061cdd2ffa23a764c9049e74cbdd45.bindPopup(popup_d5c95f3307baa355889cacf50be1644e)
+        ;
+
+        
+    
+    
+            circle_marker_79061cdd2ffa23a764c9049e74cbdd45.bindTooltip(
+                `<div>
+                     21 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_a795321372dcf8a2b06f7e8607973096 = L.circleMarker(
+                [47.37028280226563, 8.543223965713901],
+                {"bubblingMouseEvents": true, "color": "#c0392b", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#c0392b", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_1e117f21bcd8b27d7f92aef651a91654 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_ef83e1308b210be1aee29b2d2e12e16f = $(`<div id="html_ef83e1308b210be1aee29b2d2e12e16f" style="width: 100.0%; height: 100.0%;"><b>pano</b> NQmoVMnnZPqyEq6Pj8r7Pg<br><b>frames:</b> 7<br><b>attractions (9):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Helmhaus, Lake Zurich, Limmat river, Limmatquai, Münsterbrücke, St. Peter, Wasserkirche<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(2), most_elegant(2), zurich_main(2), hidden_streets(1)</div>`)[0];
+                popup_1e117f21bcd8b27d7f92aef651a91654.setContent(html_ef83e1308b210be1aee29b2d2e12e16f);
+            
+        
+
+        circle_marker_a795321372dcf8a2b06f7e8607973096.bindPopup(popup_1e117f21bcd8b27d7f92aef651a91654)
+        ;
+
+        
+    
+    
+            circle_marker_a795321372dcf8a2b06f7e8607973096.bindTooltip(
+                `<div>
+                     7 frames · 9 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_fdcafb38ad891ced30fee04f7b04e897 = L.circleMarker(
+                [47.37239090776094, 8.54567882472512],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_1d084554dcb64d6db1d15caf9582c473 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_fa97cfa47014eb7c75c1a22e67433672 = $(`<div id="html_fa97cfa47014eb7c75c1a22e67433672" style="width: 100.0%; height: 100.0%;"><b>pano</b> Tbv7T7uAQWinjxs7ocaH7Q<br><b>frames:</b> 1<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(1)</div>`)[0];
+                popup_1d084554dcb64d6db1d15caf9582c473.setContent(html_fa97cfa47014eb7c75c1a22e67433672);
+            
+        
+
+        circle_marker_fdcafb38ad891ced30fee04f7b04e897.bindPopup(popup_1d084554dcb64d6db1d15caf9582c473)
+        ;
+
+        
+    
+    
+            circle_marker_fdcafb38ad891ced30fee04f7b04e897.bindTooltip(
+                `<div>
+                     1 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_4d99b97f89567063f69febfd8fc68ea8 = L.circleMarker(
+                [47.37291867061274, 8.539657981725277],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.5, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_be447865fe527b25f7c6a5b44cc23d89 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_c1bc17c42fab0417a25abdf516ef5180 = $(`<div id="html_c1bc17c42fab0417a25abdf516ef5180" style="width: 100.0%; height: 100.0%;"><b>pano</b> qclpS_8-t5KFoo0VUbdKTg<br><b>frames:</b> 4<br><b>attractions (1):</b><br>&nbsp;&nbsp;Bahnhofstrasse<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(2), most_elegant(1), old_town_limmat(1)</div>`)[0];
+                popup_be447865fe527b25f7c6a5b44cc23d89.setContent(html_c1bc17c42fab0417a25abdf516ef5180);
+            
+        
+
+        circle_marker_4d99b97f89567063f69febfd8fc68ea8.bindPopup(popup_be447865fe527b25f7c6a5b44cc23d89)
+        ;
+
+        
+    
+    
+            circle_marker_4d99b97f89567063f69febfd8fc68ea8.bindTooltip(
+                `<div>
+                     4 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_43265b77b9a1431699926855ae910e2e = L.circleMarker(
+                [47.37654913231264, 8.539077939991149],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.5, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_cd52dd41e4ab85142cb9690cf22dd9b3 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_333753641eb5a9dccd001a8408504b6a = $(`<div id="html_333753641eb5a9dccd001a8408504b6a" style="width: 100.0%; height: 100.0%;"><b>pano</b> 7VgpOl-e5F5eFg4F2Sr3Xg<br><b>frames:</b> 4<br><b>attractions (1):</b><br>&nbsp;&nbsp;Bahnhofstrasse<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(3), zurich_main(1)</div>`)[0];
+                popup_cd52dd41e4ab85142cb9690cf22dd9b3.setContent(html_333753641eb5a9dccd001a8408504b6a);
+            
+        
+
+        circle_marker_43265b77b9a1431699926855ae910e2e.bindPopup(popup_cd52dd41e4ab85142cb9690cf22dd9b3)
+        ;
+
+        
+    
+    
+            circle_marker_43265b77b9a1431699926855ae910e2e.bindTooltip(
+                `<div>
+                     4 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_16dafd0b0089186156f10b0f83c2f8a6 = L.circleMarker(
+                [47.37624328834351, 8.540390347215535],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_3f7be476d9da9ced392ca4348a32eaf5 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_7dcc9a1f96c2d51fe298fe41046c84e1 = $(`<div id="html_7dcc9a1f96c2d51fe298fe41046c84e1" style="width: 100.0%; height: 100.0%;"><b>pano</b> PyLFIVLBTD3EnQtg0CAzuQ<br><b>frames:</b> 3<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(3)</div>`)[0];
+                popup_3f7be476d9da9ced392ca4348a32eaf5.setContent(html_7dcc9a1f96c2d51fe298fe41046c84e1);
+            
+        
+
+        circle_marker_16dafd0b0089186156f10b0f83c2f8a6.bindPopup(popup_3f7be476d9da9ced392ca4348a32eaf5)
+        ;
+
+        
+    
+    
+            circle_marker_16dafd0b0089186156f10b0f83c2f8a6.bindTooltip(
+                `<div>
+                     3 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_e11265fe6c250a128a4be41feb74ec2f = L.circleMarker(
+                [47.37565119679697, 8.542346679234603],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_a07e5e07fb7a8cdcb3bcad0bfdfc46e2 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_2dba368446e377a62a1fa9fce4df2586 = $(`<div id="html_2dba368446e377a62a1fa9fce4df2586" style="width: 100.0%; height: 100.0%;"><b>pano</b> Bg7tI95pCELdI9P9bYEz6Q<br><b>frames:</b> 2<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(2)</div>`)[0];
+                popup_a07e5e07fb7a8cdcb3bcad0bfdfc46e2.setContent(html_2dba368446e377a62a1fa9fce4df2586);
+            
+        
+
+        circle_marker_e11265fe6c250a128a4be41feb74ec2f.bindPopup(popup_a07e5e07fb7a8cdcb3bcad0bfdfc46e2)
+        ;
+
+        
+    
+    
+            circle_marker_e11265fe6c250a128a4be41feb74ec2f.bindTooltip(
+                `<div>
+                     2 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_f7a28d80ada3d75351382fc2305e223f = L.circleMarker(
+                [47.37555860830066, 8.543012770408685],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_0137f9ea701d1af8bf931b7c93aa8820 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_07926f1562d3152e307f3488de81ffd7 = $(`<div id="html_07926f1562d3152e307f3488de81ffd7" style="width: 100.0%; height: 100.0%;"><b>pano</b> 8jxDguXxrCRB6poRyuBGrg<br><b>frames:</b> 1<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(1)</div>`)[0];
+                popup_0137f9ea701d1af8bf931b7c93aa8820.setContent(html_07926f1562d3152e307f3488de81ffd7);
+            
+        
+
+        circle_marker_f7a28d80ada3d75351382fc2305e223f.bindPopup(popup_0137f9ea701d1af8bf931b7c93aa8820)
+        ;
+
+        
+    
+    
+            circle_marker_f7a28d80ada3d75351382fc2305e223f.bindTooltip(
+                `<div>
+                     1 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_4f443532f3c466ec46d656f72020080a = L.circleMarker(
+                [47.37563285520504, 8.542477146684556],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_b4036a05ea826da23c64d7f9ea01aa3b = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_086ac4b0383b16686063b22b1da718ba = $(`<div id="html_086ac4b0383b16686063b22b1da718ba" style="width: 100.0%; height: 100.0%;"><b>pano</b> wzBtVw_OFLZlG16CO2gDzw<br><b>frames:</b> 2<br><b>attractions (2):</b><br>&nbsp;&nbsp;Grossmünster, Limmat river<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(1), looks_perfect(1)</div>`)[0];
+                popup_b4036a05ea826da23c64d7f9ea01aa3b.setContent(html_086ac4b0383b16686063b22b1da718ba);
+            
+        
+
+        circle_marker_4f443532f3c466ec46d656f72020080a.bindPopup(popup_b4036a05ea826da23c64d7f9ea01aa3b)
+        ;
+
+        
+    
+    
+            circle_marker_4f443532f3c466ec46d656f72020080a.bindTooltip(
+                `<div>
+                     2 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_25ab66a78f9a42fdafb4e078d0429aef = L.circleMarker(
+                [47.37696467321118, 8.543670062695522],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.625, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_5b909d1936facc0332069ad9e7afc996 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_eefeb8e5c38a762315035480ba191d1c = $(`<div id="html_eefeb8e5c38a762315035480ba191d1c" style="width: 100.0%; height: 100.0%;"><b>pano</b> henrilj4FrVaccjhOqwypA<br><b>frames:</b> 5<br><b>attractions (1):</b><br>&nbsp;&nbsp;Landesmuseum<br><b>videos:</b><br>&nbsp;&nbsp;hidden_streets(5)</div>`)[0];
+                popup_5b909d1936facc0332069ad9e7afc996.setContent(html_eefeb8e5c38a762315035480ba191d1c);
+            
+        
+
+        circle_marker_25ab66a78f9a42fdafb4e078d0429aef.bindPopup(popup_5b909d1936facc0332069ad9e7afc996)
+        ;
+
+        
+    
+    
+            circle_marker_25ab66a78f9a42fdafb4e078d0429aef.bindTooltip(
+                `<div>
+                     5 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_384384484d55afeff11d4a8568b1a1f7 = L.circleMarker(
+                [47.37473754009955, 8.54313906630648],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_e92f45c53809c2da85899de62b562135 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_e35f5fe6695175846463d205c9d42b75 = $(`<div id="html_e35f5fe6695175846463d205c9d42b75" style="width: 100.0%; height: 100.0%;"><b>pano</b> IqkksiI3s1n-vjH7DGBlXw<br><b>frames:</b> 10<br><b>attractions (1):</b><br>&nbsp;&nbsp;Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(10)</div>`)[0];
+                popup_e92f45c53809c2da85899de62b562135.setContent(html_e35f5fe6695175846463d205c9d42b75);
+            
+        
+
+        circle_marker_384384484d55afeff11d4a8568b1a1f7.bindPopup(popup_e92f45c53809c2da85899de62b562135)
+        ;
+
+        
+    
+    
+            circle_marker_384384484d55afeff11d4a8568b1a1f7.bindTooltip(
+                `<div>
+                     10 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_348a87b36665535b75f3e94eab1e1186 = L.circleMarker(
+                [47.37450897285609, 8.538908828244752],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_28fb2bba63f90dc1627cbe2f1198a36f = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_87452a1f9b82a913e765e32bc0595f2a = $(`<div id="html_87452a1f9b82a913e765e32bc0595f2a" style="width: 100.0%; height: 100.0%;"><b>pano</b> E8GKtvLasKTjrVw3M9MCVA<br><b>frames:</b> 3<br><b>attractions (1):</b><br>&nbsp;&nbsp;Bahnhofstrasse<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(2), looks_perfect(1)</div>`)[0];
+                popup_28fb2bba63f90dc1627cbe2f1198a36f.setContent(html_87452a1f9b82a913e765e32bc0595f2a);
+            
+        
+
+        circle_marker_348a87b36665535b75f3e94eab1e1186.bindPopup(popup_28fb2bba63f90dc1627cbe2f1198a36f)
+        ;
+
+        
+    
+    
+            circle_marker_348a87b36665535b75f3e94eab1e1186.bindTooltip(
+                `<div>
+                     3 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_f0bd4ad46edbc0b242d42edf60c147e4 = L.circleMarker(
+                [47.37207651577688, 8.539643479792147],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_4b2e18a9ad2705e4ec5993c40c046005 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_888cc7f0b26eef92e8acccbc3565de94 = $(`<div id="html_888cc7f0b26eef92e8acccbc3565de94" style="width: 100.0%; height: 100.0%;"><b>pano</b> PlLHMXxFWbDkyFlGKR4XmQ<br><b>frames:</b> 7<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(3), old_town_limmat(3), saturday_morning(1)</div>`)[0];
+                popup_4b2e18a9ad2705e4ec5993c40c046005.setContent(html_888cc7f0b26eef92e8acccbc3565de94);
+            
+        
+
+        circle_marker_f0bd4ad46edbc0b242d42edf60c147e4.bindPopup(popup_4b2e18a9ad2705e4ec5993c40c046005)
+        ;
+
+        
+    
+    
+            circle_marker_f0bd4ad46edbc0b242d42edf60c147e4.bindTooltip(
+                `<div>
+                     7 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_32badc0312ec07de0962d5d51091793b = L.circleMarker(
+                [47.37228456407544, 8.538892833532051],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 7.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_68320635426c10901d25f31ed2475020 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_af17f72e5339e4c866366eec58553e3d = $(`<div id="html_af17f72e5339e4c866366eec58553e3d" style="width: 100.0%; height: 100.0%;"><b>pano</b> dMdMvqvAB3S9YIkrehcf0Q<br><b>frames:</b> 25<br><b>attractions (1):</b><br>&nbsp;&nbsp;St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;saturday_morning(8), zurich_main(8), old_town_limmat(5), looks_perfect(3), most_elegant(1)</div>`)[0];
+                popup_68320635426c10901d25f31ed2475020.setContent(html_af17f72e5339e4c866366eec58553e3d);
+            
+        
+
+        circle_marker_32badc0312ec07de0962d5d51091793b.bindPopup(popup_68320635426c10901d25f31ed2475020)
+        ;
+
+        
+    
+    
+            circle_marker_32badc0312ec07de0962d5d51091793b.bindTooltip(
+                `<div>
+                     25 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_400bf94e2b3c3771e6757fe48a27261e = L.circleMarker(
+                [47.37060315368174, 8.540328641881468],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_ce6fd755846e50ac4b9168070d329a5b = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_f9f48972a5a220cb2b6a66777e3a6490 = $(`<div id="html_f9f48972a5a220cb2b6a66777e3a6490" style="width: 100.0%; height: 100.0%;"><b>pano</b> lVUJGRCXDcBSjtzgeALpPA<br><b>frames:</b> 2<br><b>attractions (2):</b><br>&nbsp;&nbsp;Münsterhof, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(2)</div>`)[0];
+                popup_ce6fd755846e50ac4b9168070d329a5b.setContent(html_f9f48972a5a220cb2b6a66777e3a6490);
+            
+        
+
+        circle_marker_400bf94e2b3c3771e6757fe48a27261e.bindPopup(popup_ce6fd755846e50ac4b9168070d329a5b)
+        ;
+
+        
+    
+    
+            circle_marker_400bf94e2b3c3771e6757fe48a27261e.bindTooltip(
+                `<div>
+                     2 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_ecf87b18bfd2977c3bb3eac345a936d7 = L.circleMarker(
+                [47.37198726040437, 8.540289404533056],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 6.75, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_4e01960ce5b8e5f135f800291e22818d = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_a9fe1c6b35efafa917d9de0736f97075 = $(`<div id="html_a9fe1c6b35efafa917d9de0736f97075" style="width: 100.0%; height: 100.0%;"><b>pano</b> EeCijlRGIzj5lDUnrX-0cQ<br><b>frames:</b> 22<br><b>attractions (1):</b><br>&nbsp;&nbsp;St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(15), looks_perfect(3), most_famous(2), zurich_main(2)</div>`)[0];
+                popup_4e01960ce5b8e5f135f800291e22818d.setContent(html_a9fe1c6b35efafa917d9de0736f97075);
+            
+        
+
+        circle_marker_ecf87b18bfd2977c3bb3eac345a936d7.bindPopup(popup_4e01960ce5b8e5f135f800291e22818d)
+        ;
+
+        
+    
+    
+            circle_marker_ecf87b18bfd2977c3bb3eac345a936d7.bindTooltip(
+                `<div>
+                     22 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_7c9518e886d52d7273e2e8bf27960537 = L.circleMarker(
+                [47.37236385170568, 8.54103638403545],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.625, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_da37f9adace25c7d7d3b37f396083e3c = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_0743ce726c6f9ff581f042bb0326ead9 = $(`<div id="html_0743ce726c6f9ff581f042bb0326ead9" style="width: 100.0%; height: 100.0%;"><b>pano</b> lxGWSbFAr41UbzFwpjo6jQ<br><b>frames:</b> 13<br><b>attractions (2):</b><br>&nbsp;&nbsp;Lindenhof, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(9), looks_perfect(2), saturday_morning(2)</div>`)[0];
+                popup_da37f9adace25c7d7d3b37f396083e3c.setContent(html_0743ce726c6f9ff581f042bb0326ead9);
+            
+        
+
+        circle_marker_7c9518e886d52d7273e2e8bf27960537.bindPopup(popup_da37f9adace25c7d7d3b37f396083e3c)
+        ;
+
+        
+    
+    
+            circle_marker_7c9518e886d52d7273e2e8bf27960537.bindTooltip(
+                `<div>
+                     13 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_7aedac390d86610ccfe2e55a3ef97d7e = L.circleMarker(
+                [47.37196051338002, 8.542335595735473],
+                {"bubblingMouseEvents": true, "color": "#c0392b", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#c0392b", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 8.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_63b4fb9e7608b00b9409fa01628e4efb = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_9e2d6154de72f81810d9e29c981e4aaa = $(`<div id="html_9e2d6154de72f81810d9e29c981e4aaa" style="width: 100.0%; height: 100.0%;"><b>pano</b> Z8jZ38wakBbuQYFGIAXxFA<br><b>frames:</b> 34<br><b>attractions (10):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Helmhaus, Limmat river, Limmatquai, Lindenhof, Münsterbrücke, Rathaus, St. Peter, Wasserkirche<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(16), zurich_main(8), looks_perfect(5), most_famous(4), saturday_morning(1)</div>`)[0];
+                popup_63b4fb9e7608b00b9409fa01628e4efb.setContent(html_9e2d6154de72f81810d9e29c981e4aaa);
+            
+        
+
+        circle_marker_7aedac390d86610ccfe2e55a3ef97d7e.bindPopup(popup_63b4fb9e7608b00b9409fa01628e4efb)
+        ;
+
+        
+    
+    
+            circle_marker_7aedac390d86610ccfe2e55a3ef97d7e.bindTooltip(
+                `<div>
+                     34 frames · 10 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_05d28fe6a8e2487178747ae3744edab5 = L.circleMarker(
+                [47.37210882162201, 8.541609433980677],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_9fd3043280b599a73c1aa87aa8c79b7e = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_cae3f281bf4a6a5f519afc6185ea3cf1 = $(`<div id="html_cae3f281bf4a6a5f519afc6185ea3cf1" style="width: 100.0%; height: 100.0%;"><b>pano</b> uC6p3q4plfzoo6v0osCRsQ<br><b>frames:</b> 2<br><b>attractions (2):</b><br>&nbsp;&nbsp;Lindenhof, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(2)</div>`)[0];
+                popup_9fd3043280b599a73c1aa87aa8c79b7e.setContent(html_cae3f281bf4a6a5f519afc6185ea3cf1);
+            
+        
+
+        circle_marker_05d28fe6a8e2487178747ae3744edab5.bindPopup(popup_9fd3043280b599a73c1aa87aa8c79b7e)
+        ;
+
+        
+    
+    
+            circle_marker_05d28fe6a8e2487178747ae3744edab5.bindTooltip(
+                `<div>
+                     2 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_4e3722d1cc2255149abec0a88b1ff7d4 = L.circleMarker(
+                [47.37246669941934, 8.544910703490572],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_51c1d1236a7adac839df21a0b13ddf02 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_a992d02bf4447e8bb5f9b1a1262f49f1 = $(`<div id="html_a992d02bf4447e8bb5f9b1a1262f49f1" style="width: 100.0%; height: 100.0%;"><b>pano</b> 4fvqotbtRic6M7yN3N9BWQ<br><b>frames:</b> 7<br><b>attractions (1):</b><br>&nbsp;&nbsp;Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(5), most_famous(2)</div>`)[0];
+                popup_51c1d1236a7adac839df21a0b13ddf02.setContent(html_a992d02bf4447e8bb5f9b1a1262f49f1);
+            
+        
+
+        circle_marker_4e3722d1cc2255149abec0a88b1ff7d4.bindPopup(popup_51c1d1236a7adac839df21a0b13ddf02)
+        ;
+
+        
+    
+    
+            circle_marker_4e3722d1cc2255149abec0a88b1ff7d4.bindTooltip(
+                `<div>
+                     7 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_1831a63fc091779ea9d828674fa6ade2 = L.circleMarker(
+                [47.37062399674925, 8.544431283126787],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_b04777becad4f2f25e33da7695c1a879 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_2ee44139881ec75414d362dfe984932e = $(`<div id="html_2ee44139881ec75414d362dfe984932e" style="width: 100.0%; height: 100.0%;"><b>pano</b> azji7HkTd2SjTeniHMRcvg<br><b>frames:</b> 1<br><b>attractions (3):</b><br>&nbsp;&nbsp;Grossmünster, Helmhaus, Wasserkirche<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(1)</div>`)[0];
+                popup_b04777becad4f2f25e33da7695c1a879.setContent(html_2ee44139881ec75414d362dfe984932e);
+            
+        
+
+        circle_marker_1831a63fc091779ea9d828674fa6ade2.bindPopup(popup_b04777becad4f2f25e33da7695c1a879)
+        ;
+
+        
+    
+    
+            circle_marker_1831a63fc091779ea9d828674fa6ade2.bindTooltip(
+                `<div>
+                     1 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_2de9e654a10935358878635ec6f11fc1 = L.circleMarker(
+                [47.37236908446534, 8.544406838476617],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.5, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_d6e2f4fe0f36bfc15be7ae86c6042aa8 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_31cf68d5852fcbb63397172e86dc6fd4 = $(`<div id="html_31cf68d5852fcbb63397172e86dc6fd4" style="width: 100.0%; height: 100.0%;"><b>pano</b> xzzrlnKkpGMkQUqvvQRoOg<br><b>frames:</b> 44<br><b>attractions (4):</b><br>&nbsp;&nbsp;Grossmünster, Limmatquai, Niederdorfstrasse, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(20), zurich_main(9), most_famous(7), old_town_limmat(4), saturday_morning(4)</div>`)[0];
+                popup_d6e2f4fe0f36bfc15be7ae86c6042aa8.setContent(html_31cf68d5852fcbb63397172e86dc6fd4);
+            
+        
+
+        circle_marker_2de9e654a10935358878635ec6f11fc1.bindPopup(popup_d6e2f4fe0f36bfc15be7ae86c6042aa8)
+        ;
+
+        
+    
+    
+            circle_marker_2de9e654a10935358878635ec6f11fc1.bindTooltip(
+                `<div>
+                     44 frames · 4 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_7d1de2d016c312587e7c9015d9e271e2 = L.circleMarker(
+                [47.37026928366795, 8.545185141095791],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_a62d161a6d6c91f4daafc8ff63662f72 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_33d2746a58ea93b5424063c8b4edd87e = $(`<div id="html_33d2746a58ea93b5424063c8b4edd87e" style="width: 100.0%; height: 100.0%;"><b>pano</b> SWuMBscGegin_jToft5ZGA<br><b>frames:</b> 2<br><b>attractions (1):</b><br>&nbsp;&nbsp;Grossmünster<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(1), old_town_limmat(1)</div>`)[0];
+                popup_a62d161a6d6c91f4daafc8ff63662f72.setContent(html_33d2746a58ea93b5424063c8b4edd87e);
+            
+        
+
+        circle_marker_7d1de2d016c312587e7c9015d9e271e2.bindPopup(popup_a62d161a6d6c91f4daafc8ff63662f72)
+        ;
+
+        
+    
+    
+            circle_marker_7d1de2d016c312587e7c9015d9e271e2.bindTooltip(
+                `<div>
+                     2 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_6fdff655e8150570b9a80a0fbc3625e8 = L.circleMarker(
+                [47.37611336338732, 8.544012085847012],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 6.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_a8eedc66f48098f368012d94ea5a3763 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_7f36285cef92ead9659cc841a3d5faf8 = $(`<div id="html_7f36285cef92ead9659cc841a3d5faf8" style="width: 100.0%; height: 100.0%;"><b>pano</b> F1c92U8Mj8dkcH08v0Xrgw<br><b>frames:</b> 23<br><b>attractions (1):</b><br>&nbsp;&nbsp;Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(11), most_famous(6), saturday_morning(6)</div>`)[0];
+                popup_a8eedc66f48098f368012d94ea5a3763.setContent(html_7f36285cef92ead9659cc841a3d5faf8);
+            
+        
+
+        circle_marker_6fdff655e8150570b9a80a0fbc3625e8.bindPopup(popup_a8eedc66f48098f368012d94ea5a3763)
+        ;
+
+        
+    
+    
+            circle_marker_6fdff655e8150570b9a80a0fbc3625e8.bindTooltip(
+                `<div>
+                     23 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_624dd4e3e6d0484e33d148c072f80857 = L.circleMarker(
+                [47.37351603283334, 8.54427330883591],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_9f6200b7a83aebcc470ea242fbefca60 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_93231afb712cd2b261e439e39fcd37a6 = $(`<div id="html_93231afb712cd2b261e439e39fcd37a6" style="width: 100.0%; height: 100.0%;"><b>pano</b> zpUM9oWoIffMYn96xLzxMg<br><b>frames:</b> 2<br><b>attractions (1):</b><br>&nbsp;&nbsp;Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(2)</div>`)[0];
+                popup_9f6200b7a83aebcc470ea242fbefca60.setContent(html_93231afb712cd2b261e439e39fcd37a6);
+            
+        
+
+        circle_marker_624dd4e3e6d0484e33d148c072f80857.bindPopup(popup_9f6200b7a83aebcc470ea242fbefca60)
+        ;
+
+        
+    
+    
+            circle_marker_624dd4e3e6d0484e33d148c072f80857.bindTooltip(
+                `<div>
+                     2 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_31621b550413b70a1138b5349aad5998 = L.circleMarker(
+                [47.3751948338804, 8.543896487086652],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_742030dd64786dcfa40042e9fd3eb103 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_f3a15942f16a3241b2dac006468a2cbf = $(`<div id="html_f3a15942f16a3241b2dac006468a2cbf" style="width: 100.0%; height: 100.0%;"><b>pano</b> M3jRcszZTVnys2QdrLhgRQ<br><b>frames:</b> 10<br><b>attractions (1):</b><br>&nbsp;&nbsp;Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;saturday_morning(6), looks_perfect(3), most_famous(1)</div>`)[0];
+                popup_742030dd64786dcfa40042e9fd3eb103.setContent(html_f3a15942f16a3241b2dac006468a2cbf);
+            
+        
+
+        circle_marker_31621b550413b70a1138b5349aad5998.bindPopup(popup_742030dd64786dcfa40042e9fd3eb103)
+        ;
+
+        
+    
+    
+            circle_marker_31621b550413b70a1138b5349aad5998.bindTooltip(
+                `<div>
+                     10 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_7a43e5dae3c7c41f41a520e33d95a2bb = L.circleMarker(
+                [47.37564424779397, 8.543433588228192],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_0b814d89aaaf3df1ce050fb2664ad4d7 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_c7d31f0043e5f25e4532b557cab94e4d = $(`<div id="html_c7d31f0043e5f25e4532b557cab94e4d" style="width: 100.0%; height: 100.0%;"><b>pano</b> loNN2ARB9D1I78c4c4aCZA<br><b>frames:</b> 2<br><b>attractions (5):</b><br>&nbsp;&nbsp;Fraumünster, Limmat river, Limmatquai, Münsterbrücke, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(2)</div>`)[0];
+                popup_0b814d89aaaf3df1ce050fb2664ad4d7.setContent(html_c7d31f0043e5f25e4532b557cab94e4d);
+            
+        
+
+        circle_marker_7a43e5dae3c7c41f41a520e33d95a2bb.bindPopup(popup_0b814d89aaaf3df1ce050fb2664ad4d7)
+        ;
+
+        
+    
+    
+            circle_marker_7a43e5dae3c7c41f41a520e33d95a2bb.bindTooltip(
+                `<div>
+                     2 frames · 5 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_e7b9320f57d17ffbccedc8ce41eb487f = L.circleMarker(
+                [47.37518554211553, 8.543286940348915],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_711b657bf99df1d1660381672f217f8c = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_0ebd1f55518e8e392f2acf53b28797b2 = $(`<div id="html_0ebd1f55518e8e392f2acf53b28797b2" style="width: 100.0%; height: 100.0%;"><b>pano</b> 52GDhmIzPX0e0iekdtSM6w<br><b>frames:</b> 1<br><b>attractions (2):</b><br>&nbsp;&nbsp;Limmat river, Limmatquai<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(1)</div>`)[0];
+                popup_711b657bf99df1d1660381672f217f8c.setContent(html_0ebd1f55518e8e392f2acf53b28797b2);
+            
+        
+
+        circle_marker_e7b9320f57d17ffbccedc8ce41eb487f.bindPopup(popup_711b657bf99df1d1660381672f217f8c)
+        ;
+
+        
+    
+    
+            circle_marker_e7b9320f57d17ffbccedc8ce41eb487f.bindTooltip(
+                `<div>
+                     1 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_baf02dc558afa078fafc819b366579dc = L.circleMarker(
+                [47.37335764138398, 8.54031042901407],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.75, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_be577b7510720cda854c26311a3202bd = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_c3cd636baa7cdbeb4db750ef7e5a69cc = $(`<div id="html_c3cd636baa7cdbeb4db750ef7e5a69cc" style="width: 100.0%; height: 100.0%;"><b>pano</b> 0c1Vaor5_ozGpBgzwDv5NA<br><b>frames:</b> 6<br><b>attractions (1):</b><br>&nbsp;&nbsp;Bahnhofstrasse<br><b>videos:</b><br>&nbsp;&nbsp;zurich_main(5), looks_perfect(1)</div>`)[0];
+                popup_be577b7510720cda854c26311a3202bd.setContent(html_c3cd636baa7cdbeb4db750ef7e5a69cc);
+            
+        
+
+        circle_marker_baf02dc558afa078fafc819b366579dc.bindPopup(popup_be577b7510720cda854c26311a3202bd)
+        ;
+
+        
+    
+    
+            circle_marker_baf02dc558afa078fafc819b366579dc.bindTooltip(
+                `<div>
+                     6 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_422fba2d740fa4a38045fcef76383d1a = L.circleMarker(
+                [47.36603192565207, 8.540990199800767],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_16813716883ce6b9e1e6f5401416fe62 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_0f9d449694019103a1d6ad016518d197 = $(`<div id="html_0f9d449694019103a1d6ad016518d197" style="width: 100.0%; height: 100.0%;"><b>pano</b> I7Fqw5WdYcOYVcWSCb45AQ<br><b>frames:</b> 1<br><b>attractions (2):</b><br>&nbsp;&nbsp;Bürkliplatz, Lake Zurich<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(1)</div>`)[0];
+                popup_16813716883ce6b9e1e6f5401416fe62.setContent(html_0f9d449694019103a1d6ad016518d197);
+            
+        
+
+        circle_marker_422fba2d740fa4a38045fcef76383d1a.bindPopup(popup_16813716883ce6b9e1e6f5401416fe62)
+        ;
+
+        
+    
+    
+            circle_marker_422fba2d740fa4a38045fcef76383d1a.bindTooltip(
+                `<div>
+                     1 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_e5fbab7444ee3038bb87073599210a80 = L.circleMarker(
+                [47.36680321973184, 8.542977334953717],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_5c5204e3dc4cacc264b29545f3609475 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_08592fdb91b9e7f6c2c947347cbcf6b1 = $(`<div id="html_08592fdb91b9e7f6c2c947347cbcf6b1" style="width: 100.0%; height: 100.0%;"><b>pano</b> _g3fqwwQEFwCD8j-sY48AA<br><b>frames:</b> 2<br><b>attractions (3):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;looks_perfect(2)</div>`)[0];
+                popup_5c5204e3dc4cacc264b29545f3609475.setContent(html_08592fdb91b9e7f6c2c947347cbcf6b1);
+            
+        
+
+        circle_marker_e5fbab7444ee3038bb87073599210a80.bindPopup(popup_5c5204e3dc4cacc264b29545f3609475)
+        ;
+
+        
+    
+    
+            circle_marker_e5fbab7444ee3038bb87073599210a80.bindTooltip(
+                `<div>
+                     2 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_4f1ba9bab732aa3f142121c0fad9172c = L.circleMarker(
+                [47.37165845437585, 8.538576928858829],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_ec7765511cd4378730811ae03f16fa48 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_65cc2fe9357e008c5239854cbef3334f = $(`<div id="html_65cc2fe9357e008c5239854cbef3334f" style="width: 100.0%; height: 100.0%;"><b>pano</b> lYrsy8KBOkdXzHL70ER1Sw<br><b>frames:</b> 1<br><b>attractions (1):</b><br>&nbsp;&nbsp;Bahnhofstrasse<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(1)</div>`)[0];
+                popup_ec7765511cd4378730811ae03f16fa48.setContent(html_65cc2fe9357e008c5239854cbef3334f);
+            
+        
+
+        circle_marker_4f1ba9bab732aa3f142121c0fad9172c.bindPopup(popup_ec7765511cd4378730811ae03f16fa48)
+        ;
+
+        
+    
+    
+            circle_marker_4f1ba9bab732aa3f142121c0fad9172c.bindTooltip(
+                `<div>
+                     1 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_4f23d8110dbde1deb9bc36f4b5fda169 = L.circleMarker(
+                [47.3693306734995, 8.541827999443289],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_0c327070b20bb859c0e490effd7b67d2 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_54563b752c315fe8eacda3b73c2b1e77 = $(`<div id="html_54563b752c315fe8eacda3b73c2b1e77" style="width: 100.0%; height: 100.0%;"><b>pano</b> hVLor_WOpNQI3ufbQ6x2_w<br><b>frames:</b> 2<br><b>attractions (3):</b><br>&nbsp;&nbsp;Fraumünster, Lake Zurich, Münsterbrücke<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(2)</div>`)[0];
+                popup_0c327070b20bb859c0e490effd7b67d2.setContent(html_54563b752c315fe8eacda3b73c2b1e77);
+            
+        
+
+        circle_marker_4f23d8110dbde1deb9bc36f4b5fda169.bindPopup(popup_0c327070b20bb859c0e490effd7b67d2)
+        ;
+
+        
+    
+    
+            circle_marker_4f23d8110dbde1deb9bc36f4b5fda169.bindTooltip(
+                `<div>
+                     2 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_52c2b6b15707ef2f72111a2ea227d262 = L.circleMarker(
+                [47.37429984863196, 8.543621358553263],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_4ce4ec41176405dfe9fe52e1e94d961f = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_6c724cc6be3db647a816cf71faf9028e = $(`<div id="html_6c724cc6be3db647a816cf71faf9028e" style="width: 100.0%; height: 100.0%;"><b>pano</b> SX_i47Yuti04eQ6bmrYnkw<br><b>frames:</b> 3<br><b>attractions (1):</b><br>&nbsp;&nbsp;Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(2), old_town_limmat(1)</div>`)[0];
+                popup_4ce4ec41176405dfe9fe52e1e94d961f.setContent(html_6c724cc6be3db647a816cf71faf9028e);
+            
+        
+
+        circle_marker_52c2b6b15707ef2f72111a2ea227d262.bindPopup(popup_4ce4ec41176405dfe9fe52e1e94d961f)
+        ;
+
+        
+    
+    
+            circle_marker_52c2b6b15707ef2f72111a2ea227d262.bindTooltip(
+                `<div>
+                     3 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_2d96aa85c0c7b88802e064c267705343 = L.circleMarker(
+                [47.36691276709558, 8.543615095187928],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_f704467c53dd8b710638dfac14d9eab6 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_299115a6f3ddfaf4ea002894621bfb8e = $(`<div id="html_299115a6f3ddfaf4ea002894621bfb8e" style="width: 100.0%; height: 100.0%;"><b>pano</b> oZo0nBBB8RT5BqXzK8BDiw<br><b>frames:</b> 1<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(1)</div>`)[0];
+                popup_f704467c53dd8b710638dfac14d9eab6.setContent(html_299115a6f3ddfaf4ea002894621bfb8e);
+            
+        
+
+        circle_marker_2d96aa85c0c7b88802e064c267705343.bindPopup(popup_f704467c53dd8b710638dfac14d9eab6)
+        ;
+
+        
+    
+    
+            circle_marker_2d96aa85c0c7b88802e064c267705343.bindTooltip(
+                `<div>
+                     1 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_4b1233454b86f4c10a1a05a06316b9b7 = L.circleMarker(
+                [47.36924206020834, 8.543494292179695],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_213dfde2023968831cb210da384dd09e = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_b1db5b249ed6e2328f54d247a32210b7 = $(`<div id="html_b1db5b249ed6e2328f54d247a32210b7" style="width: 100.0%; height: 100.0%;"><b>pano</b> lXbls5CBA3a0mYNmeCnbsA<br><b>frames:</b> 3<br><b>attractions (5):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Helmhaus, Limmatquai, Wasserkirche<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(3)</div>`)[0];
+                popup_213dfde2023968831cb210da384dd09e.setContent(html_b1db5b249ed6e2328f54d247a32210b7);
+            
+        
+
+        circle_marker_4b1233454b86f4c10a1a05a06316b9b7.bindPopup(popup_213dfde2023968831cb210da384dd09e)
+        ;
+
+        
+    
+    
+            circle_marker_4b1233454b86f4c10a1a05a06316b9b7.bindTooltip(
+                `<div>
+                     3 frames · 5 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_7ebe2be18b7497184a36bdb49e9e6242 = L.circleMarker(
+                [47.37516847671795, 8.536518970436388],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_c030443a0e7fdb29d940aff14758c5de = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_7dce78d6b0775a6f761e5eeb44ab49e4 = $(`<div id="html_7dce78d6b0775a6f761e5eeb44ab49e4" style="width: 100.0%; height: 100.0%;"><b>pano</b> 3SbAhksV0KFVhJFK0lMjvA<br><b>frames:</b> 1<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(1)</div>`)[0];
+                popup_c030443a0e7fdb29d940aff14758c5de.setContent(html_7dce78d6b0775a6f761e5eeb44ab49e4);
+            
+        
+
+        circle_marker_7ebe2be18b7497184a36bdb49e9e6242.bindPopup(popup_c030443a0e7fdb29d940aff14758c5de)
+        ;
+
+        
+    
+    
+            circle_marker_7ebe2be18b7497184a36bdb49e9e6242.bindTooltip(
+                `<div>
+                     1 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_d5df2b299c1ed3a75678ffe6bae426d4 = L.circleMarker(
+                [47.37657802709994, 8.54390840035452],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.75, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_fccfeb76f71a92d6e8f5d01ed95e7210 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_5d906631f2dc10df5bfd8dc01bbfb60f = $(`<div id="html_5d906631f2dc10df5bfd8dc01bbfb60f" style="width: 100.0%; height: 100.0%;"><b>pano</b> a1a4hMP-UEvvLms4g-268g<br><b>frames:</b> 6<br><b>attractions (1):</b><br>&nbsp;&nbsp;Limmatquai<br><b>videos:</b><br>&nbsp;&nbsp;most_elegant(6)</div>`)[0];
+                popup_fccfeb76f71a92d6e8f5d01ed95e7210.setContent(html_5d906631f2dc10df5bfd8dc01bbfb60f);
+            
+        
+
+        circle_marker_d5df2b299c1ed3a75678ffe6bae426d4.bindPopup(popup_fccfeb76f71a92d6e8f5d01ed95e7210)
+        ;
+
+        
+    
+    
+            circle_marker_d5df2b299c1ed3a75678ffe6bae426d4.bindTooltip(
+                `<div>
+                     6 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_204bfdcdcd2f79852ca17fc06cbd668d = L.circleMarker(
+                [47.36526617002941, 8.546280852933084],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_2bc9dc23b9d10e0ebfa550541427bffb = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_ecc90ec4d47f7214204a0b38dcf94757 = $(`<div id="html_ecc90ec4d47f7214204a0b38dcf94757" style="width: 100.0%; height: 100.0%;"><b>pano</b> z5aXtXmFB91e0T5QRu9x5A<br><b>frames:</b> 15<br><b>attractions (2):</b><br>&nbsp;&nbsp;Opernhaus, Sechseläutenplatz<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(13), zurich_main(2)</div>`)[0];
+                popup_2bc9dc23b9d10e0ebfa550541427bffb.setContent(html_ecc90ec4d47f7214204a0b38dcf94757);
+            
+        
+
+        circle_marker_204bfdcdcd2f79852ca17fc06cbd668d.bindPopup(popup_2bc9dc23b9d10e0ebfa550541427bffb)
+        ;
+
+        
+    
+    
+            circle_marker_204bfdcdcd2f79852ca17fc06cbd668d.bindTooltip(
+                `<div>
+                     15 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_ec18474953ec7491f3f8b25b2c1ca7dd = L.circleMarker(
+                [47.36475314270193, 8.545440665235134],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 7.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_cd5c2f9d919c0e88239370a9193975c6 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_a5f054ebc2de5abc75dee88b049947e7 = $(`<div id="html_a5f054ebc2de5abc75dee88b049947e7" style="width: 100.0%; height: 100.0%;"><b>pano</b> pWX3qGSoC_ZhbgQ7ZAsvQQ<br><b>frames:</b> 25<br><b>attractions (1):</b><br>&nbsp;&nbsp;Lake Zurich<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(19), zurich_main(5), saturday_morning(1)</div>`)[0];
+                popup_cd5c2f9d919c0e88239370a9193975c6.setContent(html_a5f054ebc2de5abc75dee88b049947e7);
+            
+        
+
+        circle_marker_ec18474953ec7491f3f8b25b2c1ca7dd.bindPopup(popup_cd5c2f9d919c0e88239370a9193975c6)
+        ;
+
+        
+    
+    
+            circle_marker_ec18474953ec7491f3f8b25b2c1ca7dd.bindTooltip(
+                `<div>
+                     25 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_7b30c296e2d3b24f4e49b3cdc19699a0 = L.circleMarker(
+                [47.36433327117724, 8.545688117958719],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.5, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_e8cb76888010dc4649af8c7c0cac306c = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_947966ac3f1492a4fe4aa318ca1f908a = $(`<div id="html_947966ac3f1492a4fe4aa318ca1f908a" style="width: 100.0%; height: 100.0%;"><b>pano</b> LaGrfy-S-KqOivhyE4Fbwg<br><b>frames:</b> 4<br><b>attractions (1):</b><br>&nbsp;&nbsp;Lake Zurich<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(4)</div>`)[0];
+                popup_e8cb76888010dc4649af8c7c0cac306c.setContent(html_947966ac3f1492a4fe4aa318ca1f908a);
+            
+        
+
+        circle_marker_7b30c296e2d3b24f4e49b3cdc19699a0.bindPopup(popup_e8cb76888010dc4649af8c7c0cac306c)
+        ;
+
+        
+    
+    
+            circle_marker_7b30c296e2d3b24f4e49b3cdc19699a0.bindTooltip(
+                `<div>
+                     4 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_3f5e81425999377781c0824309840c4a = L.circleMarker(
+                [47.36448045205083, 8.545591971043251],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_336e7ad75634974e9cbfdc8de38c0a62 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_28f747cff276ea0a69346512993804e5 = $(`<div id="html_28f747cff276ea0a69346512993804e5" style="width: 100.0%; height: 100.0%;"><b>pano</b> HxjS9428ciewmiP2xGC84g<br><b>frames:</b> 2<br><b>attractions (1):</b><br>&nbsp;&nbsp;Lake Zurich<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(1), zurich_main(1)</div>`)[0];
+                popup_336e7ad75634974e9cbfdc8de38c0a62.setContent(html_28f747cff276ea0a69346512993804e5);
+            
+        
+
+        circle_marker_3f5e81425999377781c0824309840c4a.bindPopup(popup_336e7ad75634974e9cbfdc8de38c0a62)
+        ;
+
+        
+    
+    
+            circle_marker_3f5e81425999377781c0824309840c4a.bindTooltip(
+                `<div>
+                     2 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_76188c0185901e722129dce36cb66272 = L.circleMarker(
+                [47.36025044493781, 8.547363903331984],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_58adec50580e96b7268f7e23c6996ace = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_6ae87f5eee598637747afea12850480e = $(`<div id="html_6ae87f5eee598637747afea12850480e" style="width: 100.0%; height: 100.0%;"><b>pano</b> wVhGabHgeE9WLYV9Z91N_A<br><b>frames:</b> 1<br><b>attractions (1):</b><br>&nbsp;&nbsp;Lake Zurich<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(1)</div>`)[0];
+                popup_58adec50580e96b7268f7e23c6996ace.setContent(html_6ae87f5eee598637747afea12850480e);
+            
+        
+
+        circle_marker_76188c0185901e722129dce36cb66272.bindPopup(popup_58adec50580e96b7268f7e23c6996ace)
+        ;
+
+        
+    
+    
+            circle_marker_76188c0185901e722129dce36cb66272.bindTooltip(
+                `<div>
+                     1 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_db9004e1dfd5d7d40f0689a0dc00e4b3 = L.circleMarker(
+                [47.35980458528026, 8.547344040623983],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_13f5996798e3dd6ccd80ae0760036fe3 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_97c3c338e1591e9cdf91096ec39ea3e0 = $(`<div id="html_97c3c338e1591e9cdf91096ec39ea3e0" style="width: 100.0%; height: 100.0%;"><b>pano</b> SA9yFe30zBq_fq4IhZLLDA<br><b>frames:</b> 1<br><b>attractions (1):</b><br>&nbsp;&nbsp;Lake Zurich<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(1)</div>`)[0];
+                popup_13f5996798e3dd6ccd80ae0760036fe3.setContent(html_97c3c338e1591e9cdf91096ec39ea3e0);
+            
+        
+
+        circle_marker_db9004e1dfd5d7d40f0689a0dc00e4b3.bindPopup(popup_13f5996798e3dd6ccd80ae0760036fe3)
+        ;
+
+        
+    
+    
+            circle_marker_db9004e1dfd5d7d40f0689a0dc00e4b3.bindTooltip(
+                `<div>
+                     1 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_54a26ca28698d5e64b1c01ee970da3e3 = L.circleMarker(
+                [47.36556064750582, 8.54646275036829],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_11acddee864c976e86357de643d53c80 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_786961736094543a3b6ea9eb9a4e00b4 = $(`<div id="html_786961736094543a3b6ea9eb9a4e00b4" style="width: 100.0%; height: 100.0%;"><b>pano</b> IIF6P67LWaUGDVLS3k7ozw<br><b>frames:</b> 1<br><b>attractions (3):</b><br>&nbsp;&nbsp;Grossmünster, Opernhaus, Sechseläutenplatz<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(1)</div>`)[0];
+                popup_11acddee864c976e86357de643d53c80.setContent(html_786961736094543a3b6ea9eb9a4e00b4);
+            
+        
+
+        circle_marker_54a26ca28698d5e64b1c01ee970da3e3.bindPopup(popup_11acddee864c976e86357de643d53c80)
+        ;
+
+        
+    
+    
+            circle_marker_54a26ca28698d5e64b1c01ee970da3e3.bindTooltip(
+                `<div>
+                     1 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_80b17cd38a39fe71ea1ee82772a972d5 = L.circleMarker(
+                [47.36760301995403, 8.54555702505054],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_ab9b0db327419adf26c41bfc65da70be = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_e1beff025c4f79a2a35989e4829e29a1 = $(`<div id="html_e1beff025c4f79a2a35989e4829e29a1" style="width: 100.0%; height: 100.0%;"><b>pano</b> rFgaOvNprWNSVxvHcw6IzQ<br><b>frames:</b> 3<br><b>attractions (2):</b><br>&nbsp;&nbsp;Kunsthaus, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(3)</div>`)[0];
+                popup_ab9b0db327419adf26c41bfc65da70be.setContent(html_e1beff025c4f79a2a35989e4829e29a1);
+            
+        
+
+        circle_marker_80b17cd38a39fe71ea1ee82772a972d5.bindPopup(popup_ab9b0db327419adf26c41bfc65da70be)
+        ;
+
+        
+    
+    
+            circle_marker_80b17cd38a39fe71ea1ee82772a972d5.bindTooltip(
+                `<div>
+                     3 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_87f84bfe9d3ca532b480a82bb60326ab = L.circleMarker(
+                [47.37297551245953, 8.542771707386985],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_2ef010d7b5455f0884b64365be8e2994 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_7ef23f9880af3af0887398a940c2ec1b = $(`<div id="html_7ef23f9880af3af0887398a940c2ec1b" style="width: 100.0%; height: 100.0%;"><b>pano</b> tKBz7BvyYgzRIU3l2DCN7Q<br><b>frames:</b> 3<br><b>attractions (4):</b><br>&nbsp;&nbsp;Limmat river, Lindenhof, Münsterbrücke, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(2), most_famous(1)</div>`)[0];
+                popup_2ef010d7b5455f0884b64365be8e2994.setContent(html_7ef23f9880af3af0887398a940c2ec1b);
+            
+        
+
+        circle_marker_87f84bfe9d3ca532b480a82bb60326ab.bindPopup(popup_2ef010d7b5455f0884b64365be8e2994)
+        ;
+
+        
+    
+    
+            circle_marker_87f84bfe9d3ca532b480a82bb60326ab.bindTooltip(
+                `<div>
+                     3 frames · 4 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_558d92f575e379ceb283ca2e4efb313f = L.circleMarker(
+                [47.37257741696871, 8.543685006192094],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_152c61bbdaad4f72585bfdbd6c6fd5dd = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_d3b6dd19d27fe31a92865af03fb424b8 = $(`<div id="html_d3b6dd19d27fe31a92865af03fb424b8" style="width: 100.0%; height: 100.0%;"><b>pano</b> iN35poKnsNkAlZPDHqsDPA<br><b>frames:</b> 1<br><b>attractions (2):</b><br>&nbsp;&nbsp;Limmatquai, Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(1)</div>`)[0];
+                popup_152c61bbdaad4f72585bfdbd6c6fd5dd.setContent(html_d3b6dd19d27fe31a92865af03fb424b8);
+            
+        
+
+        circle_marker_558d92f575e379ceb283ca2e4efb313f.bindPopup(popup_152c61bbdaad4f72585bfdbd6c6fd5dd)
+        ;
+
+        
+    
+    
+            circle_marker_558d92f575e379ceb283ca2e4efb313f.bindTooltip(
+                `<div>
+                     1 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_261b8c76fed9f9b1c61a6c758dd39eb6 = L.circleMarker(
+                [47.3738098103739, 8.543717567068398],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_eb43f23d14ac1a0bde941dc1d3436b52 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_f55f4660fca7b324c612c03339b18503 = $(`<div id="html_f55f4660fca7b324c612c03339b18503" style="width: 100.0%; height: 100.0%;"><b>pano</b> EB8hIO3twlQb5dWeRg5boA<br><b>frames:</b> 10<br><b>attractions (1):</b><br>&nbsp;&nbsp;Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;most_famous(5), old_town_limmat(4), saturday_morning(1)</div>`)[0];
+                popup_eb43f23d14ac1a0bde941dc1d3436b52.setContent(html_f55f4660fca7b324c612c03339b18503);
+            
+        
+
+        circle_marker_261b8c76fed9f9b1c61a6c758dd39eb6.bindPopup(popup_eb43f23d14ac1a0bde941dc1d3436b52)
+        ;
+
+        
+    
+    
+            circle_marker_261b8c76fed9f9b1c61a6c758dd39eb6.bindTooltip(
+                `<div>
+                     10 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_642736445a5f1992b9417efbbfab1e90 = L.circleMarker(
+                [47.37342627727097, 8.543645283895016],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_06e4e3b8555e34b66d7551251f67bbc3 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_762bb3cb01e106ab1f4a01ffe7c1b95f = $(`<div id="html_762bb3cb01e106ab1f4a01ffe7c1b95f" style="width: 100.0%; height: 100.0%;"><b>pano</b> jf0q1-BAAPZTYfbQ52MucQ<br><b>frames:</b> 3<br><b>attractions (1):</b><br>&nbsp;&nbsp;Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(2), most_famous(1)</div>`)[0];
+                popup_06e4e3b8555e34b66d7551251f67bbc3.setContent(html_762bb3cb01e106ab1f4a01ffe7c1b95f);
+            
+        
+
+        circle_marker_642736445a5f1992b9417efbbfab1e90.bindPopup(popup_06e4e3b8555e34b66d7551251f67bbc3)
+        ;
+
+        
+    
+    
+            circle_marker_642736445a5f1992b9417efbbfab1e90.bindTooltip(
+                `<div>
+                     3 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_1e1c6b7e7198a7f7f3bb2a033f38c2c2 = L.circleMarker(
+                [47.37209596912443, 8.543627478275619],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_90853ae849d6b10f85348e998325ac11 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_09c603aa6052ced5586f6eb419af26f5 = $(`<div id="html_09c603aa6052ced5586f6eb419af26f5" style="width: 100.0%; height: 100.0%;"><b>pano</b> 7x6DxuwruQLevUpDJlDHrw<br><b>frames:</b> 3<br><b>attractions (2):</b><br>&nbsp;&nbsp;Limmatquai, Rathaus<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(3)</div>`)[0];
+                popup_90853ae849d6b10f85348e998325ac11.setContent(html_09c603aa6052ced5586f6eb419af26f5);
+            
+        
+
+        circle_marker_1e1c6b7e7198a7f7f3bb2a033f38c2c2.bindPopup(popup_90853ae849d6b10f85348e998325ac11)
+        ;
+
+        
+    
+    
+            circle_marker_1e1c6b7e7198a7f7f3bb2a033f38c2c2.bindTooltip(
+                `<div>
+                     3 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_c09da15d78174a804202e99269088570 = L.circleMarker(
+                [47.37263351075278, 8.53863794828742],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_72f4f98f275ae86fa055d3ca29a391ba = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_9b330d273bd28b8e74b2e562c23646f7 = $(`<div id="html_9b330d273bd28b8e74b2e562c23646f7" style="width: 100.0%; height: 100.0%;"><b>pano</b> -QRWWw2u8Y_wpFD1N6fguw<br><b>frames:</b> 1<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(1)</div>`)[0];
+                popup_72f4f98f275ae86fa055d3ca29a391ba.setContent(html_9b330d273bd28b8e74b2e562c23646f7);
+            
+        
+
+        circle_marker_c09da15d78174a804202e99269088570.bindPopup(popup_72f4f98f275ae86fa055d3ca29a391ba)
+        ;
+
+        
+    
+    
+            circle_marker_c09da15d78174a804202e99269088570.bindTooltip(
+                `<div>
+                     1 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_da6ef6dd124fd2942ada49064b8f51fe = L.circleMarker(
+                [47.36963539434722, 8.546016494213697],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_d715bf176b4d0f25decc5d6f0947524d = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_29df2d667c5ec003d9dec851885521be = $(`<div id="html_29df2d667c5ec003d9dec851885521be" style="width: 100.0%; height: 100.0%;"><b>pano</b> yF0sqx6CsSCQd1N_Or0sUw<br><b>frames:</b> 1<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(1)</div>`)[0];
+                popup_d715bf176b4d0f25decc5d6f0947524d.setContent(html_29df2d667c5ec003d9dec851885521be);
+            
+        
+
+        circle_marker_da6ef6dd124fd2942ada49064b8f51fe.bindPopup(popup_d715bf176b4d0f25decc5d6f0947524d)
+        ;
+
+        
+    
+    
+            circle_marker_da6ef6dd124fd2942ada49064b8f51fe.bindTooltip(
+                `<div>
+                     1 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_4836bd590da1656ac9c00d1d5f41027b = L.circleMarker(
+                [47.37157259145789, 8.539734611163356],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.375, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_7c98e2f0b9f81a49bc0ecc739d19aad2 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_fb3df2f5fbfe9126290d4ae2aaa8d7bd = $(`<div id="html_fb3df2f5fbfe9126290d4ae2aaa8d7bd" style="width: 100.0%; height: 100.0%;"><b>pano</b> 3jotn5kBSLmfopOXZWyz4A<br><b>frames:</b> 3<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;zurich_main(2), old_town_limmat(1)</div>`)[0];
+                popup_7c98e2f0b9f81a49bc0ecc739d19aad2.setContent(html_fb3df2f5fbfe9126290d4ae2aaa8d7bd);
+            
+        
+
+        circle_marker_4836bd590da1656ac9c00d1d5f41027b.bindPopup(popup_7c98e2f0b9f81a49bc0ecc739d19aad2)
+        ;
+
+        
+    
+    
+            circle_marker_4836bd590da1656ac9c00d1d5f41027b.bindTooltip(
+                `<div>
+                     3 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_3bc0af128e8cf5f12c717a359d86c9c7 = L.circleMarker(
+                [47.37071628897144, 8.543754144737402],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_3fc406597d47a9168009cc9601178cbd = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_4bd51cc0faaf0bc22005d4af616c2d10 = $(`<div id="html_4bd51cc0faaf0bc22005d4af616c2d10" style="width: 100.0%; height: 100.0%;"><b>pano</b> 8XRgrVQTxRte6VrFWoGGlw<br><b>frames:</b> 2<br><b>attractions (3):</b><br>&nbsp;&nbsp;Grossmünster, Helmhaus, Wasserkirche<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(2)</div>`)[0];
+                popup_3fc406597d47a9168009cc9601178cbd.setContent(html_4bd51cc0faaf0bc22005d4af616c2d10);
+            
+        
+
+        circle_marker_3bc0af128e8cf5f12c717a359d86c9c7.bindPopup(popup_3fc406597d47a9168009cc9601178cbd)
+        ;
+
+        
+    
+    
+            circle_marker_3bc0af128e8cf5f12c717a359d86c9c7.bindTooltip(
+                `<div>
+                     2 frames · 3 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_f5b15801e9ae6101c97a3a5fdbcd1cf8 = L.circleMarker(
+                [47.3733287446589, 8.542800499928575],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.25, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_701dd86ca418b9246e4840c30125426a = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_632dbffc78cd66ae37218ddc73cd8cc4 = $(`<div id="html_632dbffc78cd66ae37218ddc73cd8cc4" style="width: 100.0%; height: 100.0%;"><b>pano</b> 9enggDGQeAQevDtnblyRbA<br><b>frames:</b> 2<br><b>attractions (1):</b><br>&nbsp;&nbsp;Limmatquai<br><b>videos:</b><br>&nbsp;&nbsp;old_town_limmat(2)</div>`)[0];
+                popup_701dd86ca418b9246e4840c30125426a.setContent(html_632dbffc78cd66ae37218ddc73cd8cc4);
+            
+        
+
+        circle_marker_f5b15801e9ae6101c97a3a5fdbcd1cf8.bindPopup(popup_701dd86ca418b9246e4840c30125426a)
+        ;
+
+        
+    
+    
+            circle_marker_f5b15801e9ae6101c97a3a5fdbcd1cf8.bindTooltip(
+                `<div>
+                     2 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_019a1e4cf35ca2f74f94f4ade209c2e3 = L.circleMarker(
+                [47.36955443691659, 8.540955914717006],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.625, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_574f00c703ebd8015a41daff6d7bfeb7 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_0cd5eb9b1c588fb30c4be14de9905bea = $(`<div id="html_0cd5eb9b1c588fb30c4be14de9905bea" style="width: 100.0%; height: 100.0%;"><b>pano</b> fmNFNt8WZn598yC_ySjCyg<br><b>frames:</b> 13<br><b>attractions (2):</b><br>&nbsp;&nbsp;Fraumünster, Münsterbrücke<br><b>videos:</b><br>&nbsp;&nbsp;saturday_morning(13)</div>`)[0];
+                popup_574f00c703ebd8015a41daff6d7bfeb7.setContent(html_0cd5eb9b1c588fb30c4be14de9905bea);
+            
+        
+
+        circle_marker_019a1e4cf35ca2f74f94f4ade209c2e3.bindPopup(popup_574f00c703ebd8015a41daff6d7bfeb7)
+        ;
+
+        
+    
+    
+            circle_marker_019a1e4cf35ca2f74f94f4ade209c2e3.bindTooltip(
+                `<div>
+                     13 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_8169b3dc6c588b7c7167c6f91aa483cc = L.circleMarker(
+                [47.37115224890911, 8.54189759257454],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 5.5, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_e0be4864af7d757b1408c937d1dbe979 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_2bd69c46ae0326ee22a199f6f6e27239 = $(`<div id="html_2bd69c46ae0326ee22a199f6f6e27239" style="width: 100.0%; height: 100.0%;"><b>pano</b> 9ArRbgZ4J2aswhtQYf0WNw<br><b>frames:</b> 12<br><b>attractions (4):</b><br>&nbsp;&nbsp;Limmat river, Münsterhof, Rathaus, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;saturday_morning(12)</div>`)[0];
+                popup_e0be4864af7d757b1408c937d1dbe979.setContent(html_2bd69c46ae0326ee22a199f6f6e27239);
+            
+        
+
+        circle_marker_8169b3dc6c588b7c7167c6f91aa483cc.bindPopup(popup_e0be4864af7d757b1408c937d1dbe979)
+        ;
+
+        
+    
+    
+            circle_marker_8169b3dc6c588b7c7167c6f91aa483cc.bindTooltip(
+                `<div>
+                     12 frames · 4 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_0f4d1fae52c2eb22d42262ddf3f82706 = L.circleMarker(
+                [47.37473193921923, 8.543656109947246],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.75, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_d3a85839ea69707b337d9a0498ee37e8 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_f4c810468ae5c9d3e714bbe4636871d7 = $(`<div id="html_f4c810468ae5c9d3e714bbe4636871d7" style="width: 100.0%; height: 100.0%;"><b>pano</b> fzZ9GVbzrjZ9EjLLiCY4tw<br><b>frames:</b> 6<br><b>attractions (2):</b><br>&nbsp;&nbsp;Lindenhof, Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;saturday_morning(6)</div>`)[0];
+                popup_d3a85839ea69707b337d9a0498ee37e8.setContent(html_f4c810468ae5c9d3e714bbe4636871d7);
+            
+        
+
+        circle_marker_0f4d1fae52c2eb22d42262ddf3f82706.bindPopup(popup_d3a85839ea69707b337d9a0498ee37e8)
+        ;
+
+        
+    
+    
+            circle_marker_0f4d1fae52c2eb22d42262ddf3f82706.bindTooltip(
+                `<div>
+                     6 frames · 2 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_c455ec40079ab94bfce4bf6f59c0a798 = L.circleMarker(
+                [47.37904420527533, 8.540730983129816],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.75, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_d7983bb4a5f6a8a38a0c8060d56924fd = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_5c2ca74ff4d8fe64bd606fe1ed691828 = $(`<div id="html_5c2ca74ff4d8fe64bd606fe1ed691828" style="width: 100.0%; height: 100.0%;"><b>pano</b> HD5IE9bcU-Abd4G9l8r7RA<br><b>frames:</b> 6<br><b>attractions (1):</b><br>&nbsp;&nbsp;Landesmuseum<br><b>videos:</b><br>&nbsp;&nbsp;zurich_main(6)</div>`)[0];
+                popup_d7983bb4a5f6a8a38a0c8060d56924fd.setContent(html_5c2ca74ff4d8fe64bd606fe1ed691828);
+            
+        
+
+        circle_marker_c455ec40079ab94bfce4bf6f59c0a798.bindPopup(popup_d7983bb4a5f6a8a38a0c8060d56924fd)
+        ;
+
+        
+    
+    
+            circle_marker_c455ec40079ab94bfce4bf6f59c0a798.bindTooltip(
+                `<div>
+                     6 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_95ea231a6a9ea440bda7e7cceb026057 = L.circleMarker(
+                [47.37561794638604, 8.538389296254934],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_51ad289fb0916c217d5e3c8a5131b3af = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_00bd97e0b22e451d07569e1403278365 = $(`<div id="html_00bd97e0b22e451d07569e1403278365" style="width: 100.0%; height: 100.0%;"><b>pano</b> qStFJ5a3mJfMypO-1LNCrw<br><b>frames:</b> 1<br><b>attractions (0):</b><br>&nbsp;&nbsp;(none)<br><b>videos:</b><br>&nbsp;&nbsp;zurich_main(1)</div>`)[0];
+                popup_51ad289fb0916c217d5e3c8a5131b3af.setContent(html_00bd97e0b22e451d07569e1403278365);
+            
+        
+
+        circle_marker_95ea231a6a9ea440bda7e7cceb026057.bindPopup(popup_51ad289fb0916c217d5e3c8a5131b3af)
+        ;
+
+        
+    
+    
+            circle_marker_95ea231a6a9ea440bda7e7cceb026057.bindTooltip(
+                `<div>
+                     1 frames · 0 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_01e67589f0e6393ca79013b745ded268 = L.circleMarker(
+                [47.37312280343682, 8.537727836154518],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_4141aa29caed2f2a86c318d92c7df8af = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_1e8240369150b5df7da88f3a3c244bc3 = $(`<div id="html_1e8240369150b5df7da88f3a3c244bc3" style="width: 100.0%; height: 100.0%;"><b>pano</b> BN5OQOpP1LFP4dyEyDn1nw<br><b>frames:</b> 1<br><b>attractions (1):</b><br>&nbsp;&nbsp;Bahnhofstrasse<br><b>videos:</b><br>&nbsp;&nbsp;zurich_main(1)</div>`)[0];
+                popup_4141aa29caed2f2a86c318d92c7df8af.setContent(html_1e8240369150b5df7da88f3a3c244bc3);
+            
+        
+
+        circle_marker_01e67589f0e6393ca79013b745ded268.bindPopup(popup_4141aa29caed2f2a86c318d92c7df8af)
+        ;
+
+        
+    
+    
+            circle_marker_01e67589f0e6393ca79013b745ded268.bindTooltip(
+                `<div>
+                     1 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_e4dbd22f678cc3d8d86d66a96e6ba440 = L.circleMarker(
+                [47.37295636905294, 8.543726948017708],
+                {"bubblingMouseEvents": true, "color": "#2980b9", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#2980b9", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.125, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_1ac090b924f6a5b00a76e4f66c8bbe39 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_216eaeac49e715c9b39bd62f5cfaf947 = $(`<div id="html_216eaeac49e715c9b39bd62f5cfaf947" style="width: 100.0%; height: 100.0%;"><b>pano</b> sPRoLZ3LJRPq2PASICesKA<br><b>frames:</b> 1<br><b>attractions (1):</b><br>&nbsp;&nbsp;Niederdorfstrasse<br><b>videos:</b><br>&nbsp;&nbsp;zurich_main(1)</div>`)[0];
+                popup_1ac090b924f6a5b00a76e4f66c8bbe39.setContent(html_216eaeac49e715c9b39bd62f5cfaf947);
+            
+        
+
+        circle_marker_e4dbd22f678cc3d8d86d66a96e6ba440.bindPopup(popup_1ac090b924f6a5b00a76e4f66c8bbe39)
+        ;
+
+        
+    
+    
+            circle_marker_e4dbd22f678cc3d8d86d66a96e6ba440.bindTooltip(
+                `<div>
+                     1 frames · 1 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_3737abdd9e766077fdd9f1e3bc8d2c80 = L.circleMarker(
+                [47.36998499450054, 8.54293036080607],
+                {"bubblingMouseEvents": true, "color": "#e67e22", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e67e22", "fillOpacity": 0.65, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 4.875, "stroke": true, "weight": 2}
+            ).addTo(feature_group_3593a2f87146a08fa4b8ec91f7c05f34);
+        
+    
+        var popup_ec80609192ce062a621191e892179c87 = L.popup({
+  "maxWidth": 320,
+});
+
+        
+            
+                var html_1ecbae2e3d54e115951a2f9313cdcd22 = $(`<div id="html_1ecbae2e3d54e115951a2f9313cdcd22" style="width: 100.0%; height: 100.0%;"><b>pano</b> TZz72gbHaJcVnK-tJrgR-Q<br><b>frames:</b> 7<br><b>attractions (6):</b><br>&nbsp;&nbsp;Fraumünster, Grossmünster, Limmat river, Münsterbrücke, Rathaus, St. Peter<br><b>videos:</b><br>&nbsp;&nbsp;zurich_main(7)</div>`)[0];
+                popup_ec80609192ce062a621191e892179c87.setContent(html_1ecbae2e3d54e115951a2f9313cdcd22);
+            
+        
+
+        circle_marker_3737abdd9e766077fdd9f1e3bc8d2c80.bindPopup(popup_ec80609192ce062a621191e892179c87)
+        ;
+
+        
+    
+    
+            circle_marker_3737abdd9e766077fdd9f1e3bc8d2c80.bindTooltip(
+                `<div>
+                     7 frames · 6 attractions
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            feature_group_3593a2f87146a08fa4b8ec91f7c05f34.addTo(map_615c0912b3d8eef6eff611c98b03811d);
+        
+    
+            var layer_control_538301e770b06b8f57c6d8e88c5e8468_layers = {
+                base_layers : {
+                    "openstreetmap" : tile_layer_fa32a1bfb173e6a68739820355abe52a,
+                },
+                overlays :  {
+                    "21 canonical attractions" : feature_group_5eb23b73a3c8718b22a612b8b14fcca0,
+                    "89 matched-cohort panos" : feature_group_3593a2f87146a08fa4b8ec91f7c05f34,
+                },
+            };
+            let layer_control_538301e770b06b8f57c6d8e88c5e8468 = L.control.layers(
+                layer_control_538301e770b06b8f57c6d8e88c5e8468_layers.base_layers,
+                layer_control_538301e770b06b8f57c6d8e88c5e8468_layers.overlays,
+                {
+  "position": "topright",
+  "collapsed": false,
+  "autoZIndex": true,
+}
+            ).addTo(map_615c0912b3d8eef6eff611c98b03811d);
+
+        
+</script>
+</html>
