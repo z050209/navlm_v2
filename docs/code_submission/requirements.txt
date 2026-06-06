@@ -36,7 +36,13 @@ yt-dlp>=2024.1               # download walking-tour videos from YouTube
 #   conda install -c conda-forge ffmpeg
 
 # ─── teacher annotation (Gemini Pro 2.5) ─────────────────────────
-google-genai>=0.3            # google-genai SDK (not google-generativeai)
+# src/gemini_api.py calls the Gemini API directly over HTTP via the
+# `requests` package above — no Google SDK required by default. If you
+# want to authenticate with a service-account JSON (instead of an API
+# key or `gcloud auth`), install the optional google-auth dep:
+#   pip install google-auth>=2.20
+# Without it, src/gemini_api.py falls through to shelling out to
+# `gcloud auth print-access-token` for Vertex auth.
 
 # ─── Modal serverless GPU (training + eval) ──────────────────────
 modal>=0.65                  # `modal token new` once before first run
