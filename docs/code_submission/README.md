@@ -1,6 +1,6 @@
 # NavLM v2 — Code Submission
 
-**CS231n 2026 final project · author: z050209**
+**CS231n 2026 final project · author: para2046**
 
 End-to-end pipeline for training a compass-free, landmark-free
 vision-language navigation model on Zurich walking-tour videos. A
@@ -300,4 +300,4 @@ written by the human author and is not in this transcript.
 
 ## Contact
 
-z050209 — `z050209 [at] gmail [dot] com`
+para2046 — `para2046 [at] stanford [dot] edu`
